@@ -2,7 +2,10 @@
 
 Generated with Codex / GPT 5.2
 
-This document captures the requirements for the evaluation research, the assumptions and clarifications made, a survey of evaluation frameworks and datasets, and a draft plan for rebuilding evaluation from scratch to support objective-weighted model/search/prompting decisions.
+This document captures the requirements for the evaluation component of ragbench. It includes:
+- assumptions and clarifications made
+- a survey of evaluation frameworks and datasets
+- and a draft plan for rebuilding evaluation from scratch to support objective-weighted model/search/prompting decisions.
 
 ## Requirements
 
@@ -59,7 +62,7 @@ This document captures the requirements for the evaluation research, the assumpt
   - Supports LLM-as-judge + reference-free metrics
   - Extensible, widely adopted
 - Weaknesses:
-  - Requires careful prompt/LLM selection for judge reliability
+  - Requires careful prompt/LLM selection to judge reliability
   - Still needs explicit citation metrics for doc/section accuracy
 - Fit:
   - Good core framework for RAG scorecard
