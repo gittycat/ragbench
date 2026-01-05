@@ -24,6 +24,7 @@ from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.postprocessor.sbert_rerank import SentenceTransformerRerank
 from llama_index.core.chat_engine import CondensePlusContextChatEngine
 from llama_index.core.schema import TextNode
+from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
 
 from infrastructure.config.models_config import get_models_config
 from infrastructure.llm.prompts import get_system_prompt, get_context_prompt, get_condense_prompt
@@ -47,6 +48,35 @@ _bm25_retriever: Optional[BM25Retriever] = None
 
 # Temporary session cache (in-memory only, cleared on restart)
 _temporary_sessions: Dict[str, ChatMemoryBuffer] = {}
+
+# Token counting handler (global, reset before each query)
+_token_counter: Optional[TokenCountingHandler] = None
+
+
+def _get_token_counter() -> TokenCountingHandler:
+    """Get or initialize the global token counter."""
+    global _token_counter
+    if _token_counter is None:
+        _token_counter = TokenCountingHandler(verbose=False)
+        Settings.callback_manager = CallbackManager([_token_counter])
+        logger.info("[TOKEN] Initialized TokenCountingHandler")
+    return _token_counter
+
+
+def reset_token_counter() -> None:
+    """Reset token counts before a new query."""
+    counter = _get_token_counter()
+    counter.reset_counts()
+
+
+def get_token_counts() -> Dict[str, int]:
+    """Get current token counts from the handler."""
+    counter = _get_token_counter()
+    return {
+        "prompt_tokens": counter.prompt_llm_token_count,
+        "completion_tokens": counter.completion_llm_token_count,
+        "total_tokens": counter.total_llm_token_count,
+    }
 
 
 # ============================================================================
@@ -548,14 +578,23 @@ def query_rag(
     4. Execute query (retrieval → reranking → LLM generation)
     5. Extract sources from retrieved nodes
     6. Update session metadata (touch timestamp, auto-generate title)
-    7. Return response with answer, sources, session_id
+    7. Return response with answer, sources, session_id, metrics
 
     Returns:
         {
             'answer': str,
             'sources': List[Dict],
             'query': str,
-            'session_id': str
+            'session_id': str,
+            'citations': List[Dict] | None,
+            'metrics': {
+                'latency_ms': float,
+                'token_usage': {
+                    'prompt_tokens': int,
+                    'completion_tokens': int,
+                    'total_tokens': int
+                } | None
+            }
         }
     """
     from infrastructure.database.chroma import get_or_create_collection
@@ -563,6 +602,9 @@ def query_rag(
 
     logger.info(f"[QUERY] Processing query for session: {session_id} (temporary={is_temporary})")
     query_start = time.time()
+
+    # Reset token counter before query
+    reset_token_counter()
 
     # Get index and config
     index = get_or_create_collection()
@@ -576,6 +618,9 @@ def query_rag(
     # Execute query
     logger.info(f"[QUERY] Executing RAG query...")
     response = chat_engine.chat(query_text)
+
+    # Capture token usage immediately after query
+    token_counts = get_token_counts()
 
     # Log retrieved nodes
     logger.info(f"[QUERY] Retrieved {len(response.source_nodes)} nodes for context")
@@ -620,7 +665,9 @@ def query_rag(
             update_session_title(session_id, title)
 
     query_duration = time.time() - query_start
+    latency_ms = query_duration * 1000
     logger.info(f"[QUERY] Query complete ({query_duration:.2f}s) - {len(sources)} sources returned")
+    logger.info(f"[QUERY] Token usage: {token_counts}")
 
     return {
         'answer': str(response),
@@ -628,6 +675,10 @@ def query_rag(
         'query': query_text,
         'session_id': session_id,
         'citations': citations,
+        'metrics': {
+            'latency_ms': latency_ms,
+            'token_usage': token_counts if token_counts['total_tokens'] > 0 else None,
+        },
     }
 
 

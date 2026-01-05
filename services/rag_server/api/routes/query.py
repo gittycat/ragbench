@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from schemas.query import QueryRequest, QueryResponse
+from schemas.query import QueryRequest, QueryResponse, QueryMetrics, TokenUsage
 from pipelines.inference import query_rag, query_rag_stream
 
 logger = logging.getLogger(__name__)
@@ -30,11 +30,29 @@ async def query(request: QueryRequest):
             is_temporary=request.is_temporary,
             include_chunks=request.include_chunks,
         )
+
+        # Build metrics if available
+        metrics = None
+        if result.get('metrics'):
+            raw_metrics = result['metrics']
+            token_usage = None
+            if raw_metrics.get('token_usage'):
+                token_usage = TokenUsage(
+                    prompt_tokens=raw_metrics['token_usage']['prompt_tokens'],
+                    completion_tokens=raw_metrics['token_usage']['completion_tokens'],
+                    total_tokens=raw_metrics['token_usage']['total_tokens'],
+                )
+            metrics = QueryMetrics(
+                latency_ms=raw_metrics['latency_ms'],
+                token_usage=token_usage,
+            )
+
         return QueryResponse(
             answer=result['answer'],
             sources=result['sources'],
             session_id=result['session_id'],
             citations=result.get("citations"),
+            metrics=metrics,
         )
     except Exception as e:
         import traceback
