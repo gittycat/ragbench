@@ -1,4 +1,4 @@
-# Forgejo CI/CD Pipeline for RAG-Docling
+# Forgejo CI/CD Pipeline for ragbench
 #
 # Triggers:
 #   - On every push to any branch

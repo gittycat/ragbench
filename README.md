@@ -60,8 +60,8 @@ ollama pull nomic-embed-text
 
 ```bash
 # Clone the repository
-git clone https://github.com/gittycat/rag-docling.git
-cd rag-docling
+git clone https://github.com/gittycat/ragbench.git
+cd ragbench
 
 # Create configuration files from templates
 cp config/models.yml.example config/models.yml

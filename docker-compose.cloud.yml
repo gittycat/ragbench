@@ -9,20 +9,20 @@
 # 4. Ensure cloud server has Docker installed and registry access
 
 # TODO: Configure these for your cloud deployment
-# REGISTRY: ghcr.io/youruser/rag-docling
+# REGISTRY: ghcr.io/youruser/ragbench
 # VERSION: Set via environment variable or hardcode
 
 services:
   webapp:
     # Pull from registry instead of building locally
-    # image: ${REGISTRY:-ghcr.io/youruser/rag-docling}/webapp:${VERSION:-latest}
+    # image: ${REGISTRY:-ghcr.io/youruser/ragbench}/webapp:${VERSION:-latest}
     image: webapp:${VERSION:-latest}
     build: !reset null  # Disable local build
     environment:
       - ORIGIN=${WEBAPP_ORIGIN:-http://localhost:8000}
 
   rag-server:
-    # image: ${REGISTRY:-ghcr.io/youruser/rag-docling}/rag-server:${VERSION:-latest}
+    # image: ${REGISTRY:-ghcr.io/youruser/ragbench}/rag-server:${VERSION:-latest}
     image: rag-server:${VERSION:-latest}
     build: !reset null
     environment:
@@ -32,7 +32,7 @@ services:
       - "host.docker.internal:${OLLAMA_HOST:-host-gateway}"
 
   celery-worker:
-    # image: ${REGISTRY:-ghcr.io/youruser/rag-docling}/rag-server:${VERSION:-latest}
+    # image: ${REGISTRY:-ghcr.io/youruser/ragbench}/rag-server:${VERSION:-latest}
     image: rag-server:${VERSION:-latest}
     build: !reset null
     environment:

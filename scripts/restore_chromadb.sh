@@ -16,7 +16,7 @@
 set -e
 
 BACKUP_FILE="$1"
-CONTAINER_NAME="rag-docling-chromadb-1"
+CONTAINER_NAME="ragbench-chromadb-1"
 
 if [ -z "$BACKUP_FILE" ]; then
     echo "ERROR: Backup file path is required"

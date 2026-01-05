@@ -119,7 +119,7 @@ def mock_system_metrics():
     )
 
     mock_metrics = SystemMetrics(
-        system_name="RAG-Docling",
+        system_name="ragbench",
         version="1.0.0",
         models=ModelsConfig(
             llm=ModelInfo(

@@ -4,7 +4,7 @@
 
 ```bash
 # 1. Create project (from /services directory)
-cd /Users/bernard/dev/code/rag/rag-docling/services
+cd /Users/bernard/dev/code/rag/ragbench/services
 npx -y sv create webapp --template minimal --types ts --add tailwindcss
 cd webapp
 

@@ -33,7 +33,7 @@ For daily backups at 2 AM:
 crontab -e
 
 # Add this line (adjust path as needed)
-0 2 * * * cd /path/to/rag-docling && ./scripts/backup_chromadb.sh >> /var/log/chromadb_backup.log 2>&1
+0 2 * * * cd /path/to/ragbench && ./scripts/backup_chromadb.sh >> /var/log/chromadb_backup.log 2>&1
 ```
 
 ### `restore_chromadb.sh`
@@ -87,7 +87,7 @@ tail -f /var/log/chromadb_backup.log
 
 ### Container Name Not Found
 
-If you see `ERROR: ChromaDB container 'rag-docling-chromadb-1' is not running`:
+If you see `ERROR: ChromaDB container 'ragbench-chromadb-1' is not running`:
 
 1. Check actual container name:
    ```bash

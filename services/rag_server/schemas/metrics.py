@@ -474,7 +474,7 @@ class SystemMetrics(BaseModel):
     """Complete system metrics and configuration overview."""
 
     # System info
-    system_name: str = Field("RAG-Docling", description="System name")
+    system_name: str = Field("ragbench", description="System name")
     version: str = Field("1.0.0", description="System version")
     timestamp: datetime = Field(default_factory=datetime.utcnow, description="Response timestamp")
 

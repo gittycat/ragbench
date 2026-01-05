@@ -304,7 +304,7 @@ Minimal environment variables - most config moved to YAML:
 ./scripts/restore_chromadb.sh ./backups/chromadb/chromadb_backup_YYYYMMDD_HHMMSS.tar.gz
 
 # Schedule daily at 2 AM (crontab)
-0 2 * * * cd /path/to/rag-docling && ./scripts/backup_chromadb.sh >> /var/log/chromadb_backup.log 2>&1
+0 2 * * * cd /path/to/ragbench && ./scripts/backup_chromadb.sh >> /var/log/chromadb_backup.log 2>&1
 ```
 
 **Features:** Timestamped backups, 30-day retention, health verification, auto service stop/start

@@ -11,7 +11,7 @@
 # If backup_dir is not provided, backups are stored in ./backups/chromadb/
 #
 # Cron example (daily at 2 AM):
-#   0 2 * * * cd /path/to/rag-docling && ./scripts/backup_chromadb.sh >> /var/log/chromadb_backup.log 2>&1
+#   0 2 * * * cd /path/to/ragbench && ./scripts/backup_chromadb.sh >> /var/log/chromadb_backup.log 2>&1
 #
 
 set -e
@@ -21,7 +21,7 @@ BACKUP_DIR="${1:-./backups/chromadb}"
 BACKUP_RETENTION_DAYS=30
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="chromadb_backup_${TIMESTAMP}.tar.gz"
-CONTAINER_NAME="rag-docling-chromadb-1"
+CONTAINER_NAME="ragbench-chromadb-1"
 
 # Create backup directory if it doesn't exist
 mkdir -p "$BACKUP_DIR"
