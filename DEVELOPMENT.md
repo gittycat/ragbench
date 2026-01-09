@@ -792,6 +792,29 @@ docker compose up -d
 - Multi-user support with authentication
 - Additional file formats (CSV, JSON)
 
+### Future / TBD
+
+Most of these points would be needed for enterprise deployement. 
+An Service Level Agreement document would define and quantify many of these.
+
+- Authentication. Basic user authentication.
+For enterprise: integration with Directory Service (eg: LDAP, IAM, SSO)
+- Authorisation: Basic admin and user roles.
+For enterprise: integration with Directory Service to get finer grain permisisons. Implement finer grain permissions in ragbench.
+- Multi-modal support. Images, video, voice support in prompt.
+
+- Initial data load: initial indexing of docs in the datastore.
+This can take hours depending on the amount and type of documents and the embedding model used.
+- Very large document or total storage. Current max size: TODO: find this out.
+- Security: Create test suite targeted at finding vulnerability with the RAG (prompt injection, document content injection, etc.).
+This requires research beyond the normal OWASP top 10 type issues.
+- Monitoring: infrastructure and services. Alerting and escalation rules for support.
+- Disaster Recovery. Includes backups.
+- High Availability. What is the max downtime allowed at one time, and what is the 9's of availability.
+- Data retention - prompts, answers, etc. Needed in corporate settings.
+- High load: Max number of concurrent users allowed, maximum time allowed to answer under stress.
+
+
 ## Production Considerations
 
 This project is not production-ready for enterprise deployment.

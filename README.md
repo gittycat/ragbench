@@ -1,4 +1,4 @@
-# RAG Lab
+# RAG Bench
 
 A locally hosted RAG (Retrieval-Augmented Generation) system for private document research. Upload your documents, ask questions in natural language, and get AI-powered answers with source citations.
 
