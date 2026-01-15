@@ -2,6 +2,52 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Python
+
+### Prefer Functions Over Classes
+- Use module-level functions instead of classes for stateless operations
+- Avoid singleton pattern (`_instance = None` + `get_instance()`) - just use functions
+- Classes are appropriate for: stateful objects, resource lifecycle management, framework integration
+
+### When Classes ARE Appropriate
+- Object maintains state across method calls (e.g., accumulators, trackers)
+- Resource management with setup/teardown (e.g., DB connections, HTTP clients)
+- Framework requirements (e.g., `logging.Filter` subclasses)
+
+### Anti-Patterns to Avoid
+```python
+# BAD: Stateless class with singleton
+class FooService:
+    def do_thing(self, x): return x * 2
+
+_service = None
+def get_foo_service():
+    global _service
+    if _service is None: _service = FooService()
+    return _service
+
+# GOOD: Just a function
+def do_thing(x): return x * 2
+```
+
+```python
+# BAD: Class with only @classmethod/@staticmethod
+class Registry:
+    _items = {}
+    @classmethod
+    def register(cls, name, item): cls._items[name] = item
+
+# GOOD: Module-level state and functions
+_items = {}
+def register(name, item): _items[name] = item
+```
+
+### Documentation
+- Skip docstrings on private helper functions (`_foo()`) - use inline comments if logic is non-obvious
+- Type hints replace parameter/return documentation
+- Keep public API docstrings to one line when possible
+
+
 ## Project Overview
 
 Local RAG system with FastAPI REST API using Docling + LlamaIndex for document processing, ChromaDB for vector storage, and Ollama for LLM inference. Implements Hybrid Search (BM25 + Vector + RRF) and Contextual Retrieval (Anthropic method) for improved accuracy.
