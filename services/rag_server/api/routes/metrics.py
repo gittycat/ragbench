@@ -26,7 +26,7 @@ from services.metrics import (
     delete_evaluation_run,
 )
 from services.baseline import get_baseline_service
-from services.comparison import get_comparison_service
+from services.comparison import compare_runs as compare_eval_runs
 from services.recommendation import get_recommendation_service
 
 logger = logging.getLogger(__name__)
@@ -262,8 +262,7 @@ async def compare_runs(run_a_id: str, run_b_id: str):
         if run_b is None:
             raise HTTPException(status_code=404, detail=f"Evaluation run '{run_b_id}' not found")
 
-        comparison_service = get_comparison_service()
-        return comparison_service.compare_runs(run_a, run_b)
+        return compare_eval_runs(run_a, run_b)
     except HTTPException:
         raise
     except Exception as e:
@@ -295,8 +294,7 @@ async def compare_to_baseline(run_id: str):
         if baseline_run is None:
             raise HTTPException(status_code=404, detail=f"Baseline run '{baseline.run_id}' not found")
 
-        comparison_service = get_comparison_service()
-        return comparison_service.compare_runs(run, baseline_run)
+        return compare_eval_runs(run, baseline_run)
     except HTTPException:
         raise
     except Exception as e:
