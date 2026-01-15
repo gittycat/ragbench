@@ -71,10 +71,13 @@ from evaluation_cc.export import (
     export_run_report,
 )
 from evaluation_cc.datasets.registry import (
+    register as register_dataset,
+    get_loader as get_dataset_loader,
+    list_available as list_available_datasets,
+    get_metadata as get_dataset_metadata,
     get_dataset,
     list_datasets,
     load_datasets,
-    DatasetRegistry,
 )
 
 __version__ = "0.1.0"
@@ -118,8 +121,11 @@ __all__ = [
     "export_scorecard",
     "export_run_report",
     # Dataset utilities
+    "register_dataset",
+    "get_dataset_loader",
+    "list_available_datasets",
+    "get_dataset_metadata",
     "get_dataset",
     "list_datasets",
     "load_datasets",
-    "DatasetRegistry",
 ]

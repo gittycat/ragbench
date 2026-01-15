@@ -2,7 +2,10 @@
 
 from evaluation_cc.datasets.base import BaseDatasetLoader
 from evaluation_cc.datasets.registry import (
-    DatasetRegistry,
+    register,
+    get_loader,
+    list_available,
+    get_metadata,
     get_dataset,
     list_datasets,
     load_datasets,
@@ -15,7 +18,10 @@ from evaluation_cc.datasets.msmarco import MSMarcoLoader
 
 __all__ = [
     "BaseDatasetLoader",
-    "DatasetRegistry",
+    "register",
+    "get_loader",
+    "list_available",
+    "get_metadata",
     "get_dataset",
     "list_datasets",
     "load_datasets",
