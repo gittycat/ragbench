@@ -168,4 +168,4 @@ For development setup, testing, and technical documentation, see [DEVELOPMENT.md
 
 ## License
 
-<!-- TODO: Add license information -->
+[MIT License](./LICENSE.md)
