@@ -27,7 +27,7 @@ from services.metrics import (
 )
 from services.baseline import get_baseline_service
 from services.comparison import compare_runs as compare_eval_runs
-from services.recommendation import get_recommendation_service
+from services.recommendation import get_recommendation
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -326,8 +326,7 @@ async def get_recommendation(
         limit_to_runs: Maximum number of historical runs to analyze
     """
     try:
-        recommendation_service = get_recommendation_service()
-        result = recommendation_service.get_recommendation(
+        result = get_recommendation(
             accuracy_weight=accuracy_weight,
             speed_weight=speed_weight,
             cost_weight=cost_weight,
