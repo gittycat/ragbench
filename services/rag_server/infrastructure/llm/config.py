@@ -1,10 +1,11 @@
 """
-LLM Configuration for multi-provider support.
+LLM provider types and internal configuration container.
 
-Supports: Ollama, OpenAI, Anthropic, Google Gemini, DeepSeek, Moonshot (Kimi K2)
+Provides:
+- LLMProvider enum: Canonical list of supported providers
+- LLMConfig dataclass: Internal config container for provider functions
 
-DEPRECATED: This module is deprecated. Use infrastructure.config.models_config instead.
-Kept for backward compatibility during migration.
+Configuration is loaded from config/models.yml via infrastructure.config.models_config.
 """
 from dataclasses import dataclass
 from enum import Enum
@@ -26,12 +27,8 @@ class LLMProvider(str, Enum):
 
 @dataclass
 class LLMConfig:
-    """
-    LLM configuration loaded from config file.
+    """Internal configuration container for LLM provider functions."""
 
-    Configuration is now loaded from config/models.yml instead of environment variables.
-    API keys are still loaded from environment (secrets/.env).
-    """
     provider: LLMProvider
     model: str
     api_key: Optional[str] = None
@@ -41,12 +38,7 @@ class LLMConfig:
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
-        """
-        Load configuration from config file (config/models.yml).
-
-        This method is kept for backward compatibility but now loads from
-        the new config file instead of environment variables.
-        """
+        """Load LLM config from config/models.yml."""
         from infrastructure.config.models_config import get_models_config
 
         try:
