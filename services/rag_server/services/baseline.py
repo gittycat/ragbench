@@ -1,14 +1,9 @@
-"""Golden baseline management service.
-
-Manages the golden baseline - a reference evaluation run that
-new runs are compared against for pass/fail determination.
-"""
+"""Golden baseline management for evaluation runs."""
 
 import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from schemas.metrics import (
     BaselineCheckResult,
@@ -19,33 +14,21 @@ from schemas.metrics import (
 
 logger = logging.getLogger(__name__)
 
-# Use Docker path if available, otherwise local development path
-BASELINE_FILE = Path("/app/eval_data/golden_baseline.json") if Path("/app/eval_data").exists() else Path("eval_data/golden_baseline.json")
+BASELINE_FILE = (
+    Path("/app/eval_data/golden_baseline.json")
+    if Path("/app/eval_data").exists()
+    else Path("eval_data/golden_baseline.json")
+)
 
 
 class BaselineService:
-    """Service for managing the golden baseline.
+    """Manages the golden baseline for pass/fail determination."""
 
-    The golden baseline is a reference evaluation run that defines
-    the target metrics to beat. New runs are compared against this
-    baseline to determine pass/fail status.
-    """
-
-    def __init__(self, baseline_path: Optional[Path] = None):
-        """Initialize the baseline service.
-
-        Args:
-            baseline_path: Custom path to baseline file. Defaults to
-                          eval_data/golden_baseline.json
-        """
+    def __init__(self, baseline_path: Path | None = None):
         self.baseline_path = baseline_path or BASELINE_FILE
 
-    def get_baseline(self) -> Optional[GoldenBaseline]:
-        """Load the current golden baseline.
-
-        Returns:
-            GoldenBaseline if set, None otherwise
-        """
+    def get_baseline(self) -> GoldenBaseline | None:
+        """Load the current golden baseline."""
         if not self.baseline_path.exists():
             return None
 
@@ -60,25 +43,13 @@ class BaselineService:
     def set_baseline(
         self,
         run: EvaluationRun,
-        set_by: Optional[str] = None,
+        set_by: str | None = None,
     ) -> GoldenBaseline:
-        """Set an evaluation run as the golden baseline.
-
-        Args:
-            run: The evaluation run to set as baseline
-            set_by: Optional identifier for who set the baseline
-
-        Returns:
-            The created GoldenBaseline
-        """
-        # Create config snapshot from run
+        """Set an evaluation run as the golden baseline."""
         if run.config_snapshot:
             config_snapshot = run.config_snapshot
         else:
-            # Create from legacy retrieval_config if available
-            config_snapshot = self._create_config_snapshot_from_legacy(
-                run.retrieval_config
-            )
+            config_snapshot = _create_config_snapshot_from_legacy(run.retrieval_config)
 
         baseline = GoldenBaseline(
             run_id=run.run_id,
@@ -90,10 +61,8 @@ class BaselineService:
             target_cost_per_query_usd=run.cost.cost_per_query_usd if run.cost else None,
         )
 
-        # Ensure directory exists
         self.baseline_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Save to file
         with open(self.baseline_path, "w") as f:
             json.dump(baseline.model_dump(mode="json"), f, indent=2, default=str)
 
@@ -101,11 +70,7 @@ class BaselineService:
         return baseline
 
     def clear_baseline(self) -> bool:
-        """Clear the current golden baseline.
-
-        Returns:
-            True if baseline was cleared, False if none existed
-        """
+        """Clear the current golden baseline. Returns True if cleared."""
         if not self.baseline_path.exists():
             return False
 
@@ -113,15 +78,8 @@ class BaselineService:
         logger.info("Golden baseline cleared")
         return True
 
-    def check_against_baseline(self, run: EvaluationRun) -> Optional[BaselineCheckResult]:
-        """Check if a run passes the golden baseline.
-
-        Args:
-            run: The evaluation run to check
-
-        Returns:
-            BaselineCheckResult with pass/fail details, None if no baseline set
-        """
+    def check_against_baseline(self, run: EvaluationRun) -> BaselineCheckResult | None:
+        """Check if a run passes the golden baseline."""
         baseline = self.get_baseline()
         if baseline is None:
             return None
@@ -138,10 +96,10 @@ class BaselineService:
             # For hallucination, lower is better
             if metric_name == "hallucination":
                 passed = actual_value <= target_value
-                delta = target_value - actual_value  # Positive = better
+                delta = target_value - actual_value
             else:
                 passed = actual_value >= target_value
-                delta = actual_value - target_value  # Positive = better
+                delta = actual_value - target_value
 
             if passed:
                 metrics_pass.append(metric_name)
@@ -159,55 +117,44 @@ class BaselineService:
             metric_deltas=metric_deltas,
         )
 
-    def _create_config_snapshot_from_legacy(
-        self, retrieval_config: Optional[dict]
-    ) -> ConfigSnapshot:
-        """Create a ConfigSnapshot from legacy retrieval_config dict.
 
-        Args:
-            retrieval_config: Legacy config dict from older runs
-
-        Returns:
-            ConfigSnapshot with best-effort mapping
-        """
-        if not retrieval_config:
-            # Return defaults
-            return ConfigSnapshot(
-                llm_provider="unknown",
-                llm_model="unknown",
-                embedding_provider="ollama",
-                embedding_model="nomic-embed-text:latest",
-                retrieval_top_k=10,
-                hybrid_search_enabled=True,
-                rrf_k=60,
-                contextual_retrieval_enabled=False,
-                reranker_enabled=True,
-                reranker_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
-                reranker_top_n=5,
-            )
-
-        # Extract from legacy format
-        hybrid = retrieval_config.get("hybrid_search", {})
-        reranker = retrieval_config.get("reranker", {})
-        contextual = retrieval_config.get("contextual_retrieval", {})
-
+def _create_config_snapshot_from_legacy(retrieval_config: dict | None) -> ConfigSnapshot:
+    # Convert legacy retrieval_config dict to ConfigSnapshot
+    if not retrieval_config:
         return ConfigSnapshot(
             llm_provider="unknown",
             llm_model="unknown",
             embedding_provider="ollama",
             embedding_model="nomic-embed-text:latest",
-            retrieval_top_k=retrieval_config.get("retrieval_top_k", 10),
-            hybrid_search_enabled=hybrid.get("enabled", True),
-            rrf_k=hybrid.get("rrf_k", 60),
-            contextual_retrieval_enabled=contextual.get("enabled", False),
-            reranker_enabled=reranker.get("enabled", True),
-            reranker_model=reranker.get("model"),
-            reranker_top_n=reranker.get("top_n", 5),
+            retrieval_top_k=10,
+            hybrid_search_enabled=True,
+            rrf_k=60,
+            contextual_retrieval_enabled=False,
+            reranker_enabled=True,
+            reranker_model="cross-encoder/ms-marco-MiniLM-L-6-v2",
+            reranker_top_n=5,
         )
 
+    hybrid = retrieval_config.get("hybrid_search", {})
+    reranker = retrieval_config.get("reranker", {})
+    contextual = retrieval_config.get("contextual_retrieval", {})
 
-# Singleton instance
-_baseline_service: Optional[BaselineService] = None
+    return ConfigSnapshot(
+        llm_provider="unknown",
+        llm_model="unknown",
+        embedding_provider="ollama",
+        embedding_model="nomic-embed-text:latest",
+        retrieval_top_k=retrieval_config.get("retrieval_top_k", 10),
+        hybrid_search_enabled=hybrid.get("enabled", True),
+        rrf_k=hybrid.get("rrf_k", 60),
+        contextual_retrieval_enabled=contextual.get("enabled", False),
+        reranker_enabled=reranker.get("enabled", True),
+        reranker_model=reranker.get("model"),
+        reranker_top_n=reranker.get("top_n", 5),
+    )
+
+
+_baseline_service: BaselineService | None = None
 
 
 def get_baseline_service() -> BaselineService:
