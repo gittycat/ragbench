@@ -1,6 +1,6 @@
 # Evaluation Implementation Status
 
-**Last Updated**: 2025-01-21
+**Last Updated**: 2026-01-21
 **Purpose**: Context document for continuing eval implementation work
 
 ---
@@ -38,42 +38,38 @@ The RAG evaluation system uses **DeepEval** (not RAGAS). The implementation live
 **CI** (`.forgejo/workflows/ci.yml`):
 - Optional `test-eval` job triggered by `[eval]` in commit message
 
-### What's Missing
-
-1. **`tests/test_rag_eval.py`** - Referenced in CLAUDE.md and CI but doesn't exist
-2. **`include_chunks` API param** - `/query` endpoint needs this per `docs/eval_api_migration.json`
-3. **Citation extraction** - Parsing `[1]`, `[2]` references from LLM answers
-4. **End-to-end testing** - CLI commands and HuggingFace dataset loaders untested
-5. **Enhancement features** - Baseline API, comparison API, recommendation engine (see `docs/RAG_EVAL_ENHANCEMENT_PLAN.md`)
+**Tests** (`services/rag_server/tests/test_rag_eval.py`):
+- 42 unit tests for metrics, citation extraction, query endpoint, cost calculation, Pareto analysis
+- 17 eval-marked tests for dataset loaders and integration
 
 ---
 
 ## Tasks by Group
 
-### Group 1: Core Framework (Make It Work)
+### Group 1: Core Framework (Make It Work) ✅ COMPLETE
 
-- [ ] Create `tests/test_rag_eval.py` with `@pytest.mark.eval` marker
-- [ ] Add `include_chunks` parameter to `/query` endpoint in `main.py`
-- [ ] Return `chunk_id` and `chunk_index` in query response sources
-- [ ] Verify CLI commands work end-to-end (`eval`, `stats`, `datasets`)
+- [x] Create `tests/test_rag_eval.py` with `@pytest.mark.eval` marker
+- [x] Add `include_chunks` parameter to `/query` endpoint in `main.py`
+- [x] Return `chunk_id` and `chunk_index` in query response sources
+- [x] Verify CLI commands work end-to-end (`eval`, `stats`, `datasets`)
 
-### Group 2: Dataset Integration
+### Group 2: Dataset Integration ✅ COMPLETE
 
-- [ ] Test HuggingFace dataset loaders (RAGBench, Qasper, SQuAD v2, HotpotQA, MS MARCO)
-- [ ] Verify sampling and stratification work correctly
-- [ ] Handle dataset download/caching gracefully
+- [x] Test HuggingFace dataset loaders (RAGBench, Qasper, SQuAD v2, HotpotQA, MS MARCO)
+- [x] Verify sampling and stratification work correctly
+- [x] Handle dataset download/caching gracefully
 
-### Group 3: Citation Metrics
+### Group 3: Citation Metrics ✅ COMPLETE
 
-- [ ] Implement citation extraction from LLM answers (parse `[1]`, `[2]` format)
-- [ ] Wire citation metrics to extracted citations
-- [ ] Test citation precision/recall calculations
+- [x] Implement citation extraction from LLM answers (parse `[1]`, `[2]` format)
+- [x] Wire citation metrics to extracted citations
+- [x] Test citation precision/recall calculations
 
-### Group 4: Performance Metrics
+### Group 4: Performance Metrics ✅ COMPLETE
 
-- [ ] Implement actual token counting (currently placeholder)
-- [ ] Calculate cost based on model pricing from config
-- [ ] Complete Pareto analysis in `compare --pareto` command
+- [x] Token counting via `TokenCountingHandler` (implemented in `pipelines/inference.py`)
+- [x] Calculate cost based on model pricing from config (`get_model_cost` in `config.py` with `MODEL_COSTS` lookup)
+- [x] Complete Pareto analysis in `compare --pareto` command (`_compute_pareto_from_dicts` in `cli.py`)
 
 ### Group 5: Enhancement Plan (Future)
 
@@ -95,8 +91,26 @@ The RAG evaluation system uses **DeepEval** (not RAGAS). The implementation live
 | Datasets | `services/rag_server/evaluation_cc/datasets/` |
 | Schemas | `services/rag_server/evaluation_cc/schemas/` |
 | Test data | `services/rag_server/eval_data/golden_qa.json` |
+| **Tests** | `services/rag_server/tests/test_rag_eval.py` |
 | API migration spec | `docs/eval_api_migration.json` |
 | Enhancement plan | `docs/RAG_EVAL_ENHANCEMENT_PLAN.md` |
+
+---
+
+## Running Tests
+
+```bash
+cd services/rag_server
+
+# Run unit tests (no external dependencies)
+.venv/bin/pytest tests/test_rag_eval.py -v
+
+# Run eval tests (downloads HuggingFace datasets)
+.venv/bin/pytest tests/test_rag_eval.py -v --run-eval
+
+# Run all tests
+.venv/bin/pytest tests/test_rag_eval.py -v --run-eval
+```
 
 ---
 
@@ -124,3 +138,4 @@ python -m evaluation_cc.cli eval --datasets ragbench --samples 5 --no-judge
 - LLM-as-judge requires `ANTHROPIC_API_KEY` in environment
 - `--no-judge` flag skips LLM metrics for faster testing
 - Results saved to `data/eval_runs/` directory
+- Citation extraction supports `[1]`, `[1,2]`, `[1-3]`, and `(1)` formats

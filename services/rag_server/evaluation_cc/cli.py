@@ -373,8 +373,103 @@ def cmd_compare(args):
         print("\n" + "=" * 80)
         print("Pareto Analysis")
         print("=" * 80)
-        # Would need to convert dicts back to EvalRun objects
-        print("(Pareto analysis requires full EvalRun objects - use programmatic API)")
+        pareto_points = _compute_pareto_from_dicts(runs)
+        _print_pareto_analysis(pareto_points)
+
+
+def _compute_pareto_from_dicts(runs: list[dict]) -> list[dict]:
+    """Compute Pareto frontier from run dictionaries.
+
+    A run is Pareto-optimal if no other run dominates it
+    (better in at least one objective without being worse in any).
+    """
+    points = []
+
+    for run in runs:
+        ws = run.get("weighted_score", {})
+        objectives = ws.get("objectives", {})
+        if not objectives:
+            continue
+
+        point = {
+            "run_id": run["id"],
+            "config_name": run["name"],
+            "objectives": objectives.copy(),
+            "is_dominated": False,
+            "dominates": [],
+        }
+        points.append(point)
+
+    # Determine dominance
+    for i, p1 in enumerate(points):
+        for j, p2 in enumerate(points):
+            if i == j:
+                continue
+
+            # Check if p2 dominates p1
+            better_in_one = False
+            worse_in_one = False
+
+            for obj in p1["objectives"]:
+                v1 = p1["objectives"].get(obj, 0)
+                v2 = p2["objectives"].get(obj, 0)
+
+                if v2 > v1:
+                    better_in_one = True
+                elif v2 < v1:
+                    worse_in_one = True
+
+            if better_in_one and not worse_in_one:
+                p1["is_dominated"] = True
+                p2["dominates"].append(p1["run_id"])
+
+    return points
+
+
+def _print_pareto_analysis(points: list[dict]) -> None:
+    """Print Pareto frontier analysis results."""
+    if not points:
+        print("No runs with objective data found.")
+        return
+
+    # Separate frontier from dominated points
+    frontier = [p for p in points if not p["is_dominated"]]
+    dominated = [p for p in points if p["is_dominated"]]
+
+    print(f"\nPareto Frontier ({len(frontier)} runs):")
+    print("-" * 40)
+
+    for p in frontier:
+        print(f"\n  {p['config_name']} [{p['run_id']}]")
+        for obj, val in sorted(p["objectives"].items()):
+            print(f"    {obj}: {val:.3f}")
+        if p["dominates"]:
+            print(f"    Dominates: {', '.join(p['dominates'])}")
+
+    if dominated:
+        print(f"\nDominated Runs ({len(dominated)}):")
+        print("-" * 40)
+        for p in dominated:
+            print(f"  {p['config_name']} [{p['run_id']}] - dominated")
+
+    # Recommendations
+    if frontier:
+        print("\nRecommendations:")
+        print("-" * 40)
+
+        # Find best for each objective
+        all_objectives = set()
+        for p in points:
+            all_objectives.update(p["objectives"].keys())
+
+        for obj in sorted(all_objectives):
+            best_point = max(
+                [p for p in points if obj in p["objectives"]],
+                key=lambda p: p["objectives"].get(obj, 0),
+                default=None,
+            )
+            if best_point:
+                print(f"  Best {obj}: {best_point['config_name']} ({best_point['objectives'][obj]:.3f})")
 
 
 def print_run_summary(run: EvalRun):
