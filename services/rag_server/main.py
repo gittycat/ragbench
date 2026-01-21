@@ -12,7 +12,7 @@ configure_logging()
 logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
-app = FastAPI(title="RAG Server")
+app = FastAPI(title="RAG Bench")
 
 
 @app.on_event("startup")

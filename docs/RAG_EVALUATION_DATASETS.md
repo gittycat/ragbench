@@ -114,13 +114,59 @@ This document outlines publicly available datasets for evaluating our RAG system
 | **T²-RAGBench** | Tables + Text (financial) | - | [HuggingFace](https://huggingface.co/papers/2506.12071) |
 | **FRAMES** | Factuality + Reasoning | - | [HuggingFace](https://huggingface.co/papers/2409.12941) |
 
-### Domain-Specific Options
+---
 
-| Dataset | Domain | Notes |
-|---------|--------|-------|
-| **LegalBench-RAG** | Legal | Compliance-focused, citation accuracy |
+## Domain-Specific Datasets
+
+Datasets for specialized document types. Implement on a need basis when deploying to specific industries.
+
+### Legal
+
+| Dataset | Focus | Notes |
+|---------|-------|-------|
+| **CUAD** | Contract understanding | 500+ contracts, clause extraction |
+| **LegalBench-RAG** | Compliance | Citation accuracy for legal docs |
+
+### Finance & Accounting
+
+| Dataset | Focus | Notes |
+|---------|-------|-------|
+| **FinQA** | Financial reasoning | Numerical QA over earnings reports |
+| **TAT-QA** | Tables + text | Hybrid tabular/text financial docs |
+| **T²-RAGBench** | Tables + text | 2025 benchmark for structured data |
+
+### Healthcare & Biomedical
+
+| Dataset | Focus | Notes |
+|---------|-------|-------|
+| **PubMedQA** | Medical literature | Yes/no/maybe reasoning over abstracts |
+| **BioASQ** | Biomedical QA | Semantic indexing and QA |
+
+### Government & Policy
+
+| Dataset | Focus | Notes |
+|---------|-------|-------|
+| **GovReport** | Long-form summarization | Government reports, 9K+ words avg |
+
+### Technical & Product Documentation
+
+| Dataset | Focus | Notes |
+|---------|-------|-------|
+| **TechQA** | IT support | IBM technical QA (may require access) |
 | **ExpertQA** | Expert knowledge | Subject matter expert answers |
-| **WikiHowQA** | Procedural | How-to questions |
+
+### Procedural & How-To
+
+| Dataset | Focus | Notes |
+|---------|-------|-------|
+| **WikiHowQA** | Step-by-step | Procedural question answering |
+
+### Conversational & Multi-Turn
+
+| Dataset | Focus | Notes |
+|---------|-------|-------|
+| **MultiDoc2Dial** | Multi-doc chat | Gated access, conversational QA |
+| **ChatRAG-Bench** | Chat continuity | Multi-turn RAG evaluation |
 
 ---
 

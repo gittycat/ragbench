@@ -661,6 +661,10 @@ Location: `eval_data/golden_qa.json`
 Current size: 10 Q&A pairs from Paul Graham essays
 Target: 100+ pairs for comprehensive evaluation
 
+### Evaluation Datasets
+
+Five public datasets are supported for comprehensive RAG evaluation, each targeting specific aspects (retrieval, generation, citation, abstention). See [docs/RAG_EVALUATION_DATASETS.md](docs/RAG_EVALUATION_DATASETS.md) for dataset details, implementation plan, and integration guidance.
+
 ## Observability
 
 ### Metrics API
