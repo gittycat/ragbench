@@ -3,15 +3,14 @@
 Provides methods to:
 - Query model information from Ollama/HuggingFace
 - Gather retrieval configuration
-- Load and manage evaluation history
+- Get system overview metrics
+
+Note: Evaluation-related functions have been moved to services/eval/.
 """
 
-import json
 import os
 import logging
-from datetime import datetime
-from pathlib import Path
-from typing import Optional
+
 import httpx
 
 from schemas.metrics import (
@@ -24,11 +23,6 @@ from schemas.metrics import (
     ContextualRetrievalConfig,
     RerankerConfig,
     RetrievalConfig,
-    MetricDefinition,
-    EvaluationRun,
-    EvaluationHistory,
-    EvaluationSummary,
-    MetricTrend,
     SystemMetrics,
 )
 from core.config import get_optional_env
@@ -112,15 +106,14 @@ MODEL_REFERENCES = {
 }
 
 
-async def get_ollama_model_info(model_name: str) -> Optional[dict]:
+async def get_ollama_model_info(model_name: str) -> dict | None:
     """Query Ollama API for model details."""
     ollama_url = get_optional_env("OLLAMA_URL", "http://host.docker.internal:11434")
 
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(
-                f"{ollama_url}/api/show",
-                json={"name": model_name}
+                f"{ollama_url}/api/show", json={"name": model_name}
             )
             if response.status_code == 200:
                 return response.json()
@@ -140,7 +133,10 @@ async def check_ollama_model_loaded(model_name: str) -> bool:
             if response.status_code == 200:
                 data = response.json()
                 models = data.get("models", [])
-                return any(m.get("name", "").startswith(model_name.split(":")[0]) for m in models)
+                return any(
+                    m.get("name", "").startswith(model_name.split(":")[0])
+                    for m in models
+                )
     except Exception as e:
         logger.warning(f"Failed to check Ollama model status: {e}")
 
@@ -149,11 +145,9 @@ async def check_ollama_model_loaded(model_name: str) -> bool:
 
 def get_model_reference(model_name: str) -> dict:
     """Get reference information for a model."""
-    # Check exact match first
     if model_name in MODEL_REFERENCES:
         return MODEL_REFERENCES[model_name]
 
-    # Check prefix match (for models with tags)
     base_name = model_name.split(":")[0]
     for key, value in MODEL_REFERENCES.items():
         if key.startswith(base_name):
@@ -184,7 +178,9 @@ async def get_models_config() -> ModelsConfig:
 
     llm_size = ModelSize(
         parameters=llm_ref.get("parameters"),
-        disk_size_mb=llm_ollama_info.get("size", 0) / 1024 / 1024 if llm_ollama_info else None,
+        disk_size_mb=(
+            llm_ollama_info.get("size", 0) / 1024 / 1024 if llm_ollama_info else None
+        ),
         context_window=llm_ref.get("context_window"),
     )
 
@@ -205,7 +201,9 @@ async def get_models_config() -> ModelsConfig:
 
     embed_size = ModelSize(
         parameters=embed_ref.get("parameters"),
-        disk_size_mb=embed_ollama_info.get("size", 0) / 1024 / 1024 if embed_ollama_info else None,
+        disk_size_mb=(
+            embed_ollama_info.get("size", 0) / 1024 / 1024 if embed_ollama_info else None
+        ),
         context_window=embed_ref.get("context_window"),
     )
 
@@ -273,21 +271,18 @@ def get_retrieval_config() -> RetrievalConfig:
     inference_config = get_inference_config()
     ingestion_config = get_ingestion_config()
 
-    # Vector search config
     vector_config = VectorSearchConfig(
         enabled=True,
-        chunk_size=500,  # From settings.py
+        chunk_size=500,
         chunk_overlap=50,
         vector_store="ChromaDB",
         collection_name="documents",
     )
 
-    # BM25 config
     bm25_config = BM25Config(
         enabled=inference_config["hybrid_search_enabled"],
     )
 
-    # Hybrid search config
     hybrid_search_config = HybridSearchConfig(
         enabled=inference_config["hybrid_search_enabled"],
         bm25=bm25_config,
@@ -296,18 +291,20 @@ def get_retrieval_config() -> RetrievalConfig:
         rrf_k=inference_config["rrf_k"],
     )
 
-    # Contextual retrieval config
     contextual_retrieval_config = ContextualRetrievalConfig(
         enabled=ingestion_config["contextual_retrieval_enabled"],
     )
 
-    # Reranker config
     top_k = inference_config["retrieval_top_k"]
     top_n = max(5, top_k // 2) if inference_config["reranker_enabled"] else top_k
 
     reranker_cfg = RerankerConfig(
         enabled=inference_config["reranker_enabled"],
-        model=inference_config["reranker_model"] if inference_config["reranker_enabled"] else None,
+        model=(
+            inference_config["reranker_model"]
+            if inference_config["reranker_enabled"]
+            else None
+        ),
         top_n=top_n if inference_config["reranker_enabled"] else None,
     )
 
@@ -320,303 +317,16 @@ def get_retrieval_config() -> RetrievalConfig:
     )
 
 
-def get_metric_definitions() -> list[MetricDefinition]:
-    """Get definitions for all evaluation metrics."""
-    return [
-        MetricDefinition(
-            name="precision_at_k",
-            category="retrieval",
-            description="Fraction of top-K retrieved chunks that are relevant.",
-            threshold=0.5,
-            interpretation="Score 0-1. Higher is better. Measures how much noise is in top-K retrieval.",
-            reference_url="https://en.wikipedia.org/wiki/Precision_and_recall",
-        ),
-        MetricDefinition(
-            name="recall_at_k",
-            category="retrieval",
-            description="Fraction of gold evidence covered by top-K retrieved chunks.",
-            threshold=0.5,
-            interpretation="Score 0-1. Higher is better. Measures coverage of relevant evidence.",
-            reference_url="https://en.wikipedia.org/wiki/Precision_and_recall",
-        ),
-        MetricDefinition(
-            name="mrr",
-            category="retrieval",
-            description="Mean reciprocal rank of the first relevant chunk.",
-            threshold=0.3,
-            interpretation="Score 0-1. Higher is better. Measures how early the first relevant chunk appears.",
-            reference_url="https://en.wikipedia.org/wiki/Mean_reciprocal_rank",
-        ),
-        MetricDefinition(
-            name="ndcg",
-            category="retrieval",
-            description="Normalized Discounted Cumulative Gain of ranked retrieval results.",
-            threshold=0.5,
-            interpretation="Score 0-1. Higher is better. Measures ranking quality with position discounts.",
-            reference_url="https://en.wikipedia.org/wiki/Discounted_cumulative_gain",
-        ),
-        MetricDefinition(
-            name="citation_precision",
-            category="retrieval",
-            description="Fraction of cited chunks that match gold evidence or gold documents.",
-            threshold=0.6,
-            interpretation="Score 0-1. Higher is better. Measures correctness of citations.",
-        ),
-        MetricDefinition(
-            name="citation_recall",
-            category="retrieval",
-            description="Fraction of gold evidence that is covered by cited chunks.",
-            threshold=0.6,
-            interpretation="Score 0-1. Higher is better. Measures citation coverage.",
-        ),
-        MetricDefinition(
-            name="faithfulness",
-            category="generation",
-            description="Measures whether the answer is grounded in the retrieved context without adding unsupported claims.",
-            threshold=0.7,
-            interpretation="Score 0-1. Above 0.7 is good. Measures: Is the answer supported by the context?",
-            reference_url="https://docs.confident-ai.com/docs/metrics-faithfulness",
-        ),
-        MetricDefinition(
-            name="answer_relevancy",
-            category="generation",
-            description="Measures whether the generated answer actually addresses the user's question.",
-            threshold=0.7,
-            interpretation="Score 0-1. Above 0.7 is good. Measures: Does the answer address the question asked?",
-            reference_url="https://docs.confident-ai.com/docs/metrics-answer-relevancy",
-        ),
-        MetricDefinition(
-            name="hallucination",
-            category="safety",
-            description="Measures the proportion of the answer that contains hallucinated (unsupported) information.",
-            threshold=0.5,
-            interpretation="Score 0-1. Below 0.5 is good (lower = less hallucination). Measures: How much is made up?",
-            reference_url="https://docs.confident-ai.com/docs/metrics-hallucination",
-        ),
-        MetricDefinition(
-            name="unanswerable_accuracy",
-            category="safety",
-            description="Measures how often the system correctly abstains on unanswerable questions.",
-            threshold=0.7,
-            interpretation="Score 0-1. Higher is better. Measures abstention correctness on unanswerable inputs.",
-        ),
-        MetricDefinition(
-            name="answerable_abstain_rate",
-            category="safety",
-            description="Measures how often the system abstains on answerable questions.",
-            threshold=0.2,
-            interpretation="Score 0-1. Lower is better. Measures false abstentions on answerable inputs.",
-        ),
-        MetricDefinition(
-            name="long_form_completeness",
-            category="generation",
-            description="Measures how much of the gold evidence is covered in long-form answers.",
-            threshold=0.5,
-            interpretation="Score 0-1. Higher is better. Measures evidence coverage for long-form tasks.",
-        ),
-    ]
-
-
-# ============================================================================
-# Evaluation History Management
-# ============================================================================
-
-# Use Docker path if available, otherwise local development path
-EVAL_RESULTS_DIR = Path("/app/eval_data/results") if Path("/app/eval_data").exists() else Path("eval_data/results")
-
-
-def ensure_eval_results_dir():
-    """Ensure evaluation results directory exists."""
-    EVAL_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def save_evaluation_run(run: EvaluationRun) -> Path:
-    """Save an evaluation run to disk."""
-    ensure_eval_results_dir()
-
-    filename = f"eval_run_{run.run_id}_{run.timestamp.strftime('%Y%m%d_%H%M%S')}.json"
-    filepath = EVAL_RESULTS_DIR / filename
-
-    with open(filepath, "w") as f:
-        json.dump(run.model_dump(), f, indent=2, default=str)
-
-    logger.info(f"Saved evaluation run to {filepath}")
-    return filepath
-
-
-def load_evaluation_history(limit: int = 20) -> EvaluationHistory:
-    """Load evaluation history from disk."""
-    ensure_eval_results_dir()
-
-    runs = []
-    result_files = sorted(
-        EVAL_RESULTS_DIR.glob("eval_run_*.json"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True
-    )[:limit]
-
-    for filepath in result_files:
-        try:
-            with open(filepath) as f:
-                data = json.load(f)
-                # Parse timestamp
-                if isinstance(data.get("timestamp"), str):
-                    data["timestamp"] = datetime.fromisoformat(data["timestamp"].replace("Z", "+00:00"))
-                runs.append(EvaluationRun(**data))
-        except Exception as e:
-            logger.warning(f"Failed to load evaluation run from {filepath}: {e}")
-
-    return EvaluationHistory(runs=runs)
-
-
-def get_evaluation_run_by_id(run_id: str) -> Optional[EvaluationRun]:
-    """Load a specific evaluation run by ID.
-
-    Args:
-        run_id: The run ID to look for
-
-    Returns:
-        EvaluationRun if found, None otherwise
-    """
-    ensure_eval_results_dir()
-
-    # Search for matching file
-    for filepath in EVAL_RESULTS_DIR.glob("eval_run_*.json"):
-        try:
-            with open(filepath) as f:
-                data = json.load(f)
-                if data.get("run_id") == run_id:
-                    # Parse timestamp
-                    if isinstance(data.get("timestamp"), str):
-                        data["timestamp"] = datetime.fromisoformat(
-                            data["timestamp"].replace("Z", "+00:00")
-                        )
-                    return EvaluationRun(**data)
-        except Exception as e:
-            logger.warning(f"Failed to load evaluation run from {filepath}: {e}")
-
-    return None
-
-
-def delete_evaluation_run(run_id: str) -> bool:
-    """Delete a specific evaluation run by ID.
-
-    Args:
-        run_id: The run ID to delete
-
-    Returns:
-        True if deleted, False if not found
-    """
-    ensure_eval_results_dir()
-
-    # Search for matching file
-    for filepath in EVAL_RESULTS_DIR.glob("eval_run_*.json"):
-        try:
-            with open(filepath) as f:
-                data = json.load(f)
-                if data.get("run_id") == run_id:
-                    filepath.unlink()
-                    logger.info(f"Deleted evaluation run {run_id} from {filepath}")
-                    return True
-        except Exception as e:
-            logger.warning(f"Failed to check evaluation run from {filepath}: {e}")
-
-    return False
-
-
-def get_evaluation_summary() -> EvaluationSummary:
-    """Get summary of evaluation history with trends."""
-    history = load_evaluation_history()
-
-    if not history.runs:
-        return EvaluationSummary(
-            latest_run=None,
-            total_runs=0,
-            metric_trends=[],
-            best_run=None,
-        )
-
-    # Sort runs by timestamp (oldest first for trend calculation)
-    sorted_runs = sorted(history.runs, key=lambda r: r.timestamp)
-
-    # Calculate trends for each metric
-    metric_trends = []
-    metric_names = ["contextual_precision", "contextual_recall", "faithfulness", "answer_relevancy", "hallucination"]
-
-    for metric_name in metric_names:
-        values = []
-        timestamps = []
-
-        for run in sorted_runs:
-            if metric_name in run.metric_averages:
-                values.append(run.metric_averages[metric_name])
-                timestamps.append(run.timestamp)
-
-        if values:
-            # Determine trend
-            if len(values) >= 2:
-                recent_avg = sum(values[-3:]) / len(values[-3:])
-                older_avg = sum(values[:3]) / len(values[:3])
-                if recent_avg > older_avg + 0.05:
-                    trend = "improving"
-                elif recent_avg < older_avg - 0.05:
-                    trend = "declining"
-                else:
-                    trend = "stable"
-            else:
-                trend = "stable"
-
-            metric_trends.append(MetricTrend(
-                metric_name=metric_name,
-                values=values,
-                timestamps=timestamps,
-                trend_direction=trend,
-                latest_value=values[-1],
-                average_value=sum(values) / len(values),
-            ))
-
-    # Find best run (highest average of non-hallucination metrics)
-    best_run = None
-    best_score = -1
-    for run in history.runs:
-        if run.metric_averages:
-            # Calculate composite score (invert hallucination since lower is better)
-            scores = []
-            for m in ["contextual_precision", "contextual_recall", "faithfulness", "answer_relevancy"]:
-                if m in run.metric_averages:
-                    scores.append(run.metric_averages[m])
-            if "hallucination" in run.metric_averages:
-                scores.append(1 - run.metric_averages["hallucination"])
-
-            if scores:
-                avg_score = sum(scores) / len(scores)
-                if avg_score > best_score:
-                    best_score = avg_score
-                    best_run = run
-
-    return EvaluationSummary(
-        latest_run=sorted_runs[-1] if sorted_runs else None,
-        total_runs=len(history.runs),
-        metric_trends=metric_trends,
-        best_run=best_run,
-    )
-
-
-# ============================================================================
-# System Overview
-# ============================================================================
-
 async def get_system_metrics() -> SystemMetrics:
     """Get complete system metrics overview."""
     from infrastructure.database.chroma import get_or_create_collection, list_documents
+    from services.eval import get_metric_definitions, get_evaluation_summary
 
-    # Get all configurations
     models = await get_models_config()
     retrieval = get_retrieval_config()
     metrics_defs = get_metric_definitions()
     eval_summary = get_evaluation_summary()
 
-    # Get document stats
     try:
         index = get_or_create_collection()
         documents = list_documents(index)
@@ -627,7 +337,6 @@ async def get_system_metrics() -> SystemMetrics:
         doc_count = 0
         chunk_count = 0
 
-    # Check component health
     component_status = {}
 
     # Check ChromaDB
@@ -638,7 +347,9 @@ async def get_system_metrics() -> SystemMetrics:
             if resp.status_code == 200:
                 component_status["chromadb"] = "healthy"
             else:
-                logger.warning(f"ChromaDB health check failed: status={resp.status_code}, body={resp.text[:200]}")
+                logger.warning(
+                    f"ChromaDB health check failed: status={resp.status_code}"
+                )
                 component_status["chromadb"] = "unhealthy"
     except Exception as e:
         logger.warning(f"ChromaDB health check error: {e}")
@@ -648,6 +359,7 @@ async def get_system_metrics() -> SystemMetrics:
     redis_url = get_optional_env("REDIS_URL", "redis://redis:6379/0")
     try:
         import redis
+
         r = redis.from_url(redis_url)
         r.ping()
         component_status["redis"] = "healthy"
@@ -663,20 +375,21 @@ async def get_system_metrics() -> SystemMetrics:
             if resp.status_code == 200:
                 component_status["ollama"] = "healthy"
             else:
-                logger.warning(f"Ollama health check failed: status={resp.status_code}, body={resp.text[:200]}")
+                logger.warning(f"Ollama health check failed: status={resp.status_code}")
                 component_status["ollama"] = "unhealthy"
     except Exception as e:
         logger.warning(f"Ollama health check error: {e}")
         component_status["ollama"] = "unavailable"
 
-    # Overall health
-    health_status = "healthy" if all(s == "healthy" for s in component_status.values()) else "degraded"
+    health_status = (
+        "healthy"
+        if all(s == "healthy" for s in component_status.values())
+        else "degraded"
+    )
 
     return SystemMetrics(
         models=models,
         retrieval=retrieval,
-        evaluation_metrics=metrics_defs,
-        latest_evaluation=eval_summary.latest_run,
         document_count=doc_count,
         chunk_count=chunk_count,
         health_status=health_status,

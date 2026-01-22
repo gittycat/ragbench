@@ -31,6 +31,12 @@ from schemas.eval import (
     GroupResults,
     MetricValue,
     PerformanceResults,
+    EvaluationSummary,
+    GoldenBaseline,
+    ComparisonResult,
+    Recommendation,
+    EvaluationRun,
+    MetricDefinition,
 )
 from infrastructure.tasks.eval_progress import (
     create_eval_run,
@@ -38,6 +44,21 @@ from infrastructure.tasks.eval_progress import (
     delete_eval_progress,
     list_eval_runs,
     cancel_eval_run,
+)
+from services.eval import (
+    # History
+    load_evaluation_history,
+    get_evaluation_summary,
+    get_evaluation_run_by_id,
+    get_metric_definitions,
+    # Baseline
+    get_baseline,
+    set_baseline,
+    clear_baseline,
+    # Comparison
+    compare_runs,
+    # Recommendation
+    get_recommendation,
 )
 
 logger = logging.getLogger(__name__)
@@ -580,3 +601,202 @@ def _parse_results(results_data: dict) -> EvalRunResults:
         groups=groups,
         performance=performance,
     )
+
+
+# ============================================================================
+# Analysis Endpoints (migrated from /metrics/*)
+# ============================================================================
+
+
+@router.get("/metrics/eval/definitions", response_model=list[MetricDefinition])
+async def get_evaluation_metric_definitions():
+    """Get definitions for all evaluation metrics.
+
+    Returns for each metric:
+    - Name and category (retrieval, generation, safety)
+    - Description of what it measures
+    - Pass/fail threshold
+    - Interpretation guide
+    - Reference documentation URL
+    """
+    try:
+        return get_metric_definitions()
+    except Exception as e:
+        logger.error(f"[EVAL] Error fetching metric definitions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/metrics/eval/summary", response_model=EvaluationSummary)
+async def get_eval_summary_endpoint():
+    """Get evaluation summary with trends.
+
+    Returns:
+    - Latest evaluation run
+    - Total number of runs
+    - Metric trends over time (improving/declining/stable)
+    - Best performing run
+    """
+    try:
+        return get_evaluation_summary()
+    except Exception as e:
+        logger.error(f"[EVAL] Error fetching evaluation summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Baseline Management Endpoints
+# ============================================================================
+
+
+@router.get("/metrics/eval/baseline", response_model=GoldenBaseline | None)
+async def get_golden_baseline():
+    """Get the current golden baseline.
+
+    Returns:
+        The golden baseline if set, null otherwise
+    """
+    try:
+        return get_baseline()
+    except Exception as e:
+        logger.error(f"[EVAL] Error fetching baseline: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/metrics/eval/baseline/{run_id}", response_model=GoldenBaseline)
+async def set_golden_baseline(run_id: str, set_by: str | None = None):
+    """Set a specific evaluation run as the golden baseline.
+
+    The baseline's metric scores become the thresholds to beat.
+    New evaluation runs will be compared against this baseline.
+
+    Args:
+        run_id: ID of the evaluation run to set as baseline
+        set_by: Optional identifier for who set the baseline
+    """
+    try:
+        run = get_evaluation_run_by_id(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail=f"Evaluation run '{run_id}' not found")
+
+        return set_baseline(run, set_by=set_by)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[EVAL] Error setting baseline: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/metrics/eval/baseline", status_code=204)
+async def clear_golden_baseline_endpoint():
+    """Clear the current golden baseline."""
+    try:
+        clear_baseline()
+    except Exception as e:
+        logger.error(f"[EVAL] Error clearing baseline: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Comparison Endpoints
+# ============================================================================
+
+
+@router.get("/metrics/eval/compare/{run_a_id}/{run_b_id}", response_model=ComparisonResult)
+async def compare_runs_endpoint(run_a_id: str, run_b_id: str):
+    """Compare two evaluation runs side-by-side.
+
+    Returns metric deltas, latency/cost comparison, and winner determination.
+
+    Args:
+        run_a_id: ID of first evaluation run
+        run_b_id: ID of second evaluation run
+    """
+    try:
+        run_a = get_evaluation_run_by_id(run_a_id)
+        run_b = get_evaluation_run_by_id(run_b_id)
+
+        if run_a is None:
+            raise HTTPException(status_code=404, detail=f"Evaluation run '{run_a_id}' not found")
+        if run_b is None:
+            raise HTTPException(status_code=404, detail=f"Evaluation run '{run_b_id}' not found")
+
+        return compare_runs(run_a, run_b)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[EVAL] Error comparing runs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/metrics/eval/compare-to-baseline/{run_id}", response_model=ComparisonResult)
+async def compare_to_baseline(run_id: str):
+    """Compare a run against the golden baseline.
+
+    Args:
+        run_id: ID of the evaluation run to compare
+    """
+    try:
+        baseline = get_baseline()
+
+        if baseline is None:
+            raise HTTPException(status_code=404, detail="No golden baseline set")
+
+        run = get_evaluation_run_by_id(run_id)
+        baseline_run = get_evaluation_run_by_id(baseline.run_id)
+
+        if run is None:
+            raise HTTPException(status_code=404, detail=f"Evaluation run '{run_id}' not found")
+        if baseline_run is None:
+            raise HTTPException(status_code=404, detail=f"Baseline run '{baseline.run_id}' not found")
+
+        return compare_runs(run, baseline_run)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[EVAL] Error comparing to baseline: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Recommendation Endpoint
+# ============================================================================
+
+
+@router.post("/metrics/eval/recommend", response_model=Recommendation)
+async def get_recommendation_endpoint(
+    accuracy_weight: float = Query(0.5, ge=0, le=1, description="Weight for accuracy (0-1)"),
+    speed_weight: float = Query(0.3, ge=0, le=1, description="Weight for speed (0-1)"),
+    cost_weight: float = Query(0.2, ge=0, le=1, description="Weight for cost efficiency (0-1)"),
+    limit_to_runs: int = Query(10, ge=1, le=100, description="Max runs to consider"),
+):
+    """Get recommended configuration based on weighted preferences.
+
+    Analyzes historical evaluation runs and recommends the optimal
+    configuration based on your priorities for accuracy, speed, and cost.
+
+    Args:
+        accuracy_weight: How much to prioritize accuracy (default 0.5)
+        speed_weight: How much to prioritize speed (default 0.3)
+        cost_weight: How much to prioritize cost efficiency (default 0.2)
+        limit_to_runs: Maximum number of historical runs to analyze
+    """
+    try:
+        result = get_recommendation(
+            accuracy_weight=accuracy_weight,
+            speed_weight=speed_weight,
+            cost_weight=cost_weight,
+            limit_to_runs=limit_to_runs,
+        )
+
+        if result is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Insufficient evaluation data. Run at least one evaluation with config snapshots.",
+            )
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[EVAL] Error getting recommendation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

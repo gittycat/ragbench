@@ -2,7 +2,47 @@
 
 **Purpose**: High-level API for webapp to trigger, monitor, and retrieve evaluation results.
 
-**Last Updated**: 2026-01-22
+**Last Updated**: 2026-01-23
+
+**Implementation Status**: Phase 1 complete, Phase 2 complete. See [Implementation Plan](#implementation-plan) for details.
+
+---
+
+## Implementation Status Summary
+
+### Completed Files (Phase 1 + 2)
+
+| File | Status | Description |
+|------|--------|-------------|
+| `schemas/eval.py` | ✅ Created | Pydantic models for Eval API |
+| `schemas/metrics.py` | ✅ Updated | System/model schemas (eval schemas moved to eval.py) |
+| `api/routes/eval.py` | ✅ Created | All `/metrics/eval/*` endpoints |
+| `evaluation_cc/datasets/golden.py` | ✅ Created | Golden dataset loader |
+| `evaluation_cc/config.py` | ✅ Updated | Added `GOLDEN` to `DatasetName` enum |
+| `evaluation_cc/datasets/registry.py` | ✅ Updated | Registered golden loader |
+| `infrastructure/tasks/eval_progress.py` | ✅ Created | Redis progress tracking |
+| `infrastructure/tasks/eval_worker.py` | ✅ Created | Celery task for async evaluation |
+| `infrastructure/tasks/celery_app.py` | ✅ Updated | Added eval queue routing |
+| `services/eval/__init__.py` | ✅ Created | Consolidated eval service exports |
+| `services/eval/history.py` | ✅ Created | Eval run storage/retrieval |
+| `services/eval/baseline.py` | ✅ Created | Golden baseline management (functions) |
+| `services/eval/comparison.py` | ✅ Created | Run comparison functions |
+| `services/eval/recommendation.py` | ✅ Created | Config recommendation functions |
+| `services/metrics.py` | ✅ Updated | System/model services only |
+| `main.py` | ✅ Updated | Included eval router |
+| `docker-compose.yml` | ✅ Updated | Added `eval-worker` service |
+
+### Remaining Work
+
+1. **Test SSE with frontend client** - Manual testing required
+2. **Add OpenAPI response examples** - Deferred to Phase 3
+
+### Key Implementation Notes
+
+- **Lazy imports**: `api/routes/eval.py` and `infrastructure/tasks/eval_worker.py` use lazy imports to avoid loading heavy evaluation dependencies (HuggingFace `datasets`) during API startup
+- **Schema architecture**: Two schema files - `schemas/metrics.py` for system/model configs, `schemas/eval.py` for all eval-related schemas
+- **Service architecture**: Eval services consolidated in `services/eval/` with functions (not classes) per project guidelines
+- **Progress tracking**: Coarse-grained (phase-level) progress updates; per-question updates deferred
 
 ---
 
@@ -695,84 +735,90 @@ class GoldenDatasetLoader(BaseDatasetLoader):
 ### Phase 1: Core API (MVP)
 
 #### 1.1 API Route Structure
-- [ ] Create `api/routes/eval.py` with new router
-- [ ] Update `main.py` to include eval router at `/metrics/eval`
-- [ ] Remove/deprecate old `/metrics/evaluation/*` routes
-- [ ] Remove/deprecate old `/metrics/baseline/*` routes
-- [ ] Remove/deprecate old `/metrics/compare/*` routes
-- [ ] Remove/deprecate old `/metrics/recommend` route
+- [x] Create `api/routes/eval.py` with new router
+- [x] Update `main.py` to include eval router at `/metrics/eval`
+- [x] Remove/deprecate old `/metrics/evaluation/*` routes (replaced by `/metrics/eval/*`)
+- [x] Remove/deprecate old `/metrics/baseline/*` routes (replaced by `/metrics/eval/baseline/*`)
+- [x] Remove/deprecate old `/metrics/compare/*` routes (replaced by `/metrics/eval/compare/*`)
+- [x] Remove/deprecate old `/metrics/recommend` route (replaced by `/metrics/eval/recommend`)
 
 #### 1.2 Discovery Endpoints
-- [ ] Implement `GET /metrics/eval/groups` - return metric group definitions
-- [ ] Implement `GET /metrics/eval/datasets` - return dataset definitions
-- [ ] Create Pydantic schemas: `MetricGroupResponse`, `DatasetResponse`
-- [ ] Add dataset metadata (size, domains, aspects) to registry
+- [x] Implement `GET /metrics/eval/groups` - return metric group definitions
+- [x] Implement `GET /metrics/eval/datasets` - return dataset definitions
+- [x] Create Pydantic schemas: `MetricGroupResponse`, `DatasetResponse`
+- [x] Add dataset metadata (size, domains, aspects) to registry
 
 #### 1.3 Golden Dataset Loader
-- [ ] Create `evaluation_cc/datasets/golden.py` with `GoldenDatasetLoader`
-- [ ] Register golden dataset in `evaluation_cc/datasets/registry.py`
-- [ ] Add `DatasetName.GOLDEN` enum value
-- [ ] Test loader with existing `eval_data/golden_qa.json`
+- [x] Create `evaluation_cc/datasets/golden.py` with `GoldenDatasetLoader`
+- [x] Register golden dataset in `evaluation_cc/datasets/registry.py`
+- [x] Add `DatasetName.GOLDEN` enum value
+- [x] Test loader with existing `eval_data/golden_qa.json`
 
 #### 1.4 Celery Eval Task
-- [ ] Create `infrastructure/tasks/eval_worker.py` with `run_evaluation_task`
-- [ ] Configure `eval` queue in `celery_app.py`
-- [ ] Update docker-compose to start worker with `-Q eval` flag
-- [ ] Adapt `EvaluationRunner` to accept progress callback
-- [ ] Implement progress callback that writes to Redis
+- [x] Create `infrastructure/tasks/eval_worker.py` with `run_evaluation_task`
+- [x] Configure `eval` queue in `celery_app.py`
+- [x] Update docker-compose to start worker with `-Q eval` flag
+- [ ] Adapt `EvaluationRunner` to accept progress callback (deferred - using coarse phase updates)
+- [x] Implement progress callback that writes to Redis
 
 #### 1.5 Run Management Endpoints
-- [ ] Implement `POST /metrics/eval/runs` - start evaluation, return run_id
-- [ ] Implement `GET /metrics/eval/runs/{run_id}` - get run status/results
-- [ ] Implement `GET /metrics/eval/runs` - list runs with pagination
-- [ ] Implement `DELETE /metrics/eval/runs/{run_id}` - delete completed run
-- [ ] Create Pydantic schemas: `EvalRunRequest`, `EvalRunResponse`, `EvalRunListResponse`
+- [x] Implement `POST /metrics/eval/runs` - start evaluation, return run_id
+- [x] Implement `GET /metrics/eval/runs/{run_id}` - get run status/results
+- [x] Implement `GET /metrics/eval/runs` - list runs with pagination
+- [x] Implement `DELETE /metrics/eval/runs/{run_id}` - delete completed run
+- [x] Create Pydantic schemas: `EvalRunRequest`, `EvalRunResponse`, `EvalRunListResponse`
 
 #### 1.6 Progress Tracking
-- [ ] Create `infrastructure/tasks/eval_progress.py` with Redis helpers
-- [ ] Implement `create_eval_run()`, `update_eval_progress()`, `get_eval_progress()`
-- [ ] Implement `GET /metrics/eval/runs/{run_id}/progress` SSE endpoint
+- [x] Create `infrastructure/tasks/eval_progress.py` with Redis helpers
+- [x] Implement `create_eval_run()`, `update_eval_progress()`, `get_eval_progress()`
+- [x] Implement `GET /metrics/eval/runs/{run_id}/progress` SSE endpoint
 - [ ] Test SSE with frontend client
 
 #### 1.7 Metric Groups Refactor
-- [ ] Update `evaluation_cc/config.py` `MetricConfig` to use group structure
-- [ ] Create `MetricGroup` enum: retrieval, generation, citation, abstention, performance
-- [ ] Update `EvaluationRunner` to compute metrics by group
-- [ ] Ensure CLI backward compatibility
+- [x] Update `evaluation_cc/config.py` `MetricConfig` to use group structure (already had group flags)
+- [x] Create `MetricGroup` enum: retrieval, generation, citation, abstention, performance (already exists in evaluation_cc/schemas)
+- [x] Update `EvaluationRunner` to compute metrics by group (already does this)
+- [x] Ensure CLI backward compatibility (maintained)
 
 ---
 
 ### Phase 2: Dashboard Integration
 
 #### 2.1 Analysis Endpoints Migration
-- [ ] Migrate `GET /metrics/evaluation/summary` → `GET /metrics/eval/summary`
-- [ ] Migrate baseline endpoints to `/metrics/eval/baseline/*`
-- [ ] Migrate compare endpoints to `/metrics/eval/compare/*`
-- [ ] Migrate recommend endpoint to `/metrics/eval/recommend`
-- [ ] Update all service layer calls
+- [x] Migrate `GET /metrics/evaluation/summary` → `GET /metrics/eval/summary`
+- [x] Migrate baseline endpoints to `/metrics/eval/baseline/*`
+- [x] Migrate compare endpoints to `/metrics/eval/compare/*`
+- [x] Migrate recommend endpoint to `/metrics/eval/recommend`
+- [x] Update all service layer calls
 
 #### 2.2 Pydantic Schema Refinement
-- [ ] Review and consolidate `schemas/metrics.py` with new eval schemas
-- [ ] Add request validation for all endpoints
-- [ ] Add response examples for OpenAPI docs
-- [ ] Ensure all nested objects have proper schemas
+- [x] Review and consolidate `schemas/metrics.py` with new eval schemas
+- [x] Fix schema imports (services were importing from wrong schema file)
+- [x] Add request validation for all endpoints (using Pydantic)
+- [ ] Add response examples for OpenAPI docs (deferred)
+- [x] Ensure all nested objects have proper schemas
 
 #### 2.3 OpenAPI Documentation
-- [ ] Add detailed descriptions to all endpoints
-- [ ] Add request/response examples
-- [ ] Document error responses
-- [ ] Generate TypeScript types for frontend
+- [x] Add detailed descriptions to all endpoints (docstrings)
+- [ ] Add request/response examples (deferred)
+- [x] Document error responses (EvalErrorResponse schema)
+- [ ] Generate TypeScript types for frontend (skipped per decision)
 
 #### 2.4 Error Handling
-- [ ] Implement consistent error response format
-- [ ] Add validation for dataset names, metric groups
-- [ ] Add judge requirement validation (error if generation group without judge)
-- [ ] Add helpful error messages with resolution hints
+- [x] Implement consistent error response format (EvalErrorResponse)
+- [x] Add validation for dataset names, metric groups (in start_evaluation_run)
+- [x] Add judge requirement validation (error if generation group without judge)
+- [x] Add helpful error messages with resolution hints
 
 #### 2.5 Service Layer Cleanup
-- [ ] Consolidate eval-related services under `services/eval/`
-- [ ] Remove duplicate code between CLI and API paths
-- [ ] Ensure `EvaluationRunner` is the single source of truth
+- [x] Consolidate eval-related services under `services/eval/`
+  - Created `services/eval/__init__.py` with clean exports
+  - Created `services/eval/history.py` for run storage/retrieval
+  - Created `services/eval/baseline.py` (refactored from class to functions)
+  - Created `services/eval/comparison.py` for run comparison
+  - Created `services/eval/recommendation.py` for config recommendations
+- [x] Remove duplicate code between CLI and API paths
+- [x] Ensure `EvaluationRunner` is the single source of truth (already was)
 
 ---
 
@@ -913,26 +959,28 @@ User selects: all groups, ragbench + qasper, 100 samples each
 ```
 services/rag_server/
 ├── api/routes/
-│   ├── eval.py                    # NEW: All /metrics/eval/* endpoints
-│   └── metrics.py                 # UPDATED: Only /metrics/system, /models, /retrieval
+│   ├── eval.py                    # All /metrics/eval/* endpoints
+│   └── metrics.py                 # Only /metrics/system, /models, /retrieval
 ├── schemas/
-│   ├── eval.py                    # NEW: Eval API request/response models
-│   └── metrics.py                 # UPDATED: Remove eval-specific schemas
+│   ├── eval.py                    # Eval API schemas (discovery, execution, results, analysis)
+│   └── metrics.py                 # System/model schemas (ConfigSnapshot, LatencyMetrics, etc.)
 ├── services/
-│   └── eval/                      # NEW: Eval service layer
-│       ├── __init__.py
-│       ├── groups.py              # Metric group definitions
-│       ├── datasets.py            # Dataset definitions
-│       └── runner.py              # Thin wrapper around evaluation_cc
+│   ├── eval/                      # Consolidated eval service layer
+│   │   ├── __init__.py            # Clean exports for all eval functions
+│   │   ├── history.py             # Run storage/retrieval, metric definitions
+│   │   ├── baseline.py            # Golden baseline management (functions)
+│   │   ├── comparison.py          # Run comparison functions
+│   │   └── recommendation.py      # Config recommendation functions
+│   └── metrics.py                 # System/model info services only
 ├── infrastructure/tasks/
-│   ├── celery_app.py              # UPDATED: Add eval queue config
-│   ├── eval_worker.py             # NEW: Evaluation Celery task
-│   └── eval_progress.py           # NEW: Redis progress helpers
+│   ├── celery_app.py              # Eval queue config
+│   ├── eval_worker.py             # Evaluation Celery task
+│   └── eval_progress.py           # Redis progress helpers
 ├── evaluation_cc/
-│   ├── config.py                  # UPDATED: Group-based MetricConfig
+│   ├── config.py                  # Group-based MetricConfig
 │   └── datasets/
-│       ├── registry.py            # UPDATED: Register golden dataset
-│       └── golden.py              # NEW: Golden dataset loader
+│       ├── registry.py            # Dataset registry with golden
+│       └── golden.py              # Golden dataset loader
 └── eval_data/
-    └── golden_qa.json             # EXISTING: Golden Q&A pairs
+    └── golden_qa.json             # Golden Q&A pairs
 ```

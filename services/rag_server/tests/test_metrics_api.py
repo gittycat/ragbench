@@ -4,9 +4,9 @@ Tests the following endpoints:
 - GET /metrics/system
 - GET /metrics/models
 - GET /metrics/retrieval
-- GET /metrics/evaluation/definitions
-- GET /metrics/evaluation/history
-- GET /metrics/evaluation/summary
+- GET /metrics/eval/definitions
+- GET /metrics/eval/runs
+- GET /metrics/eval/summary
 """
 
 import pytest
@@ -115,7 +115,6 @@ def mock_system_metrics():
         VectorSearchConfig,
         ContextualRetrievalConfig,
         RerankerConfig,
-        MetricDefinition,
     )
 
     mock_metrics = SystemMetrics(
@@ -185,15 +184,6 @@ def mock_system_metrics():
                 top_n=5,
             ),
         ),
-        evaluation_metrics=[
-            MetricDefinition(
-                name="precision_at_k",
-                category="retrieval",
-                description="Test metric",
-                threshold=0.5,
-                interpretation="Test",
-            ),
-        ],
         document_count=2,
         chunk_count=15,
         health_status="healthy",
@@ -354,14 +344,14 @@ def test_retrieval_endpoint_includes_research_references(mock_env_vars):
 # ============================================================================
 
 def test_eval_definitions_endpoint_returns_200():
-    """GET /metrics/evaluation/definitions should return 200."""
-    response = client.get("/metrics/evaluation/definitions")
+    """GET /metrics/eval/definitions should return 200."""
+    response = client.get("/metrics/eval/definitions")
     assert response.status_code == 200
 
 
 def test_eval_definitions_returns_list():
-    """GET /metrics/evaluation/definitions should return a list of metrics."""
-    response = client.get("/metrics/evaluation/definitions")
+    """GET /metrics/eval/definitions should return a list of metrics."""
+    response = client.get("/metrics/eval/definitions")
     data = response.json()
 
     assert isinstance(data, list)
@@ -370,7 +360,7 @@ def test_eval_definitions_returns_list():
 
 def test_eval_definitions_includes_required_fields():
     """Each metric definition should have required fields."""
-    response = client.get("/metrics/evaluation/definitions")
+    response = client.get("/metrics/eval/definitions")
     data = response.json()
 
     for metric in data:
@@ -383,7 +373,7 @@ def test_eval_definitions_includes_required_fields():
 
 def test_eval_definitions_includes_all_categories():
     """Metric definitions should cover all categories."""
-    response = client.get("/metrics/evaluation/definitions")
+    response = client.get("/metrics/eval/definitions")
     data = response.json()
 
     categories = {m["category"] for m in data}
@@ -394,7 +384,7 @@ def test_eval_definitions_includes_all_categories():
 
 def test_eval_definitions_includes_expected_metrics():
     """Metric definitions should include core RAG metrics."""
-    response = client.get("/metrics/evaluation/definitions")
+    response = client.get("/metrics/eval/definitions")
     data = response.json()
 
     metric_names = {m["name"] for m in data}
@@ -407,28 +397,51 @@ def test_eval_definitions_includes_expected_metrics():
 
 
 # ============================================================================
-# Evaluation History Endpoint Tests
+# Evaluation Runs Endpoint Tests
 # ============================================================================
 
-def test_eval_history_endpoint_returns_200():
-    """GET /metrics/evaluation/history should return 200."""
-    response = client.get("/metrics/evaluation/history")
+@pytest.fixture
+def mock_eval_progress():
+    """Mock Redis-based eval progress functions."""
+    mock_runs = [
+        {
+            "run_id": "test-run-1",
+            "name": "Test Run 1",
+            "status": "completed",
+            "created_at": "2025-01-01T00:00:00",
+            "completed_at": "2025-01-01T00:05:00",
+            "groups": ["retrieval"],
+            "datasets": ["golden"],
+            "total_questions": 10,
+            "results": {"weighted_score": 0.85},
+        }
+    ]
+
+    with patch('api.routes.eval.list_eval_runs', return_value=mock_runs):
+        yield mock_runs
+
+
+def test_eval_runs_endpoint_returns_200(mock_eval_progress):
+    """GET /metrics/eval/runs should return 200."""
+    response = client.get("/metrics/eval/runs")
     assert response.status_code == 200
 
 
-def test_eval_history_returns_structure():
-    """GET /metrics/evaluation/history should return expected structure."""
-    response = client.get("/metrics/evaluation/history")
+def test_eval_runs_returns_structure(mock_eval_progress):
+    """GET /metrics/eval/runs should return expected structure."""
+    response = client.get("/metrics/eval/runs")
     data = response.json()
 
     assert "runs" in data
-    assert "comparison_metrics" in data
+    assert "total" in data
+    assert "limit" in data
+    assert "offset" in data
     assert isinstance(data["runs"], list)
 
 
-def test_eval_history_supports_limit_param():
-    """GET /metrics/evaluation/history should support limit parameter."""
-    response = client.get("/metrics/evaluation/history?limit=5")
+def test_eval_runs_supports_limit_param(mock_eval_progress):
+    """GET /metrics/eval/runs should support limit parameter."""
+    response = client.get("/metrics/eval/runs?limit=5")
     assert response.status_code == 200
 
 
@@ -437,14 +450,14 @@ def test_eval_history_supports_limit_param():
 # ============================================================================
 
 def test_eval_summary_endpoint_returns_200():
-    """GET /metrics/evaluation/summary should return 200."""
-    response = client.get("/metrics/evaluation/summary")
+    """GET /metrics/eval/summary should return 200."""
+    response = client.get("/metrics/eval/summary")
     assert response.status_code == 200
 
 
 def test_eval_summary_returns_structure():
-    """GET /metrics/evaluation/summary should return expected structure."""
-    response = client.get("/metrics/evaluation/summary")
+    """GET /metrics/eval/summary should return expected structure."""
+    response = client.get("/metrics/eval/summary")
     data = response.json()
 
     assert "total_runs" in data
@@ -481,13 +494,13 @@ def test_system_metrics_returns_retrieval(mock_system_metrics):
     assert "hybrid_search" in data["retrieval"]
 
 
-def test_system_metrics_returns_eval_metrics(mock_system_metrics):
-    """GET /metrics/system should include evaluation metrics definitions."""
+def test_system_metrics_returns_document_count(mock_system_metrics):
+    """GET /metrics/system should include document count."""
     response = client.get("/metrics/system")
     data = response.json()
 
-    assert "evaluation_metrics" in data
-    assert isinstance(data["evaluation_metrics"], list)
+    assert "document_count" in data
+    assert isinstance(data["document_count"], int)
 
 
 def test_system_metrics_returns_document_stats(mock_system_metrics):

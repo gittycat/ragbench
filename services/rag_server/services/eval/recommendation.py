@@ -7,11 +7,8 @@ speed, and cost.
 
 import logging
 
-from schemas.metrics import (
-    EvaluationRun,
-    Recommendation,
-)
-from services.metrics import load_evaluation_history
+from schemas.eval import EvaluationRun, Recommendation
+from services.eval.history import load_evaluation_history
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +49,9 @@ def get_recommendation(
     runs = [r for r in history.runs if r.config_snapshot is not None]
 
     if len(runs) < 1:
-        logger.warning("Not enough evaluation runs with config snapshots for recommendation")
+        logger.warning(
+            "Not enough evaluation runs with config snapshots for recommendation"
+        )
         return None
 
     scored_runs = []
@@ -76,15 +75,17 @@ def get_recommendation(
     alternatives = []
     for run, scores, composite in scored_runs[1:4]:
         model_name = run.config_snapshot.llm_model if run.config_snapshot else "unknown"
-        alternatives.append({
-            "model": model_name,
-            "run_id": run.run_id,
-            "composite_score": round(composite, 3),
-            "accuracy": round(scores["accuracy"], 3),
-            "speed": round(scores["speed"], 3),
-            "cost": round(scores["cost"], 3),
-            "reason": _get_alternative_reason(scores, best_scores),
-        })
+        alternatives.append(
+            {
+                "model": model_name,
+                "run_id": run.run_id,
+                "composite_score": round(composite, 3),
+                "accuracy": round(scores["accuracy"], 3),
+                "speed": round(scores["speed"], 3),
+                "cost": round(scores["cost"], 3),
+                "reason": _get_alternative_reason(scores, best_scores),
+            }
+        )
 
     reasoning = _generate_reasoning(best_run, best_scores, weights, alternatives)
 
@@ -105,7 +106,7 @@ def _calculate_scores(
     run: EvaluationRun,
     all_runs: list[EvaluationRun],
 ) -> dict[str, float] | None:
-    # Returns dict with accuracy, speed, cost scores (0-1), or None if insufficient data
+    """Returns dict with accuracy, speed, cost scores (0-1), or None if insufficient data."""
     accuracy_values = []
     for metric in ACCURACY_METRICS:
         value = run.metric_averages.get(metric)
@@ -129,7 +130,9 @@ def _calculate_scores(
             max_latency = max(latencies)
             min_latency = min(latencies)
             if max_latency > min_latency:
-                speed_score = 1 - (run.latency.p95_query_time_ms - min_latency) / (max_latency - min_latency)
+                speed_score = 1 - (run.latency.p95_query_time_ms - min_latency) / (
+                    max_latency - min_latency
+                )
             else:
                 speed_score = 1.0
 
@@ -141,7 +144,9 @@ def _calculate_scores(
             max_cost = max(costs)
             min_cost = min(costs)
             if max_cost > min_cost:
-                cost_score = 1 - (run.cost.cost_per_query_usd - min_cost) / (max_cost - min_cost)
+                cost_score = 1 - (run.cost.cost_per_query_usd - min_cost) / (
+                    max_cost - min_cost
+                )
             elif max_cost == 0:
                 cost_score = 1.0
             else:
@@ -184,7 +189,9 @@ def _generate_reasoning(
     weights: dict[str, float],
     alternatives: list[dict],
 ) -> str:
-    model_name = best_run.config_snapshot.llm_model if best_run.config_snapshot else "Unknown"
+    model_name = (
+        best_run.config_snapshot.llm_model if best_run.config_snapshot else "Unknown"
+    )
 
     score_parts = []
     if scores["accuracy"] >= 0.8:
@@ -211,7 +218,9 @@ def _generate_reasoning(
     if alternatives:
         alt_models = [a["model"] for a in alternatives[:2]]
         if alt_models:
-            reasoning += f" Compared to {'/'.join(alt_models)}, it provides the best balance"
+            reasoning += (
+                f" Compared to {'/'.join(alt_models)}, it provides the best balance"
+            )
             max_weight = max(weights.items(), key=lambda x: x[1])
             if max_weight[1] > 0.4:
                 reasoning += f" for your {max_weight[0]} priority"

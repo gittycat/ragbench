@@ -6,12 +6,8 @@ calculating deltas for metrics, latency, and cost.
 
 import logging
 
-from schemas.metrics import (
-    ComparisonResult,
-    EvaluationRun,
-    LatencyMetrics,
-    CostMetrics,
-)
+from schemas.metrics import LatencyMetrics, CostMetrics
+from schemas.eval import ComparisonResult, EvaluationRun
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +69,7 @@ def _compare_metrics(
     metrics_a: dict[str, float],
     metrics_b: dict[str, float],
 ) -> dict[str, float]:
-    # Returns dict of metric deltas (positive = A is better)
+    """Returns dict of metric deltas (positive = A is better)."""
     deltas = {}
     all_metrics = set(metrics_a.keys()) | set(metrics_b.keys())
 
@@ -98,7 +94,7 @@ def _compare_latency(
     latency_a: LatencyMetrics | None,
     latency_b: LatencyMetrics | None,
 ) -> tuple[float | None, float | None]:
-    # Returns (delta_ms, improvement_pct). Positive delta = A is faster
+    """Returns (delta_ms, improvement_pct). Positive delta = A is faster."""
     if not latency_a or not latency_b:
         return None, None
 
@@ -116,7 +112,7 @@ def _compare_cost(
     cost_a: CostMetrics | None,
     cost_b: CostMetrics | None,
 ) -> tuple[float | None, float | None]:
-    # Returns (delta_usd, improvement_pct). Positive delta = A is cheaper
+    """Returns (delta_usd, improvement_pct). Positive delta = A is cheaper."""
     if not cost_a or not cost_b:
         return None, None
 
@@ -137,7 +133,7 @@ def _determine_winner(
     run_a: EvaluationRun,
     run_b: EvaluationRun,
 ) -> tuple[str, str]:
-    # Returns (winner, reason)
+    """Returns (winner, reason)."""
     if metric_deltas:
         avg_delta = sum(metric_deltas.values()) / len(metric_deltas)
     else:
@@ -187,12 +183,20 @@ def _determine_winner(
 
     if score_a > score_b + 0.1:
         winner = "run_a"
-        model_name = run_a.config_snapshot.llm_model if run_a.config_snapshot else run_a.run_id
-        reason = f"{model_name}: " + ", ".join(reasons) if reasons else "Higher overall score"
+        model_name = (
+            run_a.config_snapshot.llm_model if run_a.config_snapshot else run_a.run_id
+        )
+        reason = (
+            f"{model_name}: " + ", ".join(reasons) if reasons else "Higher overall score"
+        )
     elif score_b > score_a + 0.1:
         winner = "run_b"
-        model_name = run_b.config_snapshot.llm_model if run_b.config_snapshot else run_b.run_id
-        reason = f"{model_name}: " + ", ".join(reasons) if reasons else "Higher overall score"
+        model_name = (
+            run_b.config_snapshot.llm_model if run_b.config_snapshot else run_b.run_id
+        )
+        reason = (
+            f"{model_name}: " + ", ".join(reasons) if reasons else "Higher overall score"
+        )
     else:
         winner = "tie"
         reason = "Similar performance across metrics, latency, and cost"
