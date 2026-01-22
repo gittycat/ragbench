@@ -16,6 +16,7 @@ class DatasetName(str, Enum):
     SQUAD_V2 = "squad_v2"
     HOTPOTQA = "hotpotqa"
     MSMARCO = "msmarco"
+    GOLDEN = "golden"
 
 
 # Dataset -> Primary evaluation aspect mapping
@@ -25,6 +26,7 @@ DATASET_ASPECTS = {
     DatasetName.SQUAD_V2: ["abstention"],  # Unanswerable questions
     DatasetName.HOTPOTQA: ["retrieval", "generation"],  # Multi-hop reasoning
     DatasetName.MSMARCO: ["retrieval"],  # Retrieval ranking
+    DatasetName.GOLDEN: ["generation", "retrieval"],  # Local curated Q&A pairs
 }
 
 

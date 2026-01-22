@@ -45,12 +45,14 @@ def _register_default_loaders() -> None:
     from evaluation_cc.datasets.squad_v2 import SquadV2Loader
     from evaluation_cc.datasets.hotpotqa import HotpotQALoader
     from evaluation_cc.datasets.msmarco import MSMarcoLoader
+    from evaluation_cc.datasets.golden import GoldenDatasetLoader
 
     register(DatasetName.RAGBENCH, RAGBenchLoader)
     register(DatasetName.QASPER, QasperLoader)
     register(DatasetName.SQUAD_V2, SquadV2Loader)
     register(DatasetName.HOTPOTQA, HotpotQALoader)
     register(DatasetName.MSMARCO, MSMarcoLoader)
+    register(DatasetName.GOLDEN, GoldenDatasetLoader)
 
 
 # Register loaders on import

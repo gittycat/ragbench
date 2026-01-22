@@ -87,12 +87,12 @@ services:
       - private
     restart: unless-stopped
 
-  # Celery Worker - Async document processing
+  # Celery Worker - Async document processing (documents queue)
   celery-worker:
     build:
       context: .
       dockerfile: ./services/rag_server/Dockerfile
-    command: [".venv/bin/celery", "--quiet", "-A", "infrastructure.tasks.celery_app", "worker", "--concurrency=1", "--without-mingle", "--without-gossip"]
+    command: [".venv/bin/celery", "--quiet", "-A", "infrastructure.tasks.celery_app", "worker", "-Q", "celery,documents", "--concurrency=1", "--without-mingle", "--without-gossip"]
     user: "1000:1000"
     restart: unless-stopped
     environment:
@@ -124,6 +124,41 @@ services:
       - docs_repo:/tmp/shared
       - huggingface_cache:/home/appuser/.cache/huggingface
       - documents_data:/data/documents
+    secrets:
+      - ollama_config
+
+  # Celery Eval Worker - Async evaluation processing (eval queue)
+  eval-worker:
+    build:
+      context: .
+      dockerfile: ./services/rag_server/Dockerfile
+    command: [".venv/bin/celery", "--quiet", "-A", "infrastructure.tasks.celery_app", "worker", "-Q", "eval", "--concurrency=1", "--without-mingle", "--without-gossip"]
+    user: "1000:1000"
+    restart: unless-stopped
+    environment:
+      # Database
+      - CHROMADB_URL=http://chromadb:8000
+      - REDIS_URL=redis://redis:6379/0
+      # API Keys (from secrets/.env)
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # Application Settings
+      - LOG_LEVEL=WARNING
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      redis:
+        condition: service_started
+      rag-server:
+        condition: service_healthy
+    networks:
+      - private
+      - public
+    volumes:
+      - ./config:/app/config:ro               # Model configuration (read-only)
+      - ./services/rag_server/eval_data:/app/eval_data  # Evaluation data and results
+      - ./services/rag_server/data:/app/data            # Evaluation run storage
+      - huggingface_cache:/home/appuser/.cache/huggingface
     secrets:
       - ollama_config
 
