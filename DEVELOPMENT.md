@@ -1,93 +1,133 @@
 # Development Guide
 
-Technical documentation for the RAG system. Covers architecture, backend services, APIs, configuration, testing, and deployment.
+This document covers the RAG server architecture, supporting services, APIs, evals, configuration, testing, and deployment. It targets both human devs and AI agents. It is brief and point like by design. An understanding of RAG and of the tech stacks used is assumed.
 
 For frontend/UI documentation, see [FRONT_END.md](FRONT_END.md).
 
 ## Table of Contents
 
+- [Overview](#overview)
 - [Architecture](#architecture)
 - [Technology Stack](#technology-stack)
 - [Service Architecture](#service-architecture)
-- [Backend Design](#backend-design)
 - [Configuration](#configuration)
+- [Evaluation Framework](#evaluation-framework)
 - [API Reference](#api-reference)
 - [Development Setup](#development-setup)
 - [Testing](#testing)
 - [CI/CD](#cicd)
 - [Deployment](#deployment)
-- [Evaluation Framework](#evaluation-framework)
 - [Observability](#observability)
 - [Troubleshooting](#troubleshooting)
 - [Roadmap](#roadmap)
 
+## Overview
+
+The project implements a Local RAG (Retrieval-Augmented Generation) system for querying document collections using a LLM.
+
+The differentiating features of this RAG are:
+
+### a) Data Privacy & Deployment Flexibility
+
+**Fully On-Premises Option**:
+- Complete open-source stack: Ollama (LLM + embeddings), ChromaDB (vectors), Redis (cache/memory)
+- No external network calls required - runs entirely within your infrastructure
+- Ideal for sensitive documents requiring air-gapped deployment
+
+**Cloud-Optimized Option**:
+- Multi-provider LLM support: OpenAI, Anthropic, Google Gemini, DeepSeek, Moonshot
+- Leverage frontier models for maximum performance
+- Note: Data anonymization for cloud providers planned but not yet implemented (see [Roadmap](#roadmap))
+
+**Hybrid Deployment**:
+- Mix and match: local embeddings with cloud LLM, or vice versa
+- Configure per-component via `config/models.yml`
+
+### b) Extensive Evaluation Framework
+
+**Systematic RAG Evaluation**:
+- DeepEval framework with LLM-as-judge (Claude Sonnet 4)
+- Five metric categories: Contextual Precision, Contextual Recall, Faithfulness, Answer Relevancy, Hallucination
+- Golden dataset testing with customizable Q&A pairs
+
+**Admin Decision Support**:
+- Evaluation history and trend tracking
+- Baseline comparison (compare current config to golden baseline)
+- Configuration recommendation API (optimize for accuracy vs cost vs latency)
+- CLI and pytest integration for CI/CD workflows
+
+**Metrics API**:
+- Real-time system health monitoring
+- Per-run detailed metrics
+- Compare evaluation runs side-by-side
+- Designed for frontend visualization (integration planned)
+
+### c) Advanced RAG Capabilities
+
+**Implemented**:
+- **Hybrid Search**: Combines BM25 (sparse) + vector (dense) with Reciprocal Rank Fusion (~48% retrieval improvement)
+- **Contextual Retrieval**: LLM-generated chunk context before embedding (~49% fewer retrieval failures)
+- **Reranking**: Cross-encoder reranking for relevance optimization
+- **Conversational Memory**: Redis-backed session management with chat history
+- **Multi-Format Documents**: PDF, DOCX, PPTX, XLSX, Markdown, HTML, AsciiDoc via Docling parser
+- **Async Processing**: Background document ingestion with progress tracking
+- **Deduplication**: SHA-256 hash-based duplicate detection
+
+**Planned** (see [Roadmap](#roadmap)):
+- Parent document retrieval (sentence window method)
+- Query fusion (multi-query generation)
+- Multi-modal support (images, video, voice in prompts)
+- Additional file formats (CSV, JSON)
+
 ## Architecture
 
-### System Overview
+The system is composed of multiple services running in a Docker Compose managed environment. Services communicate over a private Docker network, with select services exposed to the host for user access. Docker Compose handles service orchestration, dependency management, volume mounts, and network isolation.
 
-```
-     ┌──────────────┐              ┌────────────────────────────────────┐
-     │   End User   │              │   Ollama                           │
-     │   (browser)  │              │                                    │
-     └──────┬───────┘              │   • LLM: gemma3:4b                 │
-            │                      │   • Embeddings: nomic-embed-text   │
-            │                      └──────────────────┬─────────────────┘
-            │                                         │ :11434 (localhost)
-            │         EXTERNAL NETWORK                │
-   =========│=========================================│===================
-            │         INTERNAL NETWORK                │
-            │    (docker-compose priv network)        │
-            │                                         │
-            │ :8000                                   │
-   ┌────────▼────────┐                                │
-   │     WebApp      │ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│ ─ ─ ─ ─ ─ ─ ─ ┐
-   │   (SvelteKit)   │                                │               │
-   └────────┬────────┘                                │               │
-            │                                         │               │
-            │ :8001                                   │               │
-   ┌────────▼───────────────────────────────┐         │               │
-   │            RAG Server (FastAPI)        │─────────┘               │
-   │                                        │                         │
-   │  ┌──────────────────────────────────┐  │                         │
-   │  │  Docling + LlamaIndex            │  │                         │
-   │  │  • Hybrid Search (BM25+Vector)   │  │                         │
-   │  │  • Reranking                     │  │                         │
-   │  │  • Contextual Retrieval          │  │                         │
-   │  └──────────────────────────────────┘  │                         │
-   └───────┬────────────────┬───────────────┘                         │
-           │                │                                         │
-           │                │ Celery task queue                       │
-           │                │                                         │
-   ┌───────▼──────┐  ┌──────▼──────┐  ┌─────────────────────┐         │
-   │   ChromaDB   │  │    Redis    │  │    Celery Worker    │◄────────┘
-   │  (Vectors)   │  │  (Broker +  │  │  (Async document    │
-   │              │  │   Memory)   │  │   processing)       │
-   └──────────────┘  └─────────────┘  └──────────┬──────────┘
-                                                 │
-   ┌─────────────────────────────────────────────▼────────────────┐
-   │         Shared Volume: /tmp/shared (File Transfer)           │
-   └──────────────────────────────────────────────────────────────┘
-```
+### Services
+
+**Backend Service**:
+- **rag_server** (Python 3.13 + FastAPI): Main API service handling document processing and RAG queries
+  - Docling for document parsing
+  - LlamaIndex for RAG pipeline
+  - Hybrid Search (BM25 + Vector with RRF fusion)
+  - Reranking with cross-encoder
+  - Contextual Retrieval (optional)
+
+**Support Services**:
+- **chromadb** (Python + ChromaDB): Vector database for embeddings storage and retrieval
+- **redis** (Redis 8+): Message broker for Celery + result backend + chat memory persistence
+- **celery-worker** (Python 3.13 + Celery): Background task processor for async document ingestion
+  - Shares codebase with rag_server (same Docker image, different entrypoint)
+
+**Frontend Service**:
+- **webapp** (Typescript + SvelteKit): User interface for document upload, chat, and session management
+  - Proxies API requests to rag_server
+  - Exposed on port 8000
+
+### External Services
+
+**Required**:
+- **Ollama** (runs on host machine): Local LLM inference and embedding generation
+  - Default models: gemma3:4b (LLM), nomic-embed-text (embeddings)
+  - Accessed via `host.docker.internal:11434`
+  - Can be replaced with cloud providers (OpenAI, Anthropic, Google, DeepSeek, Moonshot)
 
 ### Network Isolation
 
-| Network | Services | Purpose |
-|---------|----------|---------|
-| `public` | webapp, rag-server | Accessible from host |
-| `private` | chromadb, redis, celery-worker | Internal only |
-
-Ollama runs on host machine, accessed via `host.docker.internal:11434`.
+- **Public network**: webapp, rag-server (accessible from host)
+- **Private network**: chromadb, redis, celery-worker (internal only)
+- **Shared volumes**: Document staging (`/tmp/shared`), vector DB persistence, Redis data, model cache
 
 ### Data Flow
 
-**Document Upload (Async):**
+**Document Upload:**
 1. Client uploads files → Webapp proxies to RAG Server
 2. RAG Server saves to shared volume, queues Celery task
 3. Celery Worker: Docling parsing → chunking → embeddings → ChromaDB
 4. BM25 index refreshes automatically
 5. Client polls progress via batch_id
 
-**Query (Synchronous):**
+**Query (Inference):**
 1. Query → Hybrid retrieval (BM25 + Vector + RRF fusion)
 2. Reranking → Top-N selection
 3. LLM generates answer with context
@@ -160,15 +200,12 @@ services/rag_server/
 ```
 
 **Key Modules:**
-
-| Directory | Purpose |
-|-----------|---------|
-| `pipelines/ingestion.py` | Document processing: parsing, chunking, embedding, indexing |
-| `pipelines/inference.py` | Query processing: retrieval, reranking, generation |
-| `infrastructure/llm/` | Multi-provider LLM client factory |
-| `infrastructure/database/` | ChromaDB vector store management |
-| `infrastructure/tasks/` | Celery configuration and workers |
-| `infrastructure/config/` | YAML configuration loading |
+- `pipelines/ingestion.py`: Document processing (parsing, chunking, embedding, indexing)
+- `pipelines/inference.py`: Query processing (retrieval, reranking, generation)
+- `infrastructure/llm/`: Multi-provider LLM client factory
+- `infrastructure/database/`: ChromaDB vector store management
+- `infrastructure/tasks/`: Celery configuration and workers
+- `infrastructure/config/`: YAML configuration loading
 
 ### Celery Worker
 
@@ -187,83 +224,46 @@ Shares codebase with RAG Server (same Docker image, different entrypoint).
 
 ### Docker Volumes
 
-| Volume | Purpose |
-|--------|---------|
-| `chromadb_data` | Vector database persistence |
-| `redis_data` | Cache and session persistence |
-| `docs_repo` | Shared file upload staging |
-| `huggingface_cache` | Reranker model cache |
-| `documents_data` | Original document storage for downloads |
+- `chromadb_data`: Vector database persistence
+- `redis_data`: Cache and session persistence
+- `docs_repo`: Shared file upload staging
+- `huggingface_cache`: Reranker model cache
+- `documents_data`: Original document storage for downloads
 
-## Backend Design
+## Core Concepts
 
-### Ingestion Pipeline
+### Document Processing
 
-**Supported File Formats:**
-`.txt`, `.md`, `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.html`, `.htm`, `.asciidoc`, `.adoc`
+**Supported Formats**: `.txt`, `.md`, `.pdf`, `.docx`, `.pptx`, `.xlsx`, `.html`, `.htm`, `.asciidoc`, `.adoc`
 
-**Processing Steps:**
+**Pipeline**:
+1. Validation and deduplication (SHA-256 hashing)
+2. Parsing (Docling for complex formats, SimpleDirectoryReader for text)
+3. Chunking (500 tokens, 50 overlap)
+4. Optional contextual enhancement (LLM-generated chunk context)
+5. Embedding generation
+6. Indexing (ChromaDB + BM25)
 
-1. **Validation**: Check format, compute SHA-256 hash
-2. **Parsing**:
-   - Complex formats (PDF, DOCX, etc.): Docling with JSON export → DoclingNodeParser
-   - Simple text: SimpleDirectoryReader → SentenceSplitter
-3. **Chunking**: 500 tokens, 50 token overlap
-4. **Contextual Enhancement** (optional): LLM generates 1-2 sentence context per chunk
-5. **Embedding**: Via Ollama or cloud provider
-6. **Indexing**: ChromaDB + BM25 index refresh
-7. **Storage**: Original file saved for download functionality
+### Retrieval Strategy
 
-**Critical Implementation Notes:**
-- DoclingReader MUST use `export_type=JSON` (DoclingNodeParser requirement)
-- ChromaDB metadata must be flat types only (str, int, float, bool, None)
-- Contextual retrieval adds ~85% to processing time
+**Hybrid Search**: Combines sparse (BM25) and dense (vector) retrieval using Reciprocal Rank Fusion (RRF). Improves retrieval quality by ~48% over single-method approaches.
 
-### Inference Pipeline
+**Reranking**: Cross-encoder (ms-marco-MiniLM-L-6-v2) reranks results for better relevance. Returns top 5 chunks by default.
 
-**Hybrid Search (BM25 + Vector + RRF):**
-- Retrieves top-K from each method (default: 10)
-- Reciprocal Rank Fusion with k=60
-- Reference: [Pinecone Hybrid Search](https://www.pinecone.io/learn/hybrid-search-intro/)
-- Claims 48% improvement in retrieval quality
+**Contextual Retrieval**: Optional feature where LLM generates document context for each chunk before embedding. Reduces retrieval failures by ~49% with no query-time overhead. Adds ~85% to indexing time.
 
-**Reranking:**
-- Model: cross-encoder/ms-marco-MiniLM-L-6-v2
-- Reranks combined results
-- Returns top-N (default: 5)
-- Pre-initialized at startup to avoid first-query latency
+### Chat Features
 
-**Contextual Retrieval (Anthropic Method):**
-- LLM generates document context per chunk before embedding
-- Zero query-time overhead (context embedded at indexing)
-- Reference: [Anthropic Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval)
-- Claims 49% reduction in retrieval failures
+**Session Management**: Redis-backed conversation history with persistent storage (no TTL).
 
-**Chat Memory:**
-- Redis-backed via LlamaIndex RedisChatStore
-- Session-based with no TTL (persistent)
-- Chat mode: `condense_plus_context`
+**Chat Mode**: Uses `condense_plus_context` - condenses conversation history into standalone query, then retrieves context.
 
-### Document Metadata Schema
+### Document Metadata
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `document_id` | string | UUID identifying document |
-| `file_name` | string | Original filename |
-| `file_type` | string | Extension (.pdf, .txt, etc.) |
-| `file_size_bytes` | int | File size |
-| `file_hash` | string | SHA-256 for deduplication |
-| `path` | string | File directory path |
-| `chunk_index` | int | Position within document |
-| `uploaded_at` | string | ISO 8601 timestamp |
-
-### Deduplication
-
-Client-side SHA-256 hash computation matches LlamaIndex hashing:
-1. Browser computes hash before upload
-2. Backend checks ChromaDB metadata for existing hash
-3. Duplicates rejected with existing filename reference
-4. Only new files processed
+Each chunk stored with:
+- `document_id`, `file_name`, `file_type`, `file_size_bytes`
+- `file_hash` (SHA-256 for deduplication)
+- `path`, `chunk_index`, `uploaded_at` (ISO 8601)
 
 ## Configuration
 
@@ -331,6 +331,120 @@ OLLAMA_KEEP_ALIVE=10m
 | `MAX_UPLOAD_SIZE` | `80` | Max upload size in MB |
 | `LLM_API_KEY` | - | Cloud LLM API key |
 | `ANTHROPIC_API_KEY` | - | Evaluation API key |
+
+## Evaluation Framework
+
+### Why Evaluate RAG Systems
+
+RAG systems combine two failure-prone components: retrieval (finding relevant context) and generation (producing accurate answers). Evaluation ensures:
+- **Retrieval Quality**: Are we finding the right chunks?
+- **Answer Quality**: Is the generated response accurate and relevant?
+- **Safety**: Are we hallucinating or producing unsupported claims?
+
+Without systematic evaluation, configuration changes (chunk size, top-k, reranking) are guesswork.
+
+### Evaluation Approach
+
+**Test Dataset**: Golden Q&A pairs (question, expected answer, ground truth context)
+- Current: 10 pairs from Paul Graham essays
+- Target: 100+ pairs for production confidence
+- Location: `eval_data/golden_qa.json`
+
+**Evaluation Types**:
+- **Retrieval Metrics**: Measure if correct chunks are retrieved
+- **Generation Metrics**: Measure answer accuracy and relevance
+- **Safety Metrics**: Detect hallucinations and unsupported claims
+
+**Public Datasets**: Five additional datasets available for comprehensive evaluation (retrieval, generation, citation, abstention). See [docs/RAG_EVALUATION_DATASETS.md](docs/RAG_EVALUATION_DATASETS.md).
+
+### Framework: DeepEval
+
+**Why DeepEval**: Migrated from RAGAS (2025-12-07) for better CI/CD integration and pytest compatibility.
+
+**LLM Judge**: Claude Sonnet 4 (Anthropic) - evaluates retrieval relevance, answer faithfulness, and hallucination detection.
+
+**Integration**:
+- Pytest integration with custom markers (`@pytest.mark.eval`)
+- CLI tool for standalone evaluation
+- CI/CD compatible (optional eval tests on demand)
+- Results stored in `eval_data/runs/` for metrics API
+
+### Metrics & Thresholds
+
+**Retrieval Metrics**:
+- **Contextual Precision** (threshold: 0.7): Are retrieved chunks relevant to the query?
+- **Contextual Recall** (threshold: 0.7): Did we retrieve all information needed to answer?
+
+**Generation Metrics**:
+- **Faithfulness** (threshold: 0.7): Is the answer grounded in retrieved context?
+- **Answer Relevancy** (threshold: 0.7): Does the answer address the question?
+
+**Safety Metrics**:
+- **Hallucination** (threshold: 0.5): Rate of claims not supported by context
+
+Higher scores are better (except hallucination - lower is better).
+
+### Running Evaluations
+
+**Prerequisites**: `ANTHROPIC_API_KEY` environment variable
+
+**CLI Usage**:
+```bash
+cd services/rag_server
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Quick evaluation (5 samples)
+.venv/bin/python -m evaluation.cli eval --samples 5
+
+# Full evaluation
+.venv/bin/python -m evaluation.cli eval
+
+# Save results for metrics API
+.venv/bin/python -m evaluation.cli eval --save
+
+# Dataset statistics
+.venv/bin/python -m evaluation.cli stats
+
+# Generate synthetic Q&A pairs
+.venv/bin/python -m evaluation.cli generate document.txt -n 10
+```
+
+**Pytest Integration**:
+```bash
+# Run eval tests (requires --run-eval flag)
+pytest tests/ --run-eval --eval-samples=5
+
+# Just eval tests
+just test-eval         # Quick (5 samples)
+just test-eval-full    # Full dataset
+```
+
+**CI/CD**: Evaluation tests are optional (expensive, ~2-5min). Trigger via commit message containing `[eval]` or manual workflow dispatch.
+
+### Evaluation API Endpoints
+
+**Core Endpoints**:
+- `GET /metrics/evaluation/definitions`: Metric descriptions and thresholds
+- `GET /metrics/evaluation/history`: Past evaluation runs
+- `GET /metrics/evaluation/summary`: Latest run with trend analysis
+- `GET /metrics/evaluation/{run_id}`: Specific run details
+- `DELETE /metrics/evaluation/{run_id}`: Delete evaluation run
+
+**Baseline & Comparison**:
+- `GET /metrics/baseline`: Get golden baseline run
+- `POST /metrics/baseline/{run_id}`: Set run as golden baseline
+- `DELETE /metrics/baseline`: Clear baseline
+- `GET /metrics/compare/{run_a}/{run_b}`: Compare two runs
+- `GET /metrics/compare-to-baseline/{run_id}`: Compare run to baseline
+
+**Configuration Tuning**:
+- `POST /metrics/recommend`: Get configuration recommendation based on evaluation history
+
+### Research References
+
+- [Evidently AI - RAG Evaluation Guide](https://www.evidentlyai.com/llm-guide/rag-evaluation)
+- [Braintrust - RAG Evaluation Tools 2025](https://www.braintrust.dev/articles/best-rag-evaluation-tools)
+- [Patronus AI - RAG Best Practices](https://www.patronus.ai/llm-testing/rag-evaluation-metrics)
 
 ## API Reference
 
@@ -488,11 +602,9 @@ just release X.Y.Z      # Full release workflow
 
 ### Test Categories
 
-| Category | Count | Requirements | Command |
-|----------|-------|--------------|---------|
-| Unit | 32 | None (mocked) | `just test-unit` |
-| Integration | 25 | Docker services | `just test-integration` |
-| Evaluation | 27 | ANTHROPIC_API_KEY | `just test-eval` |
+- **Unit** (32 tests): No dependencies, fully mocked. Run: `just test-unit`
+- **Integration** (25 tests): Requires Docker services. Run: `just test-integration`
+- **Evaluation** (27 tests): Requires ANTHROPIC_API_KEY. Run: `just test-eval`
 
 ### Test Structure
 
@@ -512,12 +624,10 @@ tests/
 
 ### Key Integration Tests
 
-| Test | Validates |
-|------|-----------|
-| `test_pdf_full_pipeline` | PDF → Docling → ChromaDB → queryable |
-| `test_bm25_refresh_after_upload` | Index sync after document operations |
-| `test_celery_task_completes` | Async upload via Celery |
-| `test_corrupted_pdf_handling` | Graceful error handling |
+- `test_pdf_full_pipeline`: PDF → Docling → ChromaDB → queryable
+- `test_bm25_refresh_after_upload`: Index sync after document operations
+- `test_celery_task_completes`: Async upload via Celery
+- `test_corrupted_pdf_handling`: Graceful error handling
 
 ### Pytest Markers
 
@@ -557,12 +667,9 @@ docker exec forgejo-runner forgejo-runner register \
 - Manual workflow dispatch
 
 **Jobs:**
-
-| Job | Duration | Always Runs | Requirements |
-|-----|----------|-------------|--------------|
-| Core Tests | ~30s | Yes | None |
-| Eval Tests | ~2-5min | Optional | ANTHROPIC_API_KEY |
-| Docker Build | ~5-10min | Yes | None |
+- **Core Tests** (~30s): Always runs, no special requirements
+- **Eval Tests** (~2-5min): Optional, requires ANTHROPIC_API_KEY
+- **Docker Build** (~5-10min): Always runs, no special requirements
 
 **Triggering Evaluation Tests:**
 - Commit message containing `[eval]`
@@ -590,12 +697,10 @@ just deploy-down local
 
 ### Compose File Structure
 
-| File | Purpose |
-|------|---------|
-| `docker-compose.yml` | Base configuration |
-| `docker-compose.local.yml` | Local overrides (debug logging) |
-| `docker-compose.cloud.yml` | Cloud overrides (registry images) |
-| `docker-compose.ci.yml` | CI/CD infrastructure |
+- `docker-compose.yml`: Base configuration
+- `docker-compose.local.yml`: Local overrides (debug logging)
+- `docker-compose.cloud.yml`: Cloud overrides (registry images)
+- `docker-compose.ci.yml`: CI/CD infrastructure
 
 ### Version Management
 
@@ -614,111 +719,45 @@ For production with container registry:
 2. Cloud server pulls new images
 3. Compose restarts with new versions
 
-## Evaluation Framework
-
-### DeepEval Integration
-
-Migrated from RAGAS (2025-12-07) for better CI/CD integration.
-
-**Metrics:**
-
-| Metric | Category | Threshold | Description |
-|--------|----------|-----------|-------------|
-| Contextual Precision | Retrieval | 0.7 | Are retrieved chunks relevant? |
-| Contextual Recall | Retrieval | 0.7 | Did we retrieve all needed info? |
-| Faithfulness | Generation | 0.7 | Is answer grounded in context? |
-| Answer Relevancy | Generation | 0.7 | Does answer address question? |
-| Hallucination | Safety | 0.5 | Unsupported information rate |
-
-**LLM Judge:** Claude Sonnet 4 (Anthropic)
-
-### Evaluation Commands
-
-```bash
-# CLI usage
-cd services/rag_server
-export ANTHROPIC_API_KEY=sk-ant-...
-
-# Quick evaluation (5 samples)
-.venv/bin/python -m evaluation.cli eval --samples 5
-
-# Full evaluation
-.venv/bin/python -m evaluation.cli eval
-
-# Save results for metrics API
-.venv/bin/python -m evaluation.cli eval --save
-
-# Dataset statistics
-.venv/bin/python -m evaluation.cli stats
-
-# Generate synthetic Q&A pairs
-.venv/bin/python -m evaluation.cli generate document.txt -n 10
-```
-
-### Golden Dataset
-
-Location: `eval_data/golden_qa.json`
-Current size: 10 Q&A pairs from Paul Graham essays
-Target: 100+ pairs for comprehensive evaluation
-
-### Evaluation Datasets
-
-Five public datasets are supported for comprehensive RAG evaluation, each targeting specific aspects (retrieval, generation, citation, abstention). See [docs/RAG_EVALUATION_DATASETS.md](docs/RAG_EVALUATION_DATASETS.md) for dataset details, implementation plan, and integration guidance.
-
 ## Observability
 
 ### Metrics API
 
 Comprehensive visibility into system configuration and performance.
 
-**Core Endpoints:**
-- `/metrics/system`: Complete overview
+**System Endpoints**:
+- `/metrics/system`: Complete system overview + health status
 - `/metrics/models`: Model details with references
 - `/metrics/retrieval`: Pipeline configuration
-- `/metrics/evaluation/history`: Past evaluation runs
-- `/metrics/evaluation/summary`: Trends analysis
-- `/metrics/evaluation/{run_id}`: Get/delete specific run
 
-**Baseline & Comparison:**
-- `/metrics/baseline`: Get/set/clear golden baseline
-- `/metrics/compare/{a}/{b}`: Compare two runs
-- `/metrics/compare-to-baseline/{run_id}`: Compare to baseline
-- `/metrics/recommend`: Get optimal config recommendation
+**Evaluation Endpoints**: See [Evaluation Framework](#evaluation-framework) section above for complete evaluation API documentation.
 
 ### Health Monitoring
 
-Component health status via `/metrics/system`:
+Component health via `/metrics/system`:
 - ChromaDB: Vector database connectivity
 - Redis: Cache and broker connectivity
 - Ollama: LLM availability
 
-### Key Metrics to Track
+### Key Metrics
 
-| Category | Metrics |
-|----------|---------|
-| Retrieval | Contextual Precision, Contextual Recall, MRR, Hit Rate |
-| Generation | Faithfulness, Answer Relevancy, Hallucination Rate |
-| Operational | Latency (P50, P95), Tokens per query, Cost |
+**Retrieval**: Contextual Precision, Contextual Recall, MRR, Hit Rate
 
-### Research References
+**Generation**: Faithfulness, Answer Relevancy, Hallucination Rate
 
-- [Evidently AI - RAG Evaluation Guide](https://www.evidentlyai.com/llm-guide/rag-evaluation)
-- [Braintrust - RAG Evaluation Tools 2025](https://www.braintrust.dev/articles/best-rag-evaluation-tools)
-- [Patronus AI - RAG Best Practices](https://www.patronus.ai/llm-testing/rag-evaluation-metrics)
+**Operational**: Latency (P50, P95), Tokens per query, Cost
 
 ## Troubleshooting
 
 ### Common Issues
 
-| Issue | Solution |
-|-------|----------|
-| Ollama not accessible | Check host binding: `curl http://localhost:11434/api/tags` |
-| ChromaDB connection fails | Verify `private` network connectivity |
-| Docker build fails | Ensure `--index-strategy unsafe-best-match` in Dockerfile |
-| Tests fail | Use `.venv/bin/pytest` not `uv run pytest` |
-| Reranker slow first query | Model downloads ~80MB on first use |
-| BM25 not initializing | Requires documents or initializes after first upload |
-| Contextual retrieval not working | Check `enable_contextual_retrieval: true` in config |
+- **Ollama not accessible**: Check host binding with `curl http://localhost:11434/api/tags`
+- **ChromaDB connection fails**: Verify `private` network connectivity
+- **Docker build fails**: Ensure `--index-strategy unsafe-best-match` in Dockerfile
+- **Tests fail**: Use `.venv/bin/pytest` not `uv run pytest`
+- **Reranker slow first query**: Model downloads ~80MB on first use
+- **BM25 not initializing**: Requires documents at startup or initializes after first upload
+- **Contextual retrieval not working**: Check `enable_contextual_retrieval: true` in config
 
 ### Service Logs
 
@@ -789,34 +828,32 @@ docker compose up -d
 
 ### Planned
 
-- Webapp integration for metrics visualization
-- Expand golden dataset to 100+ Q&A pairs
+**Privacy & Security**:
+- Data anonymization for cloud LLM providers (anonymize on send, de-anonymize on receive)
+
+**RAG Capabilities**:
 - Parent document retrieval (sentence window)
 - Query fusion (multi-query generation)
-- Multi-user support with authentication
 - Additional file formats (CSV, JSON)
+
+**Evaluation & Observability**:
+- Webapp integration for metrics visualization
+- Expand golden dataset to 100+ Q&A pairs
+
+**Platform Features**:
+- Multi-user support with authentication
 
 ### Future / TBD
 
-Most of these points would be needed for enterprise deployement. 
-An Service Level Agreement document would define and quantify many of these.
-
-- Authentication. Basic user authentication.
-For enterprise: integration with Directory Service (eg: LDAP, IAM, SSO)
-- Authorisation: Basic admin and user roles.
-For enterprise: integration with Directory Service to get finer grain permisisons. Implement finer grain permissions in ragbench.
-- Multi-modal support. Images, video, voice support in prompt.
-
-- Initial data load: initial indexing of docs in the datastore.
-This can take hours depending on the amount and type of documents and the embedding model used.
-- Very large document or total storage. Current max size: TODO: find this out.
-- Security: Create test suite targeted at finding vulnerability with the RAG (prompt injection, document content injection, etc.).
-This requires research beyond the normal OWASP top 10 type issues.
-- Monitoring: infrastructure and services. Alerting and escalation rules for support.
-- Disaster Recovery. Includes backups.
-- High Availability. What is the max downtime allowed at one time, and what is the 9's of availability.
-- Data retention - prompts, answers, etc. Needed in corporate settings.
-- High load: Max number of concurrent users allowed, maximum time allowed to answer under stress.
+**Enterprise Requirements** (would require SLA definition):
+- Authentication & Authorization (LDAP, IAM, SSO integration, role-based access)
+- Multi-modal support (images, video, voice)
+- Large-scale data load optimization (bulk indexing)
+- Security hardening (RAG-specific vulnerability testing: prompt injection, content injection)
+- Infrastructure monitoring & alerting
+- Disaster recovery & high availability
+- Data retention policies
+- Performance under high load (concurrent users, SLA targets)
 
 
 ## Production Considerations
