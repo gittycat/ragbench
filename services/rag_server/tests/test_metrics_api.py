@@ -68,7 +68,7 @@ def mock_models_config_fixture():
         return_value=mock_config,
     ):
         with patch(
-            "infrastructure.config.models_config._models_config",
+            "infrastructure.config.models_config._default_manager._config",
             mock_config,
         ):
             yield mock_config
@@ -544,7 +544,7 @@ def test_models_with_reranker_disabled(mock_ollama):
         return_value=disabled_reranker_config,
     ):
         with patch(
-            "infrastructure.config.models_config._models_config",
+            "infrastructure.config.models_config._default_manager._config",
             disabled_reranker_config,
         ):
             response = client.get("/metrics/models")
@@ -564,7 +564,7 @@ def test_retrieval_with_hybrid_disabled():
         return_value=disabled_hybrid_config,
     ):
         with patch(
-            "infrastructure.config.models_config._models_config",
+            "infrastructure.config.models_config._default_manager._config",
             disabled_hybrid_config,
         ):
             response = client.get("/metrics/retrieval")

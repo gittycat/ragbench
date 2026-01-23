@@ -171,26 +171,64 @@ class ModelsConfig(BaseModel):
         return config
 
 
-# Singleton instance
-_models_config: ModelsConfig | None = None
+class ModelsConfigManager:
+    """
+    Manages ModelsConfig lifecycle with lazy initialization.
+
+    Supports dependency injection for testing and reconfiguration.
+    """
+
+    def __init__(self, config_path: str | Path | None = None):
+        """
+        Initialize models config manager.
+
+        Args:
+            config_path: Optional path to config file. If None, searches standard locations.
+        """
+        self._config_path = config_path
+        self._config: ModelsConfig | None = None
+
+    def get_config(self) -> ModelsConfig:
+        """
+        Get or load ModelsConfig.
+
+        Lazy initialization - config is loaded on first access.
+
+        Returns:
+            ModelsConfig instance
+        """
+        if self._config is None:
+            self._config = ModelsConfig.load(self._config_path)
+        return self._config
+
+    def reset(self) -> None:
+        """Reset the config instance. Useful for testing."""
+        self._config = None
+
+
+# Global instance for backward compatibility
+_default_manager = ModelsConfigManager()
 
 
 def get_models_config(config_path: str | Path | None = None) -> ModelsConfig:
-    """Get the singleton ModelsConfig instance.
+    """
+    Get or load ModelsConfig using default manager.
+
+    Backward-compatible convenience function.
+    For dependency injection, use ModelsConfigManager directly.
 
     Args:
         config_path: Optional path to config file. Only used on first call.
 
     Returns:
-        ModelsConfig instance.
+        ModelsConfig instance
     """
-    global _models_config
-    if _models_config is None:
-        _models_config = ModelsConfig.load(config_path)
-    return _models_config
+    # Note: config_path only affects first call (lazy initialization)
+    if _default_manager._config is None and config_path is not None:
+        _default_manager._config_path = config_path
+    return _default_manager.get_config()
 
 
 def reset_models_config() -> None:
-    """Reset the singleton instance. Used for testing."""
-    global _models_config
-    _models_config = None
+    """Reset the default models config. Useful for testing."""
+    _default_manager.reset()

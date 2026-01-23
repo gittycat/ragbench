@@ -16,7 +16,7 @@ Configure via environment variables:
     LLM_BASE_URL: Custom endpoint (optional)
     LLM_TIMEOUT: Request timeout in seconds (default: 120)
 """
-from .factory import get_llm_client, get_llm_config, reset_llm_client
+from .factory import get_llm_client, get_llm_config, reset_llm_client, LLMClientManager
 from .prompts import get_system_prompt, get_context_prompt, get_condense_prompt
 from .config import LLMConfig, LLMProvider
 from .embeddings import get_embedding_function
@@ -26,6 +26,7 @@ __all__ = [
     "get_llm_client",
     "get_llm_config",
     "reset_llm_client",
+    "LLMClientManager",  # For dependency injection
     # Prompts
     "get_system_prompt",
     "get_context_prompt",

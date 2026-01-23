@@ -30,8 +30,8 @@ from services.session import (
     delete_session,
     archive_session,
     unarchive_session,
-    generate_ai_title
 )
+from services.session_titles import generate_ai_title
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

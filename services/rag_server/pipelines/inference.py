@@ -598,7 +598,8 @@ def query_rag(
         }
     """
     from infrastructure.database.chroma import get_or_create_collection
-    from services.session import touch_session, get_session_metadata, update_session_title, generate_session_title
+    from services.session import touch_session, get_session_metadata, update_session_title
+    from services.session_titles import generate_session_title
 
     logger.info(f"[QUERY] Processing query for session: {session_id} (temporary={is_temporary})")
     query_start = time.time()
@@ -704,7 +705,8 @@ def query_rag_stream(
     Yields SSE-formatted strings for client consumption.
     """
     from infrastructure.database.chroma import get_or_create_collection
-    from services.session import touch_session, get_session_metadata, update_session_title, generate_session_title
+    from services.session import touch_session, get_session_metadata, update_session_title
+    from services.session_titles import generate_session_title
 
     try:
         logger.info(f"[QUERY_STREAM] Starting streaming query for session: {session_id} (temporary={is_temporary})")
