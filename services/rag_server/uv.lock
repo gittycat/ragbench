@@ -3326,6 +3326,7 @@ dev = [
 ]
 eval = [
     { name = "anthropic" },
+    { name = "datasets" },
     { name = "deepeval" },
 ]
 
@@ -3373,6 +3374,7 @@ dev = [
 ]
 eval = [
     { name = "anthropic", specifier = ">=0.75.0" },
+    { name = "datasets", specifier = ">=3.2.0" },
     { name = "deepeval", specifier = ">=3.6.9" },
 ]
 

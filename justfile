@@ -65,12 +65,14 @@ test-integration: setup docker-up
     cd services/rag_server && \
     .venv/bin/pytest tests/integration -v --run-integration
 
-test-eval: setup
+test-eval:
     cd services/rag_server && \
+    uv sync --group dev --group eval && \
     .venv/bin/pytest tests/test_rag_eval.py --run-eval --eval-samples=5 -v
 
-test-eval-full: setup
+test-eval-full:
     cd services/rag_server && \
+    uv sync --group dev --group eval && \
     .venv/bin/pytest tests/test_rag_eval.py --run-eval -v
 
 docker-up:

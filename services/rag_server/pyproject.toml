@@ -42,6 +42,7 @@ dev = [
 eval = [
     "deepeval>=3.6.9",
     "anthropic>=0.75.0",
+    "datasets>=3.2.0",
 ]
 bench = [
     "datasets>=3.2.0",

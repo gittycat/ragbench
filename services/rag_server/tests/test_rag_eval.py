@@ -1021,6 +1021,9 @@ class TestRAGBenchLoader:
 class TestQasperLoader:
     """Tests for Qasper dataset loader."""
 
+    @pytest.mark.xfail(
+        reason="Qasper dataset uses loading script which is no longer supported in datasets>=4.0"
+    )
     def test_load_qasper_sample(self):
         """Should load sample from Qasper dataset."""
         from evaluation_cc.datasets.qasper import QasperLoader

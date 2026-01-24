@@ -78,7 +78,7 @@ class QasperLoader(BaseDatasetLoader):
         else:
             hf_split = "train"
 
-        dataset = load_dataset("allenai/qasper", split=hf_split, trust_remote_code=True)
+        dataset = load_dataset("allenai/qasper", split=hf_split)
 
         questions: list[EvalQuestion] = []
         question_idx = 0
