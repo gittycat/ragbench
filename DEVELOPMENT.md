@@ -19,6 +19,7 @@ For frontend/UI documentation, see [FRONT_END.md](FRONT_END.md).
 - [Deployment](#deployment)
 - [Observability](#observability)
 - [Troubleshooting](#troubleshooting)
+- [PII Masking](#pii-masking)
 - [Roadmap](#roadmap)
 
 ## Overview
@@ -37,7 +38,7 @@ The differentiating features of this RAG are:
 **Cloud-Optimized Option**:
 - Multi-provider LLM support: OpenAI, Anthropic, Google Gemini, DeepSeek, Moonshot
 - Leverage frontier models for maximum performance
-- Note: Data anonymization for cloud providers planned but not yet implemented (see [Roadmap](#roadmap))
+- PII masking for cloud providers planned (see [PII Masking](#pii-masking) and [implementation plan](docs/PII_MASKING_IMPLEMENTATION_PLAN.md))
 
 **Hybrid Deployment**:
 - Mix and match: local embeddings with cloud LLM, or vice versa
@@ -794,66 +795,102 @@ docker compose up -d
 0 2 * * * cd /path/to/project && ./scripts/backup_chromadb.sh
 ```
 
+## PII Masking
+
+Optional feature to anonymize sensitive data before sending to cloud LLM providers. Uses Microsoft Presidio for PII detection and reversible token-based masking.
+
+**Status**: Planned (see [implementation plan](docs/PII_MASKING_IMPLEMENTATION_PLAN.md))
+
+### How It Works
+
+1. **Masking (outbound)**: PII detected via Microsoft Presidio (NER + regex), replaced with tokens like `[[[PERSON_0]]]`
+2. **Token mapping**: Original values stored temporarily (session-scoped)
+3. **Unmasking (inbound)**: Tokens in LLM response replaced with original values
+4. **Validation**: Detects if LLM altered tokens, attempts fuzzy recovery
+5. **Output guardrails**: Scans final response for accidentally leaked PII
+
+### Configuration
+
+Enable in `config/models.yml`:
+
+```yaml
+pii:
+  enabled: true
+  entities:
+    - PERSON
+    - EMAIL_ADDRESS
+    - PHONE_NUMBER
+    - CREDIT_CARD
+    - US_SSN
+  token_format: "[[[{entity_type}_{index}]]]"
+  score_threshold: 0.5
+  validation:
+    enabled: true
+    max_retries: 2
+  output_guardrails:
+    enabled: true
+    block_on_detection: false
+  audit:
+    enabled: true
+    log_level: INFO
+```
+
+### Supported Entity Types
+
+`PERSON`, `EMAIL_ADDRESS`, `PHONE_NUMBER`, `CREDIT_CARD`, `US_SSN`, `IBAN_CODE`, `IP_ADDRESS`, `LOCATION`, `DATE_TIME`, `US_BANK_NUMBER`, `US_DRIVER_LICENSE`, `US_PASSPORT`, `MEDICAL_LICENSE`
+
+### Audit Logging
+
+When `audit.enabled: true`, all masking/unmasking operations are logged:
+
+```json
+{"operation": "MASK", "timestamp": "...", "context_id": "session_123", "entities_count": 3, "entity_types": ["PERSON", "EMAIL_ADDRESS"]}
+{"operation": "UNMASK", "timestamp": "...", "context_id": "session_123", "tokens_found": 3, "tokens_replaced": 3, "validation_passed": true}
+```
+
+### Data Flow Points
+
+| Path | Description |
+|------|-------------|
+| User queries | Query text, chat history, retrieved context sent to LLM |
+| Contextual retrieval | Document chunks sent to LLM during ingestion |
+| Session titles | First user message sent for title generation |
+| Evaluation | Test data sent to evaluation LLM |
+
+### Limitations
+
+- **Token preservation**: LLMs may alter tokens (e.g., remove brackets). Validation detects this; fuzzy recovery attempts restoration
+- **Performance**: Adds ~20-50ms per request for Presidio analysis
+- **Not for embeddings**: Embeddings are generated from original text (stored locally in ChromaDB)
+
+### When to Enable
+
+- Using cloud LLM providers (OpenAI, Anthropic, Google, etc.)
+- Documents contain PII that shouldn't leave your infrastructure
+- Compliance requirements (GDPR, HIPAA, etc.)
+
+Not needed when using Ollama (local inference) as data never leaves your network.
+
 ## Roadmap
 
-### Completed
+For detailed feature roadmap including implementation tasks and effort estimates, see [ROADMAP.md](docs/ROADMAP.md).
 
-**Phase 1** (Oct 2025):
-- Redis-backed chat memory
-- ChromaDB backup/restore
-- Reranker optimization
-- Startup persistence verification
+### Recently Completed
 
-**Phase 2** (Oct 2025):
-- Hybrid search (BM25 + Vector + RRF)
-- Contextual retrieval (Anthropic method)
-- Auto-refresh BM25 after uploads/deletes
+- **Redis-backed Chat Memory** (Oct 2025): Session-based conversation history with persistent storage
+- **Hybrid Search** (Oct 2025): BM25 + Vector + RRF fusion with ~48% retrieval improvement
+- **Contextual Retrieval** (Oct 2025): LLM-generated chunk context with ~49% fewer retrieval failures
+- **DeepEval Framework** (Dec 2025): Anthropic Claude Sonnet 4 as LLM judge with pytest integration
+- **Forgejo CI/CD** (Dec 2025): Self-hosted Git + CI/CD with GitHub Actions-compatible workflows
+- **Metrics & Observability API** (Dec 2025): System health monitoring and evaluation history tracking
 
-**Evaluation Migration** (Dec 2025):
-- DeepEval framework integration
-- Anthropic Claude as LLM judge
-- Pytest integration with custom markers
-- Unified CLI for evaluation
+### In Planning
 
-**CI/CD Implementation** (Dec 2025):
-- Forgejo self-hosted Git + CI/CD
-- GitHub Actions-compatible workflows
-- Automated testing on push/PR
-- Docker build verification
-
-**Metrics & Observability API** (Dec 2025):
-- Comprehensive metrics endpoints
-- Evaluation history and trends
-- Component health monitoring
-
-### Planned
-
-**Privacy & Security**:
-- Data anonymization for cloud LLM providers (anonymize on send, de-anonymize on receive)
-
-**RAG Capabilities**:
-- Parent document retrieval (sentence window)
-- Query fusion (multi-query generation)
-- Additional file formats (CSV, JSON)
-
-**Evaluation & Observability**:
-- Webapp integration for metrics visualization
-- Expand golden dataset to 100+ Q&A pairs
-
-**Platform Features**:
-- Multi-user support with authentication
-
-### Future / TBD
-
-**Enterprise Requirements** (would require SLA definition):
-- Authentication & Authorization (LDAP, IAM, SSO integration, role-based access)
-- Multi-modal support (images, video, voice)
-- Large-scale data load optimization (bulk indexing)
-- Security hardening (RAG-specific vulnerability testing: prompt injection, content injection)
-- Infrastructure monitoring & alerting
-- Disaster recovery & high availability
-- Data retention policies
-- Performance under high load (concurrent users, SLA targets)
+- **PII Masking**: Anonymize sensitive data for cloud LLM providers (see [implementation plan](docs/PII_MASKING_IMPLEMENTATION_PLAN.md))
+- **Centralized Logging**: Grafana Loki + Promtail + structlog (see [implementation plan](docs/LOGGING_IMPLEMENTATION_PLAN.md))
+- **Parent Document Retrieval**: Sentence window method for better context
+- **Query Fusion**: Multi-query generation for improved recall
+- **Metrics Visualization**: Frontend dashboards for evaluation and system health
 
 
 ## Production Considerations
@@ -878,6 +915,7 @@ This project is not production-ready for enterprise deployment.
 |----------|---------|
 | [FRONT_END.md](FRONT_END.md) | Frontend/UI development |
 | [CLAUDE.md](CLAUDE.md) | Project instructions for Claude Code |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Feature roadmap with tasks and effort estimates |
 | [docs/FORGEJO_CI_SETUP.md](docs/FORGEJO_CI_SETUP.md) | CI/CD setup guide |
 | [docs/DEEPEVAL_IMPLEMENTATION_SUMMARY.md](docs/DEEPEVAL_IMPLEMENTATION_SUMMARY.md) | Evaluation framework |
 | [docs/CONVERSATIONAL_RAG.md](docs/CONVERSATIONAL_RAG.md) | Session management |
@@ -885,3 +923,5 @@ This project is not production-ready for enterprise deployment.
 | [docs/PHASE1_IMPLEMENTATION_SUMMARY.md](docs/PHASE1_IMPLEMENTATION_SUMMARY.md) | Phase 1 details |
 | [docs/PHASE2_IMPLEMENTATION_SUMMARY.md](docs/PHASE2_IMPLEMENTATION_SUMMARY.md) | Phase 2 details |
 | [docs/RAG_ACCURACY_IMPROVEMENT_PLAN_2025.md](docs/RAG_ACCURACY_IMPROVEMENT_PLAN_2025.md) | Future optimizations |
+| [docs/PII_MASKING_IMPLEMENTATION_PLAN.md](docs/PII_MASKING_IMPLEMENTATION_PLAN.md) | PII masking for cloud LLMs |
+| [docs/LOGGING_IMPLEMENTATION_PLAN.md](docs/LOGGING_IMPLEMENTATION_PLAN.md) | Centralized logging with Grafana Loki |
