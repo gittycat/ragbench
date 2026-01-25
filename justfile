@@ -1,5 +1,8 @@
 # UV_CACHE_DIR := invocation_directory() + "/.cache/uv"
 
+# Load the secrets/.env file
+set dotenv-path := "./secrets/.env"
+
 alias test := test-unit
 
 # Get version from latest git tag (strips 'v' prefix), falls back to 0.0.0-dev
