@@ -272,46 +272,11 @@ Each chunk stored with:
 
 Primary configuration file for models and retrieval settings.
 
-**Structure:**
-```yaml
-llm:
-  provider: ollama          # ollama, openai, anthropic, google, deepseek, moonshot
-  model: gemma3:4b
-  base_url: http://host.docker.internal:11434
-  timeout: 120
-  keep_alive: 10m           # Ollama only: -1=forever, 0=unload
-
-embedding:
-  provider: ollama
-  model: nomic-embed-text:latest
-  base_url: http://host.docker.internal:11434
-
-eval:
-  provider: anthropic
-  model: claude-sonnet-4-20250514
-
-reranker:
-  enabled: true
-  model: cross-encoder/ms-marco-MiniLM-L-6-v2
-  top_n: 5
-
-retrieval:
-  top_k: 10
-  enable_hybrid_search: true
-  rrf_k: 60
-  enable_contextual_retrieval: false
-```
-
-**Setup:** Copy `config.yml.example` to `config.yml`.
+**Setup:** Simply edit the existing file.
 
 ### Secrets (`secrets/.env`)
 
 API keys and credentials (git-ignored).
-
-```bash
-LLM_API_KEY=              # For cloud providers
-ANTHROPIC_API_KEY=        # For evaluations
-```
 
 **Setup:** Copy `secrets/.env.example` to `secrets/.env`.
 

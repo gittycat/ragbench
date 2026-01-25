@@ -6,7 +6,7 @@
 # Model Definitions - Define all available models here
 # ============================================================================
 models:
-  llm:
+  inference:
     # Ollama models (local inference)
     gemma3-4b:
       provider: ollama
@@ -128,7 +128,7 @@ models:
 # Active Model Selection - Specify which models to use
 # ============================================================================
 active:
-  llm: gemma3-4b
+  inference: gemma3-4b
   embedding: nomic-embed
   eval: claude-sonnet
   reranker: minilm-l6

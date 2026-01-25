@@ -161,7 +161,7 @@ class RetrievalConfig(BaseModel):
 class ActiveModels(BaseModel):
     """Active model selection."""
 
-    llm: str
+    inference: str
     embedding: str
     eval: str
     reranker: str
@@ -170,7 +170,7 @@ class ActiveModels(BaseModel):
 class ModelDefinitions(BaseModel):
     """All available model definitions."""
 
-    llm: dict[str, dict[str, Any]]
+    inference: dict[str, dict[str, Any]]
     embedding: dict[str, dict[str, Any]]
     eval: dict[str, dict[str, Any]]
     reranker: dict[str, dict[str, Any]]
@@ -264,13 +264,13 @@ class ModelsConfig(BaseModel):
 
         resolved = {}
 
-        # Resolve LLM
-        llm_key = active.get("llm")
-        if llm_key and llm_key in models.get("llm", {}):
-            resolved["llm"] = models["llm"][llm_key].copy()
+        # Resolve Inference
+        inference_key = active.get("inference")
+        if inference_key and inference_key in models.get("inference", {}):
+            resolved["llm"] = models["inference"][inference_key].copy()
         else:
             raise ValueError(
-                f"Active LLM model '{llm_key}' not found in models.llm definitions"
+                f"Active inference model '{inference_key}' not found in models.inference definitions"
             )
 
         # Resolve Embedding
