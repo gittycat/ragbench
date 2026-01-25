@@ -33,6 +33,7 @@ from evaluation_cc.config import EvalConfig, DatasetName, JudgeConfig, MetricCon
 from evaluation_cc.datasets.registry import list_datasets, get_dataset
 from evaluation_cc.runner import EvaluationRunner, run_evaluation, compute_pareto_frontier
 from evaluation_cc.schemas import EvalRun
+from infrastructure.config.display import print_config_banner
 
 
 def main():
@@ -160,9 +161,9 @@ def main():
 
 def cmd_eval(args):
     """Run evaluation."""
-    print("=" * 60)
-    print("RAG Evaluation")
-    print("=" * 60)
+    # Print config banner
+    print_config_banner(compact=True)
+    print()
 
     # Load config from file or build from args
     if args.config:
@@ -207,6 +208,10 @@ def cmd_eval(args):
 
 def cmd_stats(args):
     """Show dataset statistics."""
+    # Print config banner
+    print_config_banner(compact=True)
+    print()
+
     if args.dataset:
         datasets = [args.dataset]
     else:
@@ -252,6 +257,10 @@ def cmd_stats(args):
 
 def cmd_datasets(args):
     """List available datasets."""
+    # Print config banner
+    print_config_banner(compact=True)
+    print()
+
     print("=" * 60)
     print("Available Datasets")
     print("=" * 60)

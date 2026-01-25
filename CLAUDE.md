@@ -136,6 +136,18 @@ docker compose logs -f redis
 docker compose down -v
 ```
 
+### Configuration
+
+```bash
+# Show RAG configuration (compact)
+just show-config
+
+# Show full RAG configuration with all settings
+just show-config-full
+```
+
+**Note:** Configuration banners are automatically displayed when running evaluation/benchmark CLI tools to help track which models are being used during testing.
+
 ### Testing
 
 **Task Runner**: just. Use context7 with id "just_systems-man"

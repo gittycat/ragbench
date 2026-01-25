@@ -12,6 +12,20 @@ default:
     @just --list --list-heading "Usage: list <recipe>"
 
 # ============================================================================
+# Configuration
+# ============================================================================
+
+# Show RAG configuration (compact)
+show-config:
+    @cd services/rag_server && \
+    .venv/bin/python -c "from infrastructure.config.display import print_config_banner; print_config_banner(compact=True)"
+
+# Show full RAG configuration
+show-config-full:
+    @cd services/rag_server && \
+    .venv/bin/python -c "from infrastructure.config.display import print_config_banner; print_config_banner(compact=False)"
+
+# ============================================================================
 # Version Management
 # ============================================================================
 
@@ -68,12 +82,12 @@ test-integration: setup docker-up
     cd services/rag_server && \
     .venv/bin/pytest tests/integration -v --run-integration
 
-test-eval:
+test-eval: show-config
     cd services/rag_server && \
     uv sync --group dev --group eval && \
     .venv/bin/pytest tests/test_rag_eval.py --run-eval --eval-samples=5 -v
 
-test-eval-full:
+test-eval-full: show-config
     cd services/rag_server && \
     uv sync --group dev --group eval && \
     .venv/bin/pytest tests/test_rag_eval.py --run-eval -v
@@ -129,7 +143,7 @@ bench-load DATASET:
     .venv/bin/python -c "from evaluation.datasets import get_dataset; d = get_dataset('{{DATASET}}'); d.load(); print(f'Loaded {d.info.name}: {d.info.num_documents} docs, {d.info.num_test_cases} tests')"
 
 # Run benchmark on a dataset
-bench-run DATASET SAMPLES="": bench-up bench-setup
+bench-run DATASET SAMPLES="": bench-up bench-setup show-config
     cd services/rag_server && \
     .venv/bin/python -m evaluation.benchmark_cli run {{DATASET}} {{ if SAMPLES != "" { "--samples " + SAMPLES } else { "" } }}
 
