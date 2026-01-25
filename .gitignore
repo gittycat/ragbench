@@ -62,15 +62,9 @@ docker-compose.override.yml
 *.env
 .env.*
 !.env.example
-ollama_config.env
 *.key
 *.pem
 *.crt
-
-# Config files (keep examples)
-/config/models.yml
-!/config/models.yml.example
-!/config/README.md
 
 # RAG system specific
 /services/*/logs/

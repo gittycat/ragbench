@@ -4,8 +4,6 @@ This directory contains sensitive API keys and credentials.
 
 ## Setup
 
-### 1. API Keys (.env)
-
 Create `secrets/.env` from the example:
 
 ```bash
@@ -22,20 +20,7 @@ LLM_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### 2. Ollama Configuration (ollama_config.env)
-
-Create `secrets/ollama_config.env` from the example:
-
-```bash
-cp ollama_config.env.example ollama_config.env
-```
-
-Default configuration should work for most users:
-
-```bash
-OLLAMA_URL=http://host.docker.internal:11434
-OLLAMA_KEEP_ALIVE=10m
-```
+**Note:** Ollama configuration (URL, keep-alive) is now in `config.yml` per model, not in secrets.
 
 ## Getting API Keys
 
@@ -50,7 +35,7 @@ OLLAMA_KEEP_ALIVE=10m
 2. Navigate to API Keys
 3. Create new key
 4. Add to `LLM_API_KEY` in `.env`
-5. Update `config/models.yml` to use OpenAI provider
+5. Update `config.yml` to use OpenAI provider
 
 ### Other Providers
 - **Google Gemini**: https://ai.google.dev/
@@ -67,20 +52,11 @@ OLLAMA_KEEP_ALIVE=10m
 
 ## Docker Integration
 
-### Environment Variables (.env)
-Loaded by `docker-compose.yml` as environment variables:
+Environment variables from `.env` are loaded by `docker-compose.yml`:
 ```yaml
 environment:
   - LLM_API_KEY=${LLM_API_KEY:-}
   - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-```
-
-### Docker Secrets (ollama_config.env)
-Mounted as Docker secret:
-```yaml
-secrets:
-  ollama_config:
-    file: ./secrets/ollama_config.env
 ```
 
 ## Troubleshooting
@@ -92,7 +68,7 @@ secrets:
 
 ### Ollama Connection Failed
 - Ensure Ollama is running on host: `ollama list`
-- Verify `OLLAMA_URL` in `ollama_config.env`
+- Verify `base_url` in `config.yml` for Ollama models
 - Check Docker can reach host: `docker compose exec rag-server curl http://host.docker.internal:11434/api/tags`
 
 ### Environment Variables Not Loading

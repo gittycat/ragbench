@@ -54,14 +54,12 @@ services:
       - private
       - public
     volumes:
-      - ./config:/app/config:ro               # Model configuration (read-only)
+      - ./config.yml:/app/config.yml:ro       # Model configuration (read-only)
       - ./data/indexed_documents:/app/documents
       - ./services/rag_server/eval_data:/app/eval_data  # Evaluation results
       - docs_repo:/tmp/shared
       - huggingface_cache:/home/appuser/.cache/huggingface
       - documents_data:/data/documents
-    secrets:
-      - ollama_config
 
   # ChromaDB Vector Database (private network only)
   chromadb:
@@ -118,14 +116,12 @@ services:
       - private
       - public
     volumes:
-      - ./config:/app/config:ro               # Model configuration (read-only)
+      - ./config.yml:/app/config.yml:ro       # Model configuration (read-only)
       - ./data/indexed_documents:/app/documents
       - ./services/rag_server/eval_data:/app/eval_data  # Evaluation results
       - docs_repo:/tmp/shared
       - huggingface_cache:/home/appuser/.cache/huggingface
       - documents_data:/data/documents
-    secrets:
-      - ollama_config
 
   # Celery Eval Worker - Async evaluation processing (eval queue)
   eval-worker:
@@ -155,12 +151,10 @@ services:
       - private
       - public
     volumes:
-      - ./config:/app/config:ro               # Model configuration (read-only)
+      - ./config.yml:/app/config.yml:ro       # Model configuration (read-only)
       - ./services/rag_server/eval_data:/app/eval_data  # Evaluation data and results
       - ./services/rag_server/data:/app/data            # Evaluation run storage
       - huggingface_cache:/home/appuser/.cache/huggingface
-    secrets:
-      - ollama_config
 
 # Network configuration for security isolation
 networks:
@@ -181,9 +175,4 @@ volumes:
   huggingface_cache:
     driver: local
   documents_data:
-    driver: local
-
-# Secrets management
-secrets:
-  ollama_config:
-    file: ./secrets/ollama_config.env 
+    driver: local 

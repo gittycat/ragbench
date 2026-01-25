@@ -42,7 +42,7 @@ The differentiating features of this RAG are:
 
 **Hybrid Deployment**:
 - Mix and match: local embeddings with cloud LLM, or vice versa
-- Configure per-component via `config/models.yml`
+- Configure per-component via `config.yml`
 
 ### b) Extensive Evaluation Framework
 
@@ -178,7 +178,7 @@ The system supports multiple LLM providers via factory pattern:
 - **DeepSeek**
 - **Moonshot**
 
-Provider selection via `config/models.yml`.
+Provider selection via `config.yml`.
 
 ## Service Architecture
 
@@ -268,7 +268,7 @@ Each chunk stored with:
 
 ## Configuration
 
-### YAML Configuration (`config/models.yml`)
+### YAML Configuration (`config.yml`)
 
 Primary configuration file for models and retrieval settings.
 
@@ -302,7 +302,7 @@ retrieval:
   enable_contextual_retrieval: false
 ```
 
-**Setup:** Copy `config/models.yml.example` to `config/models.yml`.
+**Setup:** Copy `config.yml.example` to `config.yml`.
 
 ### Secrets (`secrets/.env`)
 
@@ -315,12 +315,7 @@ ANTHROPIC_API_KEY=        # For evaluations
 
 **Setup:** Copy `secrets/.env.example` to `secrets/.env`.
 
-### Ollama Configuration (`secrets/ollama_config.env`)
-
-```bash
-OLLAMA_URL=http://host.docker.internal:11434
-OLLAMA_KEEP_ALIVE=10m
-```
+**Note:** Ollama settings (`base_url`, `keep_alive`) are now configured per-model in `config.yml`.
 
 ### Environment Variables (docker-compose.yml)
 
@@ -552,9 +547,8 @@ cd ../webapp
 npm install
 
 # Configuration
-cp config/models.yml.example config/models.yml
+cp config.yml.example config.yml
 cp secrets/.env.example secrets/.env
-cp secrets/ollama_config.env.example secrets/ollama_config.env
 
 # Start infrastructure
 docker compose up chromadb redis -d
@@ -811,7 +805,7 @@ Optional feature to anonymize sensitive data before sending to cloud LLM provide
 
 ### Configuration
 
-Enable in `config/models.yml`:
+Enable in `config.yml`:
 
 ```yaml
 pii:

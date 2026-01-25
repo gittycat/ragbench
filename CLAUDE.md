@@ -256,38 +256,76 @@ docker compose -f docker-compose.ci.yml down
 
 ### Configuration Files
 
-**YAML-based Configuration (config/models.yml):**
+**YAML-based Configuration (config.yml):**
 
-The system uses YAML configuration for all model settings. Copy `config/models.yml.example` to `config/models.yml`:
+The system uses YAML configuration for all model settings. Copy `config.yml.example` to `config.yml`.
+
+**New Format (v2)** - Define multiple models and select which to use:
 
 ```yaml
-llm:
-  provider: ollama  # ollama, openai, anthropic, google, deepseek, moonshot
-  model: gemma3:4b
-  base_url: http://host.docker.internal:11434
-  timeout: 120
-  keep_alive: 10m  # Ollama-only: -1=forever, 0=unload, 10m=10 minutes
+# Model Definitions - Define all available models
+models:
+  llm:
+    gemma3-4b:
+      provider: ollama
+      model: gemma3:4b
+      base_url: http://host.docker.internal:11434
+      timeout: 120
+      keep_alive: 10m
 
-embedding:
-  provider: ollama
-  model: nomic-embed-text:latest
-  base_url: http://host.docker.internal:11434
+    claude-sonnet:
+      provider: anthropic
+      model: claude-sonnet-4-20250514
+      base_url: https://api.anthropic.com
+      timeout: 120
 
+  embedding:
+    nomic-embed:
+      provider: ollama
+      model: nomic-embed-text:latest
+      base_url: http://host.docker.internal:11434
+
+  eval:
+    claude-sonnet:
+      provider: anthropic
+      model: claude-sonnet-4-20250514
+
+  reranker:
+    minilm-l6:
+      model: cross-encoder/ms-marco-MiniLM-L-6-v2
+      top_n: 5
+
+# Active Selection - Which models to use
+active:
+  llm: gemma3-4b
+  embedding: nomic-embed
+  eval: claude-sonnet
+  reranker: minilm-l6
+
+# Evaluation Settings
 eval:
-  provider: anthropic
-  model: claude-sonnet-4-20250514
+  citation_scope: retrieved  # retrieved | explicit
+  citation_format: numeric
 
+# Reranker Settings
 reranker:
   enabled: true
-  model: cross-encoder/ms-marco-MiniLM-L-6-v2
-  top_n: 5
 
+# Retrieval Settings
 retrieval:
   top_k: 10
   enable_hybrid_search: true
   rrf_k: 60
-  enable_contextual_retrieval: false  # Default: off for speed
+  enable_contextual_retrieval: false
 ```
+
+**Benefits:**
+- Define multiple models once, switch by changing `active.*`
+- Easy A/B testing between models
+- No need to comment/uncomment config blocks
+- Backward compatible with legacy format (direct llm/embedding/eval sections)
+
+**Supported providers:** ollama, openai, anthropic, google, deepseek, moonshot
 
 **API Keys (secrets/.env):**
 
@@ -296,15 +334,6 @@ Secrets are stored in `secrets/.env` (copy from `secrets/.env.example`):
 ```bash
 LLM_API_KEY=         # For cloud providers (openai, anthropic, google, deepseek, moonshot)
 ANTHROPIC_API_KEY=   # For DeepEval evaluations (required)
-```
-
-**Ollama Config (secrets/ollama_config.env):**
-
-Ollama-specific settings (copy from `secrets/ollama_config.env.example`):
-
-```bash
-OLLAMA_URL=http://host.docker.internal:11434
-OLLAMA_KEEP_ALIVE=10m
 ```
 
 **Environment Variables (docker-compose.yml only):**
@@ -316,7 +345,7 @@ Minimal environment variables - most config moved to YAML:
 - `MAX_UPLOAD_SIZE=80`: Max upload size in MB
 - `LOG_LEVEL=WARNING`: Logging level (INFO or DEBUG for development)
 
-**Note:** Celery worker shares all RAG Server configuration (config/models.yml and secrets/.env)
+**Note:** Celery worker shares all RAG Server configuration (config.yml and secrets/.env). Ollama settings (`base_url`, `keep_alive`) are now in `config.yml` per model.
 
 ## API Endpoints
 

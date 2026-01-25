@@ -64,9 +64,8 @@ git clone https://github.com/gittycat/ragbench.git
 cd ragbench
 
 # Create configuration files from templates
-cp config/models.yml.example config/models.yml
+cp config.yml.example config.yml
 cp secrets/.env.example secrets/.env
-cp secrets/ollama_config.env.example secrets/ollama_config.env
 ```
 
 ### 3. Start the Application
@@ -117,7 +116,7 @@ The example configuration works out-of-the-box with Ollama. No changes needed fo
 
 ### Using Cloud Providers
 
-Edit `config/models.yml` to use cloud models:
+Edit `config.yml` to use cloud models:
 
 ```yaml
 llm:
@@ -134,9 +133,8 @@ LLM_API_KEY=your-api-key-here
 
 | File | Purpose |
 |------|---------|
-| `config/models.yml` | AI models and retrieval settings |
+| `config.yml` | AI models, Ollama settings, and retrieval configuration |
 | `secrets/.env` | API keys for cloud providers |
-| `secrets/ollama_config.env` | Ollama connection settings |
 
 See `config/README.md` for detailed options.
 

@@ -5,7 +5,7 @@ Provides:
 - LLMProvider enum: Canonical list of supported providers
 - LLMConfig dataclass: Internal config container for provider functions
 
-Configuration is loaded from config/models.yml via infrastructure.config.models_config.
+Configuration is loaded from config.yml via infrastructure.config.models_config.
 """
 from dataclasses import dataclass
 from enum import Enum
@@ -38,7 +38,7 @@ class LLMConfig:
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
-        """Load LLM config from config/models.yml."""
+        """Load LLM config from config.yml."""
         from infrastructure.config.models_config import get_models_config
 
         try:

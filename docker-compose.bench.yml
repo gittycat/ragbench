@@ -78,10 +78,8 @@ services:
       - bench-private
       - bench-public
     volumes:
-      - ./config:/app/config:ro
+      - ./config.yml:/app/config.yml:ro
       - huggingface_cache:/home/appuser/.cache/huggingface
-    secrets:
-      - ollama_config
 
 networks:
   bench-public:
@@ -93,7 +91,3 @@ networks:
 volumes:
   huggingface_cache:
     driver: local  # Persists across bench runs to avoid re-downloading models
-
-secrets:
-  ollama_config:
-    file: ./secrets/ollama_config.env

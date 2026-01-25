@@ -1,0 +1,171 @@
+# Model Configuration
+# This file defines all model settings for the RAG system.
+# API keys are stored separately in secrets/.env
+
+# ============================================================================
+# Model Definitions - Define all available models here
+# ============================================================================
+models:
+  llm:
+    # Ollama models (local inference)
+    gemma3-4b:
+      provider: ollama
+      model: gemma3:4b
+      base_url: http://host.docker.internal:11434
+      timeout: 120
+      keep_alive: 10m  # Ollama-only: keep model in memory (10m, -1=forever, 0=unload immediately)
+
+    llama3-8b:
+      provider: ollama
+      model: llama3:8b
+      base_url: http://host.docker.internal:11434
+      timeout: 120
+      keep_alive: 10m
+
+    # OpenAI models
+    gpt4-turbo:
+      provider: openai
+      model: gpt-4-turbo-preview
+      base_url: https://api.openai.com/v1
+      timeout: 120
+
+    gpt35-turbo:
+      provider: openai
+      model: gpt-3.5-turbo
+      base_url: https://api.openai.com/v1
+      timeout: 120
+
+    # Anthropic models
+    claude-sonnet:
+      provider: anthropic
+      model: claude-sonnet-4-20250514
+      base_url: https://api.anthropic.com
+      timeout: 120
+
+    claude-opus:
+      provider: anthropic
+      model: claude-opus-4-5-20251101
+      base_url: https://api.anthropic.com
+      timeout: 120
+
+    # Google models
+    gemini-pro:
+      provider: google
+      model: gemini-pro
+      timeout: 120
+
+    # DeepSeek models
+    deepseek-chat:
+      provider: deepseek
+      model: deepseek-chat
+      timeout: 120
+
+    # Moonshot models
+    moonshot-v1:
+      provider: moonshot
+      model: moonshot-v1-8k
+      base_url: https://api.moonshot.cn/v1
+      timeout: 120
+
+  embedding:
+    # Ollama embeddings (local)
+    nomic-embed:
+      provider: ollama
+      model: nomic-embed-text:latest
+      base_url: http://host.docker.internal:11434
+
+    # OpenAI embeddings
+    openai-ada:
+      provider: openai
+      model: text-embedding-ada-002
+      base_url: https://api.openai.com/v1
+
+    openai-3-small:
+      provider: openai
+      model: text-embedding-3-small
+      base_url: https://api.openai.com/v1
+
+    openai-3-large:
+      provider: openai
+      model: text-embedding-3-large
+      base_url: https://api.openai.com/v1
+
+  eval:
+    # Anthropic models for evaluation
+    claude-sonnet:
+      provider: anthropic
+      model: claude-sonnet-4-20250514
+
+    claude-opus:
+      provider: anthropic
+      model: claude-opus-4-5-20251101
+
+    # OpenAI models for evaluation
+    gpt4:
+      provider: openai
+      model: gpt-4
+
+    gpt4-turbo:
+      provider: openai
+      model: gpt-4-turbo-preview
+
+  reranker:
+    # Lightweight reranker (default)
+    minilm-l6:
+      model: cross-encoder/ms-marco-MiniLM-L-6-v2
+      top_n: 5
+
+    # More powerful rerankers
+    bge-reranker-large:
+      model: BAAI/bge-reranker-large
+      top_n: 5
+
+    bge-reranker-base:
+      model: BAAI/bge-reranker-base
+      top_n: 5
+
+# ============================================================================
+# Active Model Selection - Specify which models to use
+# ============================================================================
+active:
+  llm: gemma3-4b
+  embedding: nomic-embed
+  eval: claude-sonnet
+  reranker: minilm-l6
+
+# ============================================================================
+# Evaluation Settings (non-model-specific)
+# ============================================================================
+eval:
+  # Citation scope for evaluation:
+  # - retrieved: treat all retrieved chunks as citations
+  # - explicit: only use explicitly cited chunks (if provided by the server)
+  citation_scope: retrieved
+
+  # Citation format for explicit citations
+  # - numeric: uses [1], [2] style references mapped to source order
+  citation_format: numeric
+
+  # Abstention phrases used to detect "no answer" responses
+  abstention_phrases:
+    - "I don't have enough information to answer this question."
+    - "I do not have enough information to answer this question."
+    - "I don't have enough information to answer the question."
+    - "I do not have enough information to answer the question."
+    - "Not enough information to answer."
+    - "Insufficient information to answer."
+
+# ============================================================================
+# Reranker Settings (non-model-specific)
+# ============================================================================
+reranker:
+  enabled: true
+
+# ============================================================================
+# Retrieval Settings
+# ============================================================================
+retrieval:
+  top_k: 10
+  enable_hybrid_search: true    # BM25 + Vector search with RRF fusion
+  rrf_k: 60                      # Reciprocal Rank Fusion parameter
+  enable_contextual_retrieval: false  # Anthropic contextual retrieval (slower)
