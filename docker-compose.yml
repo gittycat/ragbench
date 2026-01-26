@@ -27,17 +27,13 @@ services:
     restart: unless-stopped
     ports:
       - "8001:8001"
+    env_file:
+      - ./secrets/.env
     environment:
-      # Database
       - CHROMADB_URL=http://chromadb:8000
       - REDIS_URL=redis://redis:6379/0
-      # API Keys for cloud providers (from secrets/.env)
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-      # Application Settings
       - LOG_LEVEL=WARNING
-      - MAX_UPLOAD_SIZE=80                # Max file upload size in MB
+      - MAX_UPLOAD_SIZE=80
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -94,17 +90,13 @@ services:
     command: [".venv/bin/celery", "--quiet", "-A", "infrastructure.tasks.celery_app", "worker", "-Q", "celery,documents", "--concurrency=1", "--without-mingle", "--without-gossip"]
     user: "1000:1000"
     restart: unless-stopped
+    env_file:
+      - ./secrets/.env
     environment:
-      # Database
       - CHROMADB_URL=http://chromadb:8000
       - REDIS_URL=redis://redis:6379/0
-      # API Keys for cloud providers (from secrets/.env)
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-      # Application Settings
       - LOG_LEVEL=WARNING
-      - MAX_UPLOAD_SIZE=80                # Max file upload size in MB
+      - MAX_UPLOAD_SIZE=80
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -133,15 +125,11 @@ services:
     command: [".venv/bin/celery", "--quiet", "-A", "infrastructure.tasks.celery_app", "worker", "-Q", "eval", "--concurrency=1", "--without-mingle", "--without-gossip"]
     user: "1000:1000"
     restart: unless-stopped
+    env_file:
+      - ./secrets/.env
     environment:
-      # Database
       - CHROMADB_URL=http://chromadb:8000
       - REDIS_URL=redis://redis:6379/0
-      # API Keys for cloud providers (from secrets/.env)
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-      # Application Settings
       - LOG_LEVEL=WARNING
     extra_hosts:
       - "host.docker.internal:host-gateway"
