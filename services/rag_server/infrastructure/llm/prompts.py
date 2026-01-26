@@ -1,10 +1,10 @@
 """
 Centralized prompt management for RAG pipeline.
 
-All prompts used by the chat engine are defined here for easy maintenance
-and consistency across the application.
+All prompts are loaded from config.yml for easy customization.
 """
 from typing import Optional
+from infrastructure.config.models_config import get_models_config
 
 
 def get_system_prompt() -> str:
@@ -14,12 +14,8 @@ def get_system_prompt() -> str:
     Defines the assistant's personality, response style, and general approach.
     Applied to all LLM interactions including question condensation and answer generation.
     """
-    return (
-        "You are a professional assistant providing accurate answers based on document context. "
-        "Be direct and concise. Avoid conversational fillers like 'Let me explain', 'Okay', 'Well', or 'Sure'. "
-        "Start responses immediately with the answer. "
-        "Use bullet points for lists when appropriate."
-    )
+    config = get_models_config()
+    return config.prompts.system
 
 
 def get_context_prompt(
@@ -36,25 +32,18 @@ def get_context_prompt(
         {context_str}: Retrieved document chunks
         {chat_history}: Previous conversation messages
     """
+    config = get_models_config()
+
     citation_instructions = ""
-    if include_citations and citation_format == "numeric":
-        citation_instructions = (
-            "\n- Add numeric citations in square brackets like [1], [2] that map to the "
-            "order of context chunks provided above."
-        )
+    if include_citations:
+        if citation_format == "numeric":
+            citation_instructions = config.prompts.citation_instructions.numeric
+        # Add more citation formats here if needed in the future
 
-    return f"""Context from retrieved documents:
-{context_str}
-
-Instructions:
-- Answer using ONLY the context provided above
-- If the context does not contain sufficient information, respond: "I don't have enough information to answer this question."
-- Never use prior knowledge or make assumptions beyond what is explicitly stated
-- Be specific and cite details from the context when relevant
-- Use citations consistently when referencing facts{citation_instructions}
-- Previous conversation context is available for reference
-
-Provide a direct, accurate answer based on the context:"""
+    return config.prompts.context.format(
+        context_str="{context_str}",  # Keep as placeholder for LlamaIndex
+        citation_instructions=citation_instructions,
+    )
 
 
 def get_condense_prompt() -> Optional[str]:
@@ -70,5 +59,30 @@ def get_condense_prompt() -> Optional[str]:
 
     Only customize if you need different reformulation behavior.
     """
-    # Use LlamaIndex's default - it's well-tested and effective
-    return None
+    config = get_models_config()
+    return config.prompts.condense
+
+
+def get_contextual_prefix_prompt(
+    document_name: str, document_type: str, chunk_preview: str
+) -> str:
+    """
+    Get prompt for generating contextual prefix for a document chunk.
+
+    Used in contextual retrieval (Anthropic method) to generate context
+    that is prepended to chunks before embedding.
+
+    Args:
+        document_name: Name of the source document
+        document_type: File extension or document type
+        chunk_preview: Preview of the chunk content (typically first 400 chars)
+
+    Returns:
+        Formatted prompt for LLM to generate contextual prefix
+    """
+    config = get_models_config()
+    return config.prompts.contextual_prefix.format(
+        document_name=document_name,
+        document_type=document_type,
+        chunk_preview=chunk_preview,
+    )

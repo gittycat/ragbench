@@ -186,7 +186,7 @@ class TestGracefulDegradation:
         """
         from pipelines.ingestion import (
             chunk_document_from_file,
-            add_contextual_prefix,
+            add_contextual_prefix_to_chunk,
         )
         from llama_index.core.schema import TextNode
         from unittest.mock import patch, MagicMock
@@ -204,7 +204,7 @@ class TestGracefulDegradation:
         with patch('pipelines.ingestion.get_llm_client') as mock_llm:
             mock_llm.return_value.complete.side_effect = TimeoutError("LLM timeout")
 
-            result_node = add_contextual_prefix(
+            result_node = add_contextual_prefix_to_chunk(
                 test_node, "test.txt", ".txt"
             )
 

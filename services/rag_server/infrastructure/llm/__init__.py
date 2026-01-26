@@ -9,7 +9,12 @@ from .factory import (
     create_llm_client,
     LLMClientManager,
 )
-from .prompts import get_system_prompt, get_context_prompt, get_condense_prompt
+from .prompts import (
+    get_system_prompt,
+    get_context_prompt,
+    get_condense_prompt,
+    get_contextual_prefix_prompt,
+)
 from .config import LLMConfig, LLMProvider
 from .embeddings import get_embedding_function
 
@@ -24,6 +29,7 @@ __all__ = [
     "get_system_prompt",
     "get_context_prompt",
     "get_condense_prompt",
+    "get_contextual_prefix_prompt",
     # Config
     "LLMConfig",
     "LLMProvider",

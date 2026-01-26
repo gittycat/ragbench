@@ -169,3 +169,54 @@ retrieval:
   enable_hybrid_search: true    # BM25 + Vector search with RRF fusion
   rrf_k: 60                      # Reciprocal Rank Fusion parameter
   enable_contextual_retrieval: false  # Anthropic contextual retrieval (slower)
+
+# ============================================================================
+# Prompts - RAG pipeline prompts
+# ============================================================================
+prompts:
+  # System-level instructions for LLM behavior
+  system: |
+    You are a professional assistant providing accurate answers based on document context.
+    Be direct and concise. Avoid conversational fillers like 'Let me explain', 'Okay', 'Well', or 'Sure'.
+    Start responses immediately with the answer.
+    Use bullet points for lists when appropriate.
+
+  # Context instructions for using retrieved documents
+  # Placeholders: {context_str}, {chat_history}, {citation_instructions}
+  context: |
+    Context from retrieved documents:
+    {context_str}
+
+    Instructions:
+    - Answer using ONLY the context provided above
+    - If the context does not contain sufficient information, respond: "I don't have enough information to answer this question."
+    - Never use prior knowledge or make assumptions beyond what is explicitly stated
+    - Be specific and cite details from the context when relevant
+    - Use citations consistently when referencing facts{citation_instructions}
+    - Previous conversation context is available for reference
+
+    Provide a direct, accurate answer based on the context:
+
+  # Citation instructions (appended to context prompt when citations enabled)
+  citation_instructions:
+    numeric: |2
+
+      - Add numeric citations in square brackets like [1], [2] that map to the order of context chunks provided above.
+
+  # Question condensation prompt (null = use LlamaIndex default)
+  # Default works well: "Given a conversation (between Human and Assistant) and a follow up
+  # message from Human, rewrite the message to be a standalone question that captures all relevant context."
+  condense: null
+
+  # Contextual prefix generation for chunks (Anthropic method)
+  # Placeholders: {document_name}, {document_type}, {chunk_preview}
+  contextual_prefix: |
+    Document: {document_name} ({document_type})
+
+    Chunk content:
+    {chunk_preview}
+
+    Provide a concise 1-2 sentence context for this chunk, explaining what document it's from and what topic it discusses.
+    Format: "This section from [document/topic] discusses [specific topic/concept]."
+
+    Context (1-2 sentences only):

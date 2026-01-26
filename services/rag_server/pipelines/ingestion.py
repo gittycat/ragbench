@@ -251,20 +251,13 @@ def add_contextual_prefix_to_chunk(node: TextNode, document_name: str, document_
     - Prepend context to original chunk text
     - Return enhanced node (or original if LLM fails)
     """
+    from infrastructure.llm import get_contextual_prefix_prompt
+
     logger.info(f"[CONTEXTUAL] Generating contextual prefix for chunk via LLM...")
     start_time = time.time()
 
     chunk_preview = node.get_content()[:400]
-
-    prompt = f"""Document: {document_name} ({document_type})
-
-Chunk content:
-{chunk_preview}
-
-Provide a concise 1-2 sentence context for this chunk, explaining what document it's from and what topic it discusses.
-Format: "This section from [document/topic] discusses [specific topic/concept]."
-
-Context (1-2 sentences only):"""
+    prompt = get_contextual_prefix_prompt(document_name, document_type, chunk_preview)
 
     try:
         llm = get_llm_client()

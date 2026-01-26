@@ -168,6 +168,48 @@ class RetrievalConfig(BaseModel):
     enable_contextual_retrieval: bool = False
 
 
+class CitationInstructions(BaseModel):
+    """Citation instruction templates by format."""
+
+    numeric: str = (
+        "\n- Add numeric citations in square brackets like [1], [2] that map to the "
+        "order of context chunks provided above."
+    )
+
+
+class PromptConfig(BaseModel):
+    """Configuration for RAG pipeline prompts."""
+
+    system: str = (
+        "You are a professional assistant providing accurate answers based on document context. "
+        "Be direct and concise. Avoid conversational fillers like 'Let me explain', 'Okay', 'Well', or 'Sure'. "
+        "Start responses immediately with the answer. "
+        "Use bullet points for lists when appropriate."
+    )
+    context: str = (
+        "Context from retrieved documents:\n"
+        "{context_str}\n\n"
+        "Instructions:\n"
+        "- Answer using ONLY the context provided above\n"
+        "- If the context does not contain sufficient information, respond: \"I don't have enough information to answer this question.\"\n"
+        "- Never use prior knowledge or make assumptions beyond what is explicitly stated\n"
+        "- Be specific and cite details from the context when relevant\n"
+        "- Use citations consistently when referencing facts{citation_instructions}\n"
+        "- Previous conversation context is available for reference\n\n"
+        "Provide a direct, accurate answer based on the context:"
+    )
+    citation_instructions: CitationInstructions = Field(default_factory=CitationInstructions)
+    condense: str | None = None  # None = use LlamaIndex default
+    contextual_prefix: str = (
+        "Document: {document_name} ({document_type})\n\n"
+        "Chunk content:\n"
+        "{chunk_preview}\n\n"
+        "Provide a concise 1-2 sentence context for this chunk, explaining what document it's from and what topic it discusses.\n"
+        'Format: "This section from [document/topic] discusses [specific topic/concept]."\n\n'
+        "Context (1-2 sentences only):"
+    )
+
+
 class ActiveModels(BaseModel):
     """Active model selection."""
 
@@ -194,6 +236,7 @@ class ModelsConfig(BaseModel):
     eval: EvalConfig
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    prompts: PromptConfig = Field(default_factory=PromptConfig)
 
     @classmethod
     def load(cls, config_path: str | Path | None = None) -> "ModelsConfig":
@@ -337,6 +380,10 @@ class ModelsConfig(BaseModel):
         # Copy retrieval settings unchanged
         if "retrieval" in data:
             resolved["retrieval"] = data["retrieval"]
+
+        # Copy prompts unchanged
+        if "prompts" in data:
+            resolved["prompts"] = data["prompts"]
 
         return resolved
 
