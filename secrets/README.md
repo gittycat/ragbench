@@ -37,11 +37,6 @@ ANTHROPIC_API_KEY=sk-ant-...
 4. Add to `LLM_API_KEY` in `.env`
 5. Update `config.yml` to use OpenAI provider
 
-### Other Providers
-- **Google Gemini**: https://ai.google.dev/
-- **DeepSeek**: https://platform.deepseek.com/
-- **Moonshot (Kimi)**: https://platform.moonshot.cn/
-
 ## Security Notes
 
 - **Never commit `.env` files to git** - they're in `.gitignore`
