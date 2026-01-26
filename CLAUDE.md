@@ -258,97 +258,35 @@ docker compose -f docker-compose.ci.yml down
 
 **YAML-based Configuration (config.yml):**
 
-The system uses YAML configuration for all model settings. Copy `config.yml.example` to `config.yml`.
-
-**New Format (v2)** - Define multiple models and select which to use:
-
-```yaml
-# Model Definitions - Define all available models
-models:
-  llm:
-    gemma3-4b:
-      provider: ollama
-      model: gemma3:4b
-      base_url: http://host.docker.internal:11434
-      timeout: 120
-      keep_alive: 10m
-
-    claude-sonnet:
-      provider: anthropic
-      model: claude-sonnet-4-20250514
-      base_url: https://api.anthropic.com
-      timeout: 120
-
-  embedding:
-    nomic-embed:
-      provider: ollama
-      model: nomic-embed-text:latest
-      base_url: http://host.docker.internal:11434
-
-  eval:
-    claude-sonnet:
-      provider: anthropic
-      model: claude-sonnet-4-20250514
-
-  reranker:
-    minilm-l6:
-      model: cross-encoder/ms-marco-MiniLM-L-6-v2
-      top_n: 5
-
-# Active Selection - Which models to use
-active:
-  llm: gemma3-4b
-  embedding: nomic-embed
-  eval: claude-sonnet
-  reranker: minilm-l6
-
-# Evaluation Settings
-eval:
-  citation_scope: retrieved  # retrieved | explicit
-  citation_format: numeric
-
-# Reranker Settings
-reranker:
-  enabled: true
-
-# Retrieval Settings
-retrieval:
-  top_k: 10
-  enable_hybrid_search: true
-  rrf_k: 60
-  enable_contextual_retrieval: false
-```
-
-**Benefits:**
-- Define multiple models once, switch by changing `active.*`
-- Easy A/B testing between models
-- No need to comment/uncomment config blocks
-- Backward compatible with legacy format (direct llm/embedding/eval sections)
+The system uses YAML configuration for all model settings and prompt templates. Each model definition includes a `requires_api_key` field indicating whether it needs an API key.
 
 **Supported providers:**
-- **Cloud (require API keys):** openai, anthropic, google
-- **Local (no API keys):** ollama, deepseek, moonshot
+- **Local (no API keys):** ollama
+- **Cloud (require API keys):** openai, anthropic, google, deepseek, moonshot
 
 **API Keys (secrets/.env):**
 
-Secrets are stored in `secrets/.env` (copy from `secrets/.env.example`):
+Secrets are stored in `secrets/.env` (copy from `secrets/.env.example`). Use the naming convention `{PROVIDER}_API_KEY`:
 
 ```bash
-OPENAI_API_KEY=      # For OpenAI models (gpt-4, etc.)
-ANTHROPIC_API_KEY=   # For Anthropic models (claude-sonnet, etc.) and DeepEval
-GOOGLE_API_KEY=      # For Google models (gemini, etc.)
+OPENAI_API_KEY=      # For OpenAI models
+ANTHROPIC_API_KEY=   # For Anthropic models and DeepEval
+GOOGLE_API_KEY=      # For Google models
+DEEPSEEK_API_KEY=    # For DeepSeek models
+MOONSHOT_API_KEY=    # For Moonshot models
 ```
 
-The system automatically selects the correct API key based on the provider in `config.yml`.
+Models with `requires_api_key: true` in config.yml will fail validation if the corresponding API key is not set.
 
 **Environment Variables (docker-compose.yml only):**
 
 Minimal environment variables - most config moved to YAML:
 - `CHROMADB_URL`: ChromaDB endpoint (default: `http://chromadb:8000`)
 - `REDIS_URL`: Redis endpoint (default: `redis://redis:6379/0`)
-- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`: API keys from secrets/.env
 - `MAX_UPLOAD_SIZE=80`: Max upload size in MB
 - `LOG_LEVEL=WARNING`: Logging level (INFO or DEBUG for development)
+
+API keys are loaded from `secrets/.env` via Docker Compose `env_file`.
 
 **Note:** Celery worker shares all RAG Server configuration (config.yml and secrets/.env). Ollama settings (`base_url`, `keep_alive`) are now in `config.yml` per model.
 
@@ -371,7 +309,7 @@ Minimal environment variables - most config moved to YAML:
 - `chat.py`: Session-based ChatMemoryBuffer with RedisChatStore
 
 **LLM Infrastructure** (`services/rag_server/infrastructure/llm/`):
-- `factory.py`: Multi-provider LLM client factory (Ollama, OpenAI, Anthropic, Google, DeepSeek, Moonshot)
+- `factory.py`: Multi-provider LLM client factory
 - `config.py`: LLMConfig dataclass + LLMProvider enum
 - `providers.py`: Provider-specific client creators
 - `prompts.py`: System, context, and condense prompts

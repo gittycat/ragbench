@@ -7,23 +7,16 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
-# Cloud providers that require API keys (local providers like ollama, deepseek, moonshot don't)
-CLOUD_PROVIDER_API_KEYS: dict[str, str] = {
-    "openai": "OPENAI_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "google": "GOOGLE_API_KEY",
-}
-
-
 class LLMConfig(BaseModel):
     """Configuration for the main LLM."""
 
-    provider: Literal["ollama", "openai", "anthropic", "google", "deepseek", "moonshot"]
+    provider: str
     model: str
     base_url: str | None = None
     timeout: int = 120
     keep_alive: str | None = None
     api_key: str | None = None
+    requires_api_key: bool = False
 
     @field_validator("model")
     @classmethod
@@ -35,8 +28,8 @@ class LLMConfig(BaseModel):
 
     def validate_provider_requirements(self) -> None:
         """Validate that required fields are present for the selected provider."""
-        env_var = CLOUD_PROVIDER_API_KEYS.get(self.provider)
-        if env_var and not self.api_key:
+        if self.requires_api_key and not self.api_key:
+            env_var = f"{self.provider.upper()}_API_KEY"
             raise ValueError(
                 f"API key is required for provider '{self.provider}'. "
                 f"Set {env_var} environment variable."
@@ -49,6 +42,8 @@ class EmbeddingConfig(BaseModel):
     provider: str
     model: str
     base_url: str | None = None
+    api_key: str | None = None
+    requires_api_key: bool = False
 
     @field_validator("model")
     @classmethod
@@ -58,6 +53,15 @@ class EmbeddingConfig(BaseModel):
             raise ValueError("Embedding model name is required and cannot be empty")
         return v
 
+    def validate_provider_requirements(self) -> None:
+        """Validate that required fields are present for the selected provider."""
+        if self.requires_api_key and not self.api_key:
+            env_var = f"{self.provider.upper()}_API_KEY"
+            raise ValueError(
+                f"API key is required for embedding provider '{self.provider}'. "
+                f"Set {env_var} environment variable."
+            )
+
 
 class EvalModelConfig(BaseModel):
     """Configuration for an evaluation model (without settings)."""
@@ -65,6 +69,7 @@ class EvalModelConfig(BaseModel):
     provider: str
     model: str
     api_key: str | None = None
+    requires_api_key: bool = False
 
     @field_validator("model")
     @classmethod
@@ -76,8 +81,8 @@ class EvalModelConfig(BaseModel):
 
     def validate_provider_requirements(self) -> None:
         """Validate that required fields are present for the selected provider."""
-        env_var = CLOUD_PROVIDER_API_KEYS.get(self.provider)
-        if env_var and not self.api_key:
+        if self.requires_api_key and not self.api_key:
+            env_var = f"{self.provider.upper()}_API_KEY"
             raise ValueError(
                 f"API key is required for eval provider '{self.provider}'. "
                 f"Set {env_var} environment variable."
@@ -107,6 +112,7 @@ class EvalConfig(BaseModel):
     provider: str
     model: str
     api_key: str | None = None
+    requires_api_key: bool = False
     citation_scope: Literal["retrieved", "explicit"] = "retrieved"
     citation_format: Literal["numeric"] = "numeric"
     abstention_phrases: list[str] = Field(
@@ -130,8 +136,8 @@ class EvalConfig(BaseModel):
 
     def validate_provider_requirements(self) -> None:
         """Validate that required fields are present for the selected provider."""
-        env_var = CLOUD_PROVIDER_API_KEYS.get(self.provider)
-        if env_var and not self.api_key:
+        if self.requires_api_key and not self.api_key:
+            env_var = f"{self.provider.upper()}_API_KEY"
             raise ValueError(
                 f"API key is required for eval provider '{self.provider}'. "
                 f"Set {env_var} environment variable."
@@ -282,28 +288,22 @@ class ModelsConfig(BaseModel):
             # Legacy format - use as-is
             resolved_data = data
 
-        # Inject API keys from environment based on provider
-        if "llm" in resolved_data:
-            provider = resolved_data["llm"].get("provider")
-            env_var = CLOUD_PROVIDER_API_KEYS.get(provider)
-            if env_var:
+        # Inject API keys from environment based on requires_api_key flag
+        for key in ["llm", "embedding", "eval"]:
+            if key in resolved_data and resolved_data[key].get("requires_api_key"):
+                provider = resolved_data[key].get("provider")
+                env_var = f"{provider.upper()}_API_KEY"
                 api_key = os.getenv(env_var)
                 if api_key:
-                    resolved_data["llm"]["api_key"] = api_key
-
-        if "eval" in resolved_data:
-            provider = resolved_data["eval"].get("provider")
-            env_var = CLOUD_PROVIDER_API_KEYS.get(provider)
-            if env_var:
-                api_key = os.getenv(env_var)
-                if api_key:
-                    resolved_data["eval"]["api_key"] = api_key
+                    resolved_data[key]["api_key"] = api_key
 
         # Create and validate config
         config = cls(**resolved_data)
 
         # Run provider-specific validations
         config.llm.validate_provider_requirements()
+        config.embedding.validate_provider_requirements()
+        config.eval.validate_provider_requirements()
 
         return config
 

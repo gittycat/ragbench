@@ -22,50 +22,57 @@ models:
       timeout: 120
       keep_alive: 10m
 
-    # OpenAI models
+    # OpenAI models (cloud API)
     gpt4-turbo:
       provider: openai
       model: gpt-4-turbo-preview
       base_url: https://api.openai.com/v1
       timeout: 120
+      requires_api_key: true
 
     gpt35-turbo:
       provider: openai
       model: gpt-3.5-turbo
       base_url: https://api.openai.com/v1
       timeout: 120
+      requires_api_key: true
 
-    # Anthropic models
+    # Anthropic models (cloud API)
     claude-sonnet:
       provider: anthropic
       model: claude-sonnet-4-20250514
       base_url: https://api.anthropic.com
       timeout: 120
+      requires_api_key: true
 
     claude-opus:
       provider: anthropic
       model: claude-opus-4-5-20251101
       base_url: https://api.anthropic.com
       timeout: 120
+      requires_api_key: true
 
-    # Google models
+    # Google models (cloud API)
     gemini-pro:
       provider: google
       model: gemini-pro
       timeout: 120
+      requires_api_key: true
 
-    # DeepSeek models
+    # DeepSeek models (cloud API)
     deepseek-chat:
       provider: deepseek
       model: deepseek-chat
       timeout: 120
+      requires_api_key: true
 
-    # Moonshot models
+    # Moonshot models (cloud API)
     moonshot-v1:
       provider: moonshot
       model: moonshot-v1-8k
       base_url: https://api.moonshot.cn/v1
       timeout: 120
+      requires_api_key: true
 
   embedding:
     # Ollama embeddings (local)
@@ -74,40 +81,47 @@ models:
       model: nomic-embed-text:latest
       base_url: http://host.docker.internal:11434
 
-    # OpenAI embeddings
+    # OpenAI embeddings (cloud API)
     openai-ada:
       provider: openai
       model: text-embedding-ada-002
       base_url: https://api.openai.com/v1
+      requires_api_key: true
 
     openai-3-small:
       provider: openai
       model: text-embedding-3-small
       base_url: https://api.openai.com/v1
+      requires_api_key: true
 
     openai-3-large:
       provider: openai
       model: text-embedding-3-large
       base_url: https://api.openai.com/v1
+      requires_api_key: true
 
   eval:
-    # Anthropic models for evaluation
+    # Anthropic models for evaluation (cloud API)
     claude-sonnet:
       provider: anthropic
       model: claude-sonnet-4-20250514
+      requires_api_key: true
 
     claude-opus:
       provider: anthropic
       model: claude-opus-4-5-20251101
+      requires_api_key: true
 
-    # OpenAI models for evaluation
+    # OpenAI models for evaluation (cloud API)
     gpt4:
       provider: openai
       model: gpt-4
+      requires_api_key: true
 
     gpt4-turbo:
       provider: openai
       model: gpt-4-turbo-preview
+      requires_api_key: true
 
   reranker:
     # Lightweight reranker (default)

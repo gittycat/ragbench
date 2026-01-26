@@ -76,13 +76,40 @@ git clone https://github.com/gittycat/ragbench.git
 cd ragbench
 ```
 
-#### 3. Configure
-Review and edit `config.yml` for your preferences.
+### 3. Configure
 
-Also edit `secrets/.env` with your API KEYS if using cloud models.
+**Model Selection** (`config.yml`):
+
+The `config.yml` file defines available models and RAG settings. The `active` section controls which models are used:
+
+```yaml
+active:
+  inference: gemma3-4b    # LLM for answering questions
+  embedding: nomic-embed  # Model for document embeddings
+  eval: claude-sonnet     # Model for evaluation metrics
+  reranker: minilm-l6     # Model for result reranking
+```
+
+To switch models, change the active model name to any model defined in the `models` section. Local models (Ollama) work out of the box. Cloud models require API keys.
+
+**API Keys** (`secrets/.env`):
+
+Cloud models (OpenAI, Anthropic, Google, DeepSeek, Moonshot) require API keys. Create your secrets file and add the keys you need:
+
 ```bash
 cp secrets/.env.example secrets/.env
 ```
+
+Add keys using the naming convention `{PROVIDER}_API_KEY`:
+```
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GOOGLE_API_KEY=...
+DEEPSEEK_API_KEY=...
+MOONSHOT_API_KEY=...
+```
+
+Only add keys for providers you plan to use. Models in `config.yml` with `requires_api_key: true` need the corresponding key set.
 
 ### 4. Start the Application
 
