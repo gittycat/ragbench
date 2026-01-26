@@ -8,6 +8,7 @@ This document outlines planned features and enhancements for the RAG system, org
 - [Planned Features](#planned-features)
   - [Centralized Logging Infrastructure](#centralized-logging-infrastructure)
   - [Metrics Visualization](#metrics-visualization)
+  - [Model Leaderboard & Recommendations](#model-leaderboard--recommendations)
   - [PII Masking for Cloud LLM Providers](#pii-masking-for-cloud-llm-providers)
   - [GraphRAG](#graph-rag)
   - [Parent Document Retrieval](#parent-document-retrieval)
@@ -136,6 +137,42 @@ This document outlines planned features and enhancements for the RAG system, org
    - Add interactive configuration editor
    - Implement what-if scenario analysis
    - Add export/import for configurations
+
+### Model Leaderboard & Recommendations
+
+**Description:** Implement an intelligent model recommendation system that provides curated, up-to-date recommendations for the top-performing models across all RAG pipeline components (embeddings, reranking, inference, retrieval). Recommendations are sourced from authoritative leaderboards (MTEB, BEIR, LMSys Chatbot Arena) and continuously updated to reflect the latest releases and benchmarks.
+
+**Why Important:** The RAG model landscape evolves rapidly, with new high-performance models released monthly. Manually tracking leaderboards across multiple categories is time-consuming and error-prone. An automated recommendation system enables users to discover and adopt state-of-the-art models quickly, ensuring optimal pipeline performance without extensive manual research.
+
+**Effort Estimate:** Medium (3-4 sessions)
+
+#### Tasks
+
+1. **Planning & Data Sources**
+   - Identify authoritative leaderboard sources (MTEB for embeddings, BEIR for retrieval, LMSys for LLM inference)
+   - Define API integration strategy (web scraping vs. API endpoints)
+   - Design recommendation schema (model name, provider, performance metrics, use case fit)
+   - Plan caching strategy for leaderboard data (Redis with daily refresh)
+
+2. **Leaderboard Data Aggregation**
+   - Implement leaderboard scrapers/API clients for each data source
+   - Parse and normalize performance metrics across sources
+   - Categorize models by RAG pipeline component (embeddings, reranking, inference, contextual retrieval)
+   - Distinguish between open-source (self-hosted) and cloud-based (API) models
+   - Extract model metadata (parameter count, weights availability, license)
+
+3. **Recommendation Engine**
+   - Build recommendation logic: rank by performance, filter by deployment type (self-hosted/cloud)
+   - Return top 5 models per category with justification (accuracy, latency, cost, license)
+   - Add filtering options (open-source only, cloud only, by provider, by model size)
+   - Include model weights information for self-hosted models (HuggingFace repo links, size, quantization options)
+   - Create API endpoint: `GET /models/recommendations?category=embeddings&deployment=open-source`
+
+4. **Frontend Integration & Alerts**
+   - Display recommendations in webapp (filterable table with performance metrics)
+   - Add "Compare Current vs. Recommended" view showing potential improvements
+   - Implement notification system for significant new model releases (e.g., 10%+ performance gain)
+   - Add one-click configuration export for recommended models
 
 ### PII Masking for Cloud LLM Providers
 
