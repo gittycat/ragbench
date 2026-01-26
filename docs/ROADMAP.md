@@ -9,6 +9,7 @@ This document outlines planned features and enhancements for the RAG system, org
   - [Centralized Logging Infrastructure](#centralized-logging-infrastructure)
   - [Metrics Visualization](#metrics-visualization)
   - [PII Masking for Cloud LLM Providers](#pii-masking-for-cloud-llm-providers)
+  - [GraphRAG](#graph-rag)
   - [Parent Document Retrieval](#parent-document-retrieval)
   - [Query Fusion](#query-fusion)
   - [Evaluation Dataset Expansion](#evaluation-dataset-expansion)
@@ -175,6 +176,12 @@ PII (Personally Identifiable Information)
    - Add output guardrails (scan final response for leaked PII)
    - Audit logging for masking/unmasking operations
    - End-to-end tests with real LLM calls
+
+### Graph RAG
+
+Using Graph db instead of or in addition to a vector db.
+TODO: expand
+
 
 ### Parent Document Retrieval
 

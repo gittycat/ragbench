@@ -31,9 +31,10 @@ services:
       # Database
       - CHROMADB_URL=http://chromadb:8000
       - REDIS_URL=redis://redis:6379/0
-      # API Keys (from secrets/.env)
-      - LLM_API_KEY=${LLM_API_KEY:-}
+      # API Keys for cloud providers (from secrets/.env)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       # Application Settings
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80                # Max file upload size in MB
@@ -97,9 +98,10 @@ services:
       # Database
       - CHROMADB_URL=http://chromadb:8000
       - REDIS_URL=redis://redis:6379/0
-      # API Keys (from secrets/.env)
-      - LLM_API_KEY=${LLM_API_KEY:-}
+      # API Keys for cloud providers (from secrets/.env)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       # Application Settings
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80                # Max file upload size in MB
@@ -135,9 +137,10 @@ services:
       # Database
       - CHROMADB_URL=http://chromadb:8000
       - REDIS_URL=redis://redis:6379/0
-      # API Keys (from secrets/.env)
-      - LLM_API_KEY=${LLM_API_KEY:-}
+      # API Keys for cloud providers (from secrets/.env)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       # Application Settings
       - LOG_LEVEL=WARNING
     extra_hosts:

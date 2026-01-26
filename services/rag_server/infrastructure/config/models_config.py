@@ -7,6 +7,13 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+# Cloud providers that require API keys (local providers like ollama, deepseek, moonshot don't)
+CLOUD_PROVIDER_API_KEYS: dict[str, str] = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "google": "GOOGLE_API_KEY",
+}
+
 
 class LLMConfig(BaseModel):
     """Configuration for the main LLM."""
@@ -28,10 +35,11 @@ class LLMConfig(BaseModel):
 
     def validate_provider_requirements(self) -> None:
         """Validate that required fields are present for the selected provider."""
-        if self.provider != "ollama" and not self.api_key:
+        env_var = CLOUD_PROVIDER_API_KEYS.get(self.provider)
+        if env_var and not self.api_key:
             raise ValueError(
                 f"API key is required for provider '{self.provider}'. "
-                f"Set LLM_API_KEY environment variable."
+                f"Set {env_var} environment variable."
             )
 
 
@@ -68,10 +76,11 @@ class EvalModelConfig(BaseModel):
 
     def validate_provider_requirements(self) -> None:
         """Validate that required fields are present for the selected provider."""
-        if self.provider != "ollama" and not self.api_key:
+        env_var = CLOUD_PROVIDER_API_KEYS.get(self.provider)
+        if env_var and not self.api_key:
             raise ValueError(
                 f"API key is required for eval provider '{self.provider}'. "
-                f"Set ANTHROPIC_API_KEY environment variable."
+                f"Set {env_var} environment variable."
             )
 
 
@@ -121,10 +130,11 @@ class EvalConfig(BaseModel):
 
     def validate_provider_requirements(self) -> None:
         """Validate that required fields are present for the selected provider."""
-        if self.provider != "ollama" and not self.api_key:
+        env_var = CLOUD_PROVIDER_API_KEYS.get(self.provider)
+        if env_var and not self.api_key:
             raise ValueError(
                 f"API key is required for eval provider '{self.provider}'. "
-                f"Set ANTHROPIC_API_KEY environment variable."
+                f"Set {env_var} environment variable."
             )
 
 
@@ -229,14 +239,22 @@ class ModelsConfig(BaseModel):
             # Legacy format - use as-is
             resolved_data = data
 
-        # Inject secrets from environment variables
-        llm_api_key = os.getenv("LLM_API_KEY")
-        if "llm" in resolved_data and llm_api_key:
-            resolved_data["llm"]["api_key"] = llm_api_key
+        # Inject API keys from environment based on provider
+        if "llm" in resolved_data:
+            provider = resolved_data["llm"].get("provider")
+            env_var = CLOUD_PROVIDER_API_KEYS.get(provider)
+            if env_var:
+                api_key = os.getenv(env_var)
+                if api_key:
+                    resolved_data["llm"]["api_key"] = api_key
 
-        anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
-        if "eval" in resolved_data and anthropic_api_key:
-            resolved_data["eval"]["api_key"] = anthropic_api_key
+        if "eval" in resolved_data:
+            provider = resolved_data["eval"].get("provider")
+            env_var = CLOUD_PROVIDER_API_KEYS.get(provider)
+            if env_var:
+                api_key = os.getenv(env_var)
+                if api_key:
+                    resolved_data["eval"]["api_key"] = api_key
 
         # Create and validate config
         config = cls(**resolved_data)

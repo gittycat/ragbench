@@ -77,21 +77,12 @@ class LLMJudge:
     def _create_llm(self) -> LLM:
         """Create a new LLM client for the judge."""
         from infrastructure.llm.config import LLMConfig, LLMProvider
-        from infrastructure.llm.providers import (
-            create_anthropic_client,
-            create_openai_client,
-            create_google_client,
-            create_deepseek_client,
-            create_ollama_client,
-        )
-
-        # Get API key from models config
+        from infrastructure.llm.factory import create_llm_client
         from infrastructure.config.models_config import get_models_config
 
         models_config = get_models_config()
         api_key = models_config.eval.api_key
 
-        # Create config for judge LLM
         try:
             provider = LLMProvider(self.config.provider)
         except ValueError:
@@ -104,21 +95,8 @@ class LLMJudge:
             timeout=120.0,
         )
 
-        # Create client based on provider
-        creators = {
-            LLMProvider.ANTHROPIC: create_anthropic_client,
-            LLMProvider.OPENAI: create_openai_client,
-            LLMProvider.GOOGLE: create_google_client,
-            LLMProvider.DEEPSEEK: create_deepseek_client,
-            LLMProvider.OLLAMA: create_ollama_client,
-        }
-
-        creator = creators.get(provider)
-        if not creator:
-            raise ValueError(f"No client creator for provider: {provider}")
-
         logger.info(f"[JUDGE] Creating {provider.value} LLM: {self.config.model}")
-        return creator(llm_config)
+        return create_llm_client(llm_config)
 
     def evaluate_faithfulness(
         self,

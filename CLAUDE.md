@@ -325,23 +325,28 @@ retrieval:
 - No need to comment/uncomment config blocks
 - Backward compatible with legacy format (direct llm/embedding/eval sections)
 
-**Supported providers:** ollama, openai, anthropic, google, deepseek, moonshot
+**Supported providers:**
+- **Cloud (require API keys):** openai, anthropic, google
+- **Local (no API keys):** ollama, deepseek, moonshot
 
 **API Keys (secrets/.env):**
 
 Secrets are stored in `secrets/.env` (copy from `secrets/.env.example`):
 
 ```bash
-LLM_API_KEY=         # For cloud providers (openai, anthropic, google, deepseek, moonshot)
-ANTHROPIC_API_KEY=   # For DeepEval evaluations (required)
+OPENAI_API_KEY=      # For OpenAI models (gpt-4, etc.)
+ANTHROPIC_API_KEY=   # For Anthropic models (claude-sonnet, etc.) and DeepEval
+GOOGLE_API_KEY=      # For Google models (gemini, etc.)
 ```
+
+The system automatically selects the correct API key based on the provider in `config.yml`.
 
 **Environment Variables (docker-compose.yml only):**
 
 Minimal environment variables - most config moved to YAML:
 - `CHROMADB_URL`: ChromaDB endpoint (default: `http://chromadb:8000`)
 - `REDIS_URL`: Redis endpoint (default: `redis://redis:6379/0`)
-- `LLM_API_KEY`, `ANTHROPIC_API_KEY`: API keys from secrets/.env
+- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`: API keys from secrets/.env
 - `MAX_UPLOAD_SIZE=80`: Max upload size in MB
 - `LOG_LEVEL=WARNING`: Logging level (INFO or DEBUG for development)
 
