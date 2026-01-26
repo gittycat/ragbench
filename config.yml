@@ -22,17 +22,10 @@ models:
       timeout: 120
       keep_alive: 10m
 
-    # OpenAI models (cloud API)
-    gpt4-turbo:
+    # OpenAI
+    gpt5-mini:
       provider: openai
-      model: gpt-4-turbo-preview
-      base_url: https://api.openai.com/v1
-      timeout: 120
-      requires_api_key: true
-
-    gpt35-turbo:
-      provider: openai
-      model: gpt-3.5-turbo
+      model: gpt-5-mini # good quality, much cheaper; great for most production RAG where retrieval is solid
       base_url: https://api.openai.com/v1
       timeout: 120
       requires_api_key: true
@@ -100,6 +93,8 @@ models:
       base_url: https://api.openai.com/v1
       requires_api_key: true
 
+  # Rule of thumb: use a grader at least as capable as your answer (inference) model when you 
+  # care about subtle errors or faithfulness; otherwise use a cheaper mini/nano model for scale.
   eval:
     # Anthropic models for evaluation (cloud API)
     claude-sonnet:
@@ -113,14 +108,9 @@ models:
       requires_api_key: true
 
     # OpenAI models for evaluation (cloud API)
-    gpt4:
+    gpt5-mini:
       provider: openai
-      model: gpt-4
-      requires_api_key: true
-
-    gpt4-turbo:
-      provider: openai
-      model: gpt-4-turbo-preview
+      model: gpt-5-mini
       requires_api_key: true
 
   reranker:
@@ -142,9 +132,9 @@ models:
 # Active Model Selection - Specify which models to use
 # ============================================================================
 active:
-  inference: gemma3-4b
+  inference: gpt5-mini
   embedding: nomic-embed
-  eval: claude-sonnet
+  eval: gpt5-mini
   reranker: minilm-l6
 
 # ============================================================================

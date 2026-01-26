@@ -36,7 +36,7 @@ The differentiating features of this RAG are:
 - Ideal for sensitive documents requiring air-gapped deployment
 
 **Cloud-Optimized Option**:
-- Multi-provider LLM support: OpenAI, Anthropic, Google Gemini, DeepSeek, Moonshot
+- Multi-provider LLM support: OpenAI, Anthropic, Google Gemini, DeepSeek, etc
 - Leverage frontier models for maximum performance
 - PII masking for cloud providers planned (see [PII Masking](#pii-masking) and [implementation plan](docs/PII_MASKING_IMPLEMENTATION_PLAN.md))
 
