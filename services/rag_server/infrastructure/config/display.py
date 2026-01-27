@@ -22,9 +22,7 @@ def print_config_banner(compact: bool = True) -> None:
 
 def _print_compact_banner(config) -> None:
     """Print compact config banner."""
-    print("=" * 70)
-    print("RAG Configuration")
-    print("=" * 70)
+    print("\nRAG Configuration")
 
     # LLM
     llm_info = f"{config.llm.provider}/{config.llm.model}"
@@ -48,14 +46,12 @@ def _print_compact_banner(config) -> None:
         eval_info = f"{config.eval.provider}/{config.eval.model}"
         print(f"  Eval (judge):     {eval_info}")
 
-    print("=" * 70)
+    print("")
 
 
 def _print_full_banner(config) -> None:
     """Print full config banner with all settings."""
-    print("=" * 70)
     print("RAG Configuration (Full)")
-    print("=" * 70)
 
     # LLM section
     print("\nLLM (Inference):")
@@ -98,5 +94,3 @@ def _print_full_banner(config) -> None:
         print(f"  Citation Scope:   {config.eval.citation_scope}")
         print(f"  Citation Format:  {config.eval.citation_format}")
         print(f"  API Key:          {'configured' if config.eval.api_key else 'not set'}")
-
-    print("\n" + "=" * 70)

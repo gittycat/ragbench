@@ -3,6 +3,9 @@
 # Load the secrets/.env file
 set dotenv-path := "./secrets/.env"
 
+# Suppress command echoing globally
+set quiet
+
 alias test := test-unit
 
 # Get version from latest git tag (strips 'v' prefix), falls back to 0.0.0-dev
