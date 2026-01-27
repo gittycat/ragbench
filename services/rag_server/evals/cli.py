@@ -1,26 +1,26 @@
-"""Command-line interface for evaluation_cc.
+"""Command-line interface for evals.
 
 Usage:
     # Run evaluation with defaults
-    python -m evaluation_cc.cli eval
+    python -m evals.cli eval
 
     # Run with specific datasets
-    python -m evaluation_cc.cli eval --datasets ragbench,squad_v2
+    python -m evals.cli eval --datasets ragbench,squad_v2
 
     # Run with limited samples
-    python -m evaluation_cc.cli eval --samples 10
+    python -m evals.cli eval --samples 10
 
     # Show dataset stats
-    python -m evaluation_cc.cli stats
+    python -m evals.cli stats
 
     # List available datasets
-    python -m evaluation_cc.cli datasets
+    python -m evals.cli datasets
 
     # Export results for manual review
-    python -m evaluation_cc.cli export --run-id abc123
+    python -m evals.cli export --run-id abc123
 
     # Compare multiple runs
-    python -m evaluation_cc.cli compare run1 run2 run3
+    python -m evals.cli compare run1 run2 run3
 """
 
 import argparse
@@ -29,10 +29,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from evaluation_cc.config import EvalConfig, DatasetName, JudgeConfig, MetricConfig
-from evaluation_cc.datasets.registry import list_datasets, get_dataset
-from evaluation_cc.runner import EvaluationRunner, run_evaluation, compute_pareto_frontier
-from evaluation_cc.schemas import EvalRun
+from evals.config import EvalConfig, DatasetName, JudgeConfig, MetricConfig
+from evals.datasets.registry import list_datasets, get_dataset
+from evals.runner import EvaluationRunner, run_evaluation, compute_pareto_frontier
+from evals.schemas import EvalRun
 from infrastructure.config.display import print_config_banner
 
 

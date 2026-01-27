@@ -5,22 +5,22 @@ import random
 from pathlib import Path
 from typing import Any
 
-from evaluation_cc.datasets.base import BaseDatasetLoader
-from evaluation_cc.schemas import EvalDataset, EvalQuestion, QueryType, Difficulty
+from evals.datasets.base import BaseDatasetLoader
+from evals.schemas import EvalDataset, EvalQuestion, QueryType, Difficulty
 
 
 class GoldenDatasetLoader(BaseDatasetLoader):
     """Loader for the local golden Q&A dataset.
 
-    Loads curated question-answer pairs from eval_data/golden_qa.json.
+    Loads curated question-answer pairs from evals/data/golden_qa.json.
     This dataset is used for quick local testing without requiring
     external dataset downloads.
     """
 
     # Path for local development
-    GOLDEN_PATH = Path("eval_data/golden_qa.json")
+    GOLDEN_PATH = Path("evals/data/golden_qa.json")
     # Path inside Docker container
-    GOLDEN_PATH_DOCKER = Path("/app/eval_data/golden_qa.json")
+    GOLDEN_PATH_DOCKER = Path("/app/evals/data/golden_qa.json")
 
     @property
     def name(self) -> str:

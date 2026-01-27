@@ -1,4 +1,4 @@
-# RAG Evaluation Framework (evaluation_cc)
+# RAG Evaluation Framework (evals)
 
 A comprehensive evaluation framework for RAG systems that measures retrieval quality, answer generation, citation accuracy, and abstention handling. Supports multiple public datasets and LLM-as-judge evaluation with configurable models and weighted scoring.
 
@@ -9,32 +9,32 @@ A comprehensive evaluation framework for RAG systems that measures retrieval qua
 uv sync --group bench --group eval
 
 # Run evaluation (requires RAG server running on localhost:8001)
-python -m evaluation_cc.cli eval --datasets ragbench --samples 10
+python -m evals.cli eval --datasets ragbench --samples 10
 
 # Run with multiple datasets
-python -m evaluation_cc.cli eval --datasets ragbench,squad_v2,qasper --samples 50
+python -m evals.cli eval --datasets ragbench,squad_v2,qasper --samples 50
 
 # Disable LLM judge (faster, retrieval metrics only)
-python -m evaluation_cc.cli eval --datasets ragbench --samples 20 --no-judge
+python -m evals.cli eval --datasets ragbench --samples 20 --no-judge
 
 # List available datasets
-python -m evaluation_cc.cli datasets
+python -m evals.cli datasets
 
 # Show dataset statistics
-python -m evaluation_cc.cli stats
+python -m evals.cli stats
 
 # Export results for manual review
-python -m evaluation_cc.cli export --run-id abc123 --format markdown
-python -m evaluation_cc.cli export --run-id abc123 --format csv
+python -m evals.cli export --run-id abc123 --format markdown
+python -m evals.cli export --run-id abc123 --format csv
 
 # Compare multiple evaluation runs
-python -m evaluation_cc.cli compare run1 run2 run3
+python -m evals.cli compare run1 run2 run3
 ```
 
 ### Programmatic Usage
 
 ```python
-from evaluation_cc import EvalConfig, run_evaluation, DatasetName
+from evals import EvalConfig, run_evaluation, DatasetName
 
 config = EvalConfig(
     datasets=[DatasetName.RAGBENCH, DatasetName.SQUAD_V2],

@@ -1,20 +1,20 @@
 """Evaluation schemas for type-safe data contracts."""
 
-from evaluation_cc.schemas.dataset import (
+from evals.schemas.dataset import (
     EvalQuestion,
     GoldPassage,
     EvalDataset,
     QueryType,
     Difficulty,
 )
-from evaluation_cc.schemas.response import (
+from evals.schemas.response import (
     EvalResponse,
     Citation,
     RetrievedChunk,
     TokenUsage,
     QueryMetrics,
 )
-from evaluation_cc.schemas.results import (
+from evals.schemas.results import (
     MetricResult,
     MetricGroup,
     Scorecard,

@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from evaluation_cc.schemas import (
+from evals.schemas import (
     EvalQuestion,
     EvalResponse,
     MetricResult,

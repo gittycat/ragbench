@@ -53,7 +53,7 @@ services:
     volumes:
       - ./config.yml:/app/config.yml:ro       # Model configuration (read-only)
       - ./data/indexed_documents:/app/documents
-      - ./services/rag_server/eval_data:/app/eval_data  # Evaluation results
+      - ./services/rag_server/evals/data:/app/evals/data  # Evaluation data and results
       - docs_repo:/tmp/shared
       - huggingface_cache:/home/appuser/.cache/huggingface
       - documents_data:/data/documents
@@ -112,7 +112,7 @@ services:
     volumes:
       - ./config.yml:/app/config.yml:ro       # Model configuration (read-only)
       - ./data/indexed_documents:/app/documents
-      - ./services/rag_server/eval_data:/app/eval_data  # Evaluation results
+      - ./services/rag_server/evals/data:/app/evals/data  # Evaluation data and results
       - docs_repo:/tmp/shared
       - huggingface_cache:/home/appuser/.cache/huggingface
       - documents_data:/data/documents
@@ -143,8 +143,8 @@ services:
       - public
     volumes:
       - ./config.yml:/app/config.yml:ro       # Model configuration (read-only)
-      - ./services/rag_server/eval_data:/app/eval_data  # Evaluation data and results
-      - ./services/rag_server/data:/app/data            # Evaluation run storage
+      - ./services/rag_server/evals/data:/app/evals/data  # Evaluation data and results
+      - ./services/rag_server/data:/app/data              # Evaluation run storage
       - huggingface_cache:/home/appuser/.cache/huggingface
 
 # Network configuration for security isolation

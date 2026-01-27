@@ -12,7 +12,7 @@ from typing import Any
 
 from llama_index.core.llms import LLM
 
-from evaluation_cc.config import JudgeConfig
+from evals.config import JudgeConfig
 
 logger = logging.getLogger(__name__)
 

@@ -1,5 +1,5 @@
 """
-evaluation_cc - RAG Evaluation Framework
+evals - RAG Evaluation Framework
 
 A comprehensive evaluation framework for RAG systems supporting:
 - Multiple evaluation datasets (RAGBench, Qasper, SQuAD v2, HotpotQA, MS MARCO)
@@ -9,7 +9,7 @@ A comprehensive evaluation framework for RAG systems supporting:
 - Manual review export for high-stakes domains
 
 Usage:
-    from evaluation_cc import EvalConfig, run_evaluation
+    from evals import EvalConfig, run_evaluation
 
     config = EvalConfig(
         datasets=["ragbench", "squad_v2"],
@@ -19,16 +19,16 @@ Usage:
 
 CLI Usage:
     # Run evaluation
-    python -m evaluation_cc.cli eval --datasets ragbench --samples 10
+    python -m evals.cli eval --datasets ragbench --samples 10
 
     # Show dataset stats
-    python -m evaluation_cc.cli stats
+    python -m evals.cli stats
 
     # Export for manual review
-    python -m evaluation_cc.cli export --run-id abc123 --format markdown
+    python -m evals.cli export --run-id abc123 --format markdown
 """
 
-from evaluation_cc.config import (
+from evals.config import (
     EvalConfig,
     DatasetName,
     MetricConfig,
@@ -37,7 +37,7 @@ from evaluation_cc.config import (
     DATASET_ASPECTS,
     get_model_cost,
 )
-from evaluation_cc.schemas import (
+from evals.schemas import (
     # Dataset schemas
     EvalQuestion,
     GoldPassage,
@@ -59,18 +59,18 @@ from evaluation_cc.schemas import (
     ConfigSnapshot,
     EvalRun,
 )
-from evaluation_cc.runner import (
+from evals.runner import (
     run_evaluation,
     EvaluationRunner,
     RAGClient,
     compute_pareto_frontier,
 )
-from evaluation_cc.export import (
+from evals.export import (
     export_for_review,
     export_scorecard,
     export_run_report,
 )
-from evaluation_cc.datasets.registry import (
+from evals.datasets.registry import (
     register as register_dataset,
     get_loader as get_dataset_loader,
     list_available as list_available_datasets,

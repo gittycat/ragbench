@@ -5,9 +5,9 @@ Measures answer quality using LLM-as-judge evaluation.
 
 from typing import Any
 
-from evaluation_cc.metrics.base import BaseMetric
-from evaluation_cc.judges import LLMJudge
-from evaluation_cc.schemas import (
+from evals.metrics.base import BaseMetric
+from evals.judges import LLMJudge
+from evals.schemas import (
     EvalQuestion,
     EvalResponse,
     MetricResult,

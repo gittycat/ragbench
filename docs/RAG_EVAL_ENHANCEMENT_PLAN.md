@@ -593,7 +593,7 @@ Alternatives:
 | `services/webapp/src/lib/components/RunComparison.svelte` | Side-by-side comparison UI |
 | `services/webapp/src/lib/components/TrendChart.svelte` | Interactive trend chart |
 | `services/webapp/src/lib/components/RecommendationPanel.svelte` | Recommendation UI |
-| `eval_data/golden_baseline.json` | Baseline storage |
+| `evals/data/golden_baseline.json` | Baseline storage |
 
 ### Modified Files
 
@@ -622,7 +622,7 @@ npm install chart.js chartjs-plugin-annotation
 
 ### Golden Baseline File
 
-Location: `eval_data/golden_baseline.json`
+Location: `evals/data/golden_baseline.json`
 
 ```json
 {
@@ -655,7 +655,7 @@ Location: `eval_data/golden_baseline.json`
 
 ### Enhanced Evaluation Run File
 
-Location: `eval_data/results/eval-YYYY-MM-DD-XXXXXX.json`
+Location: `evals/data/results/eval-YYYY-MM-DD-XXXXXX.json`
 
 Added fields to existing structure:
 ```json

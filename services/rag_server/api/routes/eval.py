@@ -239,7 +239,7 @@ async def get_metric_groups():
 async def get_datasets():
     """Get available evaluation datasets."""
     # Lazy import to avoid loading heavy dependencies at module load time
-    from evaluation_cc.datasets.registry import list_available, get_metadata
+    from evals.datasets.registry import list_available, get_metadata
 
     datasets = []
 
@@ -271,7 +271,7 @@ async def get_datasets():
 async def start_evaluation_run(request: EvalRunRequest):
     """Start a new evaluation run."""
     # Lazy imports to avoid loading heavy dependencies at module load time
-    from evaluation_cc.datasets.registry import list_available
+    from evals.datasets.registry import list_available
     from infrastructure.tasks.eval_worker import run_evaluation_task
 
     try:

@@ -309,7 +309,7 @@ Without systematic evaluation, configuration changes (chunk size, top-k, reranki
 **Test Dataset**: Golden Q&A pairs (question, expected answer, ground truth context)
 - Current: 10 pairs from Paul Graham essays
 - Target: 100+ pairs for production confidence
-- Location: `eval_data/golden_qa.json`
+- Location: `evals/data/golden_qa.json`
 
 **Evaluation Types**:
 - **Retrieval Metrics**: Measure if correct chunks are retrieved
@@ -328,7 +328,7 @@ Without systematic evaluation, configuration changes (chunk size, top-k, reranki
 - Pytest integration with custom markers (`@pytest.mark.eval`)
 - CLI tool for standalone evaluation
 - CI/CD compatible (optional eval tests on demand)
-- Results stored in `eval_data/runs/` for metrics API
+- Results stored in `evals/data/runs/` for metrics API
 
 ### Metrics & Thresholds
 

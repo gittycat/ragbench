@@ -17,9 +17,9 @@
 | `schemas/eval.py` | ✅ Created | Pydantic models for Eval API |
 | `schemas/metrics.py` | ✅ Updated | System/model schemas (eval schemas moved to eval.py) |
 | `api/routes/eval.py` | ✅ Created | All `/metrics/eval/*` endpoints |
-| `evaluation_cc/datasets/golden.py` | ✅ Created | Golden dataset loader |
-| `evaluation_cc/config.py` | ✅ Updated | Added `GOLDEN` to `DatasetName` enum |
-| `evaluation_cc/datasets/registry.py` | ✅ Updated | Registered golden loader |
+| `evals/datasets/golden.py` | ✅ Created | Golden dataset loader |
+| `evals/config.py` | ✅ Updated | Added `GOLDEN` to `DatasetName` enum |
+| `evals/datasets/registry.py` | ✅ Updated | Registered golden loader |
 | `infrastructure/tasks/eval_progress.py` | ✅ Created | Redis progress tracking |
 | `infrastructure/tasks/eval_worker.py` | ✅ Created | Celery task for async evaluation |
 | `infrastructure/tasks/celery_app.py` | ✅ Updated | Added eval queue routing |
@@ -675,9 +675,9 @@ Results are stored as JSON files in `data/eval_runs/` (same as current CLI imple
 
 ## Metric Groups Mapping
 
-### Current evaluation_cc Metrics → New Groups
+### Current evals Metrics → New Groups
 
-The existing `evaluation_cc/config.py` `MetricConfig` will be refactored to align with the new group structure:
+The existing `evals/config.py` `MetricConfig` will be refactored to align with the new group structure:
 
 | Current MetricConfig Flag | New Group | Metrics |
 |---------------------------|-----------|---------|
@@ -689,7 +689,7 @@ The existing `evaluation_cc/config.py` `MetricConfig` will be refactored to alig
 
 ### Implementation Notes
 
-1. **MetricConfig Refactor**: Update `evaluation_cc/config.py` to use group-based structure
+1. **MetricConfig Refactor**: Update `evals/config.py` to use group-based structure
 2. **Backward Compatibility**: Keep CLI flags working, map to new groups internally
 3. **Scoring Weights**: Maintain existing `DEFAULT_WEIGHTS` but organize by group
 
@@ -699,17 +699,17 @@ The existing `evaluation_cc/config.py` `MetricConfig` will be refactored to alig
 
 ### Current Implementation
 
-The golden dataset uses the existing `eval_data/golden_qa.json` file containing 10 curated Q&A pairs.
+The golden dataset uses the existing `evals/data/golden_qa.json` file containing 10 curated Q&A pairs.
 
 ### Dataset Loader
 
-Create `evaluation_cc/datasets/golden.py`:
+Create `evals/datasets/golden.py`:
 
 ```python
 class GoldenDatasetLoader(BaseDatasetLoader):
     """Loader for local golden Q&A dataset."""
 
-    GOLDEN_PATH = Path("eval_data/golden_qa.json")
+    GOLDEN_PATH = Path("evals/data/golden_qa.json")
 
     def load(self, split: str = "test", max_samples: int | None = None) -> EvalDataset:
         with open(self.GOLDEN_PATH) as f:
@@ -749,10 +749,10 @@ class GoldenDatasetLoader(BaseDatasetLoader):
 - [x] Add dataset metadata (size, domains, aspects) to registry
 
 #### 1.3 Golden Dataset Loader
-- [x] Create `evaluation_cc/datasets/golden.py` with `GoldenDatasetLoader`
-- [x] Register golden dataset in `evaluation_cc/datasets/registry.py`
+- [x] Create `evals/datasets/golden.py` with `GoldenDatasetLoader`
+- [x] Register golden dataset in `evals/datasets/registry.py`
 - [x] Add `DatasetName.GOLDEN` enum value
-- [x] Test loader with existing `eval_data/golden_qa.json`
+- [x] Test loader with existing `evals/data/golden_qa.json`
 
 #### 1.4 Celery Eval Task
 - [x] Create `infrastructure/tasks/eval_worker.py` with `run_evaluation_task`
@@ -775,8 +775,8 @@ class GoldenDatasetLoader(BaseDatasetLoader):
 - [ ] Test SSE with frontend client
 
 #### 1.7 Metric Groups Refactor
-- [x] Update `evaluation_cc/config.py` `MetricConfig` to use group structure (already had group flags)
-- [x] Create `MetricGroup` enum: retrieval, generation, citation, abstention, performance (already exists in evaluation_cc/schemas)
+- [x] Update `evals/config.py` `MetricConfig` to use group structure (already had group flags)
+- [x] Create `MetricGroup` enum: retrieval, generation, citation, abstention, performance (already exists in evals/schemas)
 - [x] Update `EvaluationRunner` to compute metrics by group (already does this)
 - [x] Ensure CLI backward compatibility (maintained)
 
@@ -976,11 +976,11 @@ services/rag_server/
 │   ├── celery_app.py              # Eval queue config
 │   ├── eval_worker.py             # Evaluation Celery task
 │   └── eval_progress.py           # Redis progress helpers
-├── evaluation_cc/
+├── evals/
 │   ├── config.py                  # Group-based MetricConfig
 │   └── datasets/
 │       ├── registry.py            # Dataset registry with golden
 │       └── golden.py              # Golden dataset loader
-└── eval_data/
+└── evals/data/
     └── golden_qa.json             # Golden Q&A pairs
 ```

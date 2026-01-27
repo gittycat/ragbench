@@ -3,9 +3,9 @@
 import statistics
 from typing import Any
 
-from evaluation_cc.metrics.base import BaseMetric
-from evaluation_cc.config import get_model_cost
-from evaluation_cc.schemas import (
+from evals.metrics.base import BaseMetric
+from evals.config import get_model_cost
+from evals.schemas import (
     EvalQuestion,
     EvalResponse,
     MetricResult,

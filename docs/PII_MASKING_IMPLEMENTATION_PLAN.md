@@ -68,7 +68,7 @@ INBOUND (from LLM):                              ▼
 | User queries | `pipelines/inference.py` | `query_rag()` | User query, chat history, retrieved context |
 | Contextual retrieval | `pipelines/ingestion.py` | `add_contextual_prefix_to_chunk()` | Document chunks during ingestion |
 | Session titles | `services/session_titles.py` | `generate_ai_title()` | First user message for title generation |
-| Evaluation | `evaluation_cc/judges/llm_judge.py` | `_evaluate()` | Test data sent to eval LLM |
+| Evaluation | `evals/judges/llm_judge.py` | `_evaluate()` | Test data sent to eval LLM |
 
 ## Configuration Schema
 

@@ -2,11 +2,11 @@
 
 from typing import TYPE_CHECKING
 
-from evaluation_cc.config import DatasetName
-from evaluation_cc.schemas import EvalDataset
+from evals.config import DatasetName
+from evals.schemas import EvalDataset
 
 if TYPE_CHECKING:
-    from evaluation_cc.datasets.base import BaseDatasetLoader
+    from evals.datasets.base import BaseDatasetLoader
 
 # Module-level registry state
 _loaders: dict[DatasetName, type["BaseDatasetLoader"]] = {}
@@ -40,12 +40,12 @@ def get_metadata(name: DatasetName) -> dict:
 
 def _register_default_loaders() -> None:
     """Register all default dataset loaders."""
-    from evaluation_cc.datasets.ragbench import RAGBenchLoader
-    from evaluation_cc.datasets.qasper import QasperLoader
-    from evaluation_cc.datasets.squad_v2 import SquadV2Loader
-    from evaluation_cc.datasets.hotpotqa import HotpotQALoader
-    from evaluation_cc.datasets.msmarco import MSMarcoLoader
-    from evaluation_cc.datasets.golden import GoldenDatasetLoader
+    from evals.datasets.ragbench import RAGBenchLoader
+    from evals.datasets.qasper import QasperLoader
+    from evals.datasets.squad_v2 import SquadV2Loader
+    from evals.datasets.hotpotqa import HotpotQALoader
+    from evals.datasets.msmarco import MSMarcoLoader
+    from evals.datasets.golden import GoldenDatasetLoader
 
     register(DatasetName.RAGBENCH, RAGBenchLoader)
     register(DatasetName.QASPER, QasperLoader)

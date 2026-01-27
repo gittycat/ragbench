@@ -1,33 +1,33 @@
 """Evaluation metrics for RAG systems."""
 
-from evaluation_cc.metrics.base import BaseMetric
-from evaluation_cc.metrics.retrieval import (
+from evals.metrics.base import BaseMetric
+from evals.metrics.retrieval import (
     RecallAtK,
     PrecisionAtK,
     MRR,
     NDCG,
 )
-from evaluation_cc.metrics.generation import (
+from evals.metrics.generation import (
     Faithfulness,
     AnswerCorrectness,
     AnswerRelevancy,
 )
-from evaluation_cc.metrics.citation import (
+from evals.metrics.citation import (
     CitationPrecision,
     CitationRecall,
     SectionAccuracy,
 )
-from evaluation_cc.metrics.abstention import (
+from evals.metrics.abstention import (
     UnanswerableAccuracy,
     FalsePositiveRate,
     FalseNegativeRate,
 )
-from evaluation_cc.metrics.performance import (
+from evals.metrics.performance import (
     LatencyP50,
     LatencyP95,
     CostPerQuery,
 )
-from evaluation_cc.schemas.results import MetricGroup
+from evals.schemas.results import MetricGroup
 
 # Metric groups for easy selection
 METRIC_GROUPS = {

@@ -21,9 +21,9 @@ logger = logging.getLogger(__name__)
 
 # Baseline file path (Docker or local)
 _BASELINE_FILE = (
-    Path("/app/eval_data/golden_baseline.json")
-    if Path("/app/eval_data").exists()
-    else Path("eval_data/golden_baseline.json")
+    Path("/app/evals/data/golden_baseline.json")
+    if Path("/app/evals/data").exists()
+    else Path("evals/data/golden_baseline.json")
 )
 
 

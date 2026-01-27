@@ -13,8 +13,8 @@ from typing import Any
 
 from datasets import load_dataset
 
-from evaluation_cc.datasets.base import BaseDatasetLoader
-from evaluation_cc.schemas import (
+from evals.datasets.base import BaseDatasetLoader
+from evals.schemas import (
     EvalDataset,
     EvalQuestion,
     GoldPassage,

@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from evaluation_cc.schemas import EvalDataset, EvalQuestion, QueryType
+from evals.schemas import EvalDataset, EvalQuestion, QueryType
 
 
 class BaseDatasetLoader(ABC):

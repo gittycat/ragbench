@@ -7,30 +7,30 @@
 
 ## Background
 
-The RAG evaluation system uses **DeepEval** (not RAGAS). The implementation lives in `services/rag_server/evaluation_cc/`. The goal is to evaluate RAG quality across retrieval, generation, citation, abstention, and performance metrics.
+The RAG evaluation system uses **DeepEval** (not RAGAS). The implementation lives in `services/rag_server/evals/`. The goal is to evaluate RAG quality across retrieval, generation, citation, abstention, and performance metrics.
 
 ## Current State
 
 ### What Exists
 
-**Framework** (`services/rag_server/evaluation_cc/`):
+**Framework** (`services/rag_server/evals/`):
 - `cli.py` - Commands: `eval`, `stats`, `datasets`, `export`, `compare`
 - `runner.py` - Orchestrates queries → metrics → scoring
 - `config.py` - `EvalConfig`, `JudgeConfig`, `MetricConfig` dataclasses
 - `export.py` - JSON/CSV/Markdown export for manual review
 
-**Metrics** (`evaluation_cc/metrics/`):
+**Metrics** (`evals/metrics/`):
 - `retrieval.py` - RecallAtK, PrecisionAtK, MRR, NDCG
 - `generation.py` - Faithfulness, AnswerCorrectness, AnswerRelevancy (LLM-as-judge)
 - `citation.py` - CitationPrecision, CitationRecall, SectionAccuracy
 - `abstention.py` - UnanswerableAccuracy, FalsePositiveRate, FalseNegativeRate
 - `performance.py` - LatencyP50, LatencyP95, CostPerQuery
 
-**Datasets** (`evaluation_cc/datasets/`):
+**Datasets** (`evals/datasets/`):
 - Loaders for: RAGBench, Qasper, SQuAD v2, HotpotQA, MS MARCO
 - Registry pattern in `registry.py`
 
-**Test Data** (`services/rag_server/eval_data/`):
+**Test Data** (`services/rag_server/evals/data/`):
 - `golden_qa.json` - 10 Q&A pairs (Paul Graham essays)
 - `documents/` - 3 HTML source documents
 - `golden_baseline.json` - Baseline config snapshot
@@ -84,13 +84,13 @@ The RAG evaluation system uses **DeepEval** (not RAGAS). The implementation live
 
 | Purpose | Path |
 |---------|------|
-| CLI entry | `services/rag_server/evaluation_cc/cli.py` |
-| Runner | `services/rag_server/evaluation_cc/runner.py` |
-| Config | `services/rag_server/evaluation_cc/config.py` |
-| Metrics | `services/rag_server/evaluation_cc/metrics/` |
-| Datasets | `services/rag_server/evaluation_cc/datasets/` |
-| Schemas | `services/rag_server/evaluation_cc/schemas/` |
-| Test data | `services/rag_server/eval_data/golden_qa.json` |
+| CLI entry | `services/rag_server/evals/cli.py` |
+| Runner | `services/rag_server/evals/runner.py` |
+| Config | `services/rag_server/evals/config.py` |
+| Metrics | `services/rag_server/evals/metrics/` |
+| Datasets | `services/rag_server/evals/datasets/` |
+| Schemas | `services/rag_server/evals/schemas/` |
+| Test data | `services/rag_server/evals/data/golden_qa.json` |
 | **Tests** | `services/rag_server/tests/test_rag_eval.py` |
 | API migration spec | `docs/eval_api_migration.json` |
 | Enhancement plan | `docs/RAG_EVAL_ENHANCEMENT_PLAN.md` |
@@ -120,21 +120,21 @@ cd services/rag_server
 cd services/rag_server
 
 # Check module imports
-python -c "from evaluation_cc import EvalConfig, run_evaluation"
+python -c "from evals import EvalConfig, run_evaluation"
 
 # List datasets
-python -m evaluation_cc.cli datasets
+python -m evals.cli datasets
 
 # Run minimal eval (needs RAG server running + ANTHROPIC_API_KEY)
 export ANTHROPIC_API_KEY=sk-ant-...
-python -m evaluation_cc.cli eval --datasets ragbench --samples 5 --no-judge
+python -m evals.cli eval --datasets ragbench --samples 5 --no-judge
 ```
 
 ---
 
 ## Notes
 
-- Module is `evaluation_cc`, not `evaluation` (docs sometimes wrong)
+- Module is `evals`, not `evaluation` (docs sometimes wrong)
 - LLM-as-judge requires `ANTHROPIC_API_KEY` in environment
 - `--no-judge` flag skips LLM metrics for faster testing
 - Results saved to `data/eval_runs/` directory

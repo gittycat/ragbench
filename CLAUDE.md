@@ -320,7 +320,7 @@ API keys are loaded from `secrets/.env` via Docker Compose `env_file`.
 
 **API & Async:** `main.py` (FastAPI), `infrastructure/tasks/celery_app.py`, `tasks.py`
 
-**Evaluation:** `evaluation/` (DeepEval), `eval_data/golden_qa.json` (10 Q&A pairs)
+**Evaluation:** `evaluation/` (DeepEval), `evals/data/golden_qa.json` (10 Q&A pairs)
 
 **Backup:** `scripts/backup_chromadb.sh`, `scripts/restore_chromadb.sh`
 

@@ -16,9 +16,9 @@ from infrastructure.tasks.eval_progress import (
 )
 
 if TYPE_CHECKING:
-    from evaluation_cc.config import EvalConfig
-    from evaluation_cc.runner import EvaluationRunner
-    from evaluation_cc.schemas import MetricGroup
+    from evals.config import EvalConfig
+    from evals.runner import EvaluationRunner
+    from evals.schemas import MetricGroup
 
 logger = logging.getLogger(__name__)
 
@@ -104,14 +104,14 @@ def run_evaluation_task(
 
     try:
         # Lazy imports to avoid loading heavy dependencies at module load time
-        from evaluation_cc.config import (
+        from evals.config import (
             EvalConfig,
             DatasetName,
             MetricConfig,
             JudgeConfig as EvalJudgeConfig,
         )
-        from evaluation_cc.runner import EvaluationRunner
-        from evaluation_cc.schemas import MetricGroup
+        from evals.runner import EvaluationRunner
+        from evals.schemas import MetricGroup
 
         # Build MetricConfig from groups
         metric_config = MetricConfig(

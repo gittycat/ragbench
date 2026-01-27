@@ -6,8 +6,8 @@ Measures how well the RAG system retrieves relevant documents/chunks.
 import math
 from typing import Any
 
-from evaluation_cc.metrics.base import BaseMetric
-from evaluation_cc.schemas import (
+from evals.metrics.base import BaseMetric
+from evals.schemas import (
     EvalQuestion,
     EvalResponse,
     MetricResult,

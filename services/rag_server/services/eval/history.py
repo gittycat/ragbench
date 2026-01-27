@@ -24,9 +24,9 @@ logger = logging.getLogger(__name__)
 
 # Use Docker path if available, otherwise local development path
 EVAL_RESULTS_DIR = (
-    Path("/app/eval_data/results")
-    if Path("/app/eval_data").exists()
-    else Path("eval_data/results")
+    Path("/app/evals/data/results")
+    if Path("/app/evals/data").exists()
+    else Path("evals/data/results")
 )
 
 

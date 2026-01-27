@@ -52,8 +52,7 @@ docker-compose.override.yml
 /chroma_db_data/
 /indexed_documents/
 /services/rag_server/.deepeval/
-/services/rag_server/eval_data/results
-/services/rag_server/eval_results/
+/services/rag_server/evals/data/results
 
 # Secrets and configuration
 /secrets/*

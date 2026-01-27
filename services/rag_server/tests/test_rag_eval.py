@@ -27,8 +27,8 @@ class TestRecallAtK:
 
     def test_perfect_recall(self):
         """All gold chunks retrieved should yield recall of 1.0."""
-        from evaluation_cc.metrics.retrieval import RecallAtK
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
+        from evals.metrics.retrieval import RecallAtK
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
 
         metric = RecallAtK(k=5)
 
@@ -60,8 +60,8 @@ class TestRecallAtK:
 
     def test_partial_recall(self):
         """Only some gold chunks retrieved should yield partial recall."""
-        from evaluation_cc.metrics.retrieval import RecallAtK
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
+        from evals.metrics.retrieval import RecallAtK
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
 
         metric = RecallAtK(k=5)
 
@@ -94,8 +94,8 @@ class TestRecallAtK:
 
     def test_no_gold_passages(self):
         """No gold passages should default to recall of 1.0."""
-        from evaluation_cc.metrics.retrieval import RecallAtK
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, RetrievedChunk
+        from evals.metrics.retrieval import RecallAtK
+        from evals.schemas import EvalQuestion, EvalResponse, RetrievedChunk
 
         metric = RecallAtK(k=5)
 
@@ -121,8 +121,8 @@ class TestRecallAtK:
 
     def test_k_limit_applied(self):
         """Only top K retrieved chunks should be considered."""
-        from evaluation_cc.metrics.retrieval import RecallAtK
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
+        from evals.metrics.retrieval import RecallAtK
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
 
         metric = RecallAtK(k=2)
 
@@ -156,8 +156,8 @@ class TestPrecisionAtK:
 
     def test_perfect_precision(self):
         """All retrieved chunks are relevant should yield precision of 1.0."""
-        from evaluation_cc.metrics.retrieval import PrecisionAtK
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
+        from evals.metrics.retrieval import PrecisionAtK
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
 
         metric = PrecisionAtK(k=3)
 
@@ -189,8 +189,8 @@ class TestPrecisionAtK:
 
     def test_partial_precision(self):
         """Some irrelevant chunks should yield partial precision."""
-        from evaluation_cc.metrics.retrieval import PrecisionAtK
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
+        from evals.metrics.retrieval import PrecisionAtK
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
 
         metric = PrecisionAtK(k=4)
 
@@ -221,8 +221,8 @@ class TestPrecisionAtK:
 
     def test_no_chunks_retrieved(self):
         """No retrieved chunks should yield precision of 0.0."""
-        from evaluation_cc.metrics.retrieval import PrecisionAtK
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage
+        from evals.metrics.retrieval import PrecisionAtK
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage
 
         metric = PrecisionAtK(k=5)
 
@@ -252,8 +252,8 @@ class TestMRR:
 
     def test_first_result_relevant(self):
         """First result relevant should yield MRR of 1.0."""
-        from evaluation_cc.metrics.retrieval import MRR
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
+        from evals.metrics.retrieval import MRR
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
 
         metric = MRR()
 
@@ -283,8 +283,8 @@ class TestMRR:
 
     def test_second_result_relevant(self):
         """Second result relevant should yield MRR of 0.5."""
-        from evaluation_cc.metrics.retrieval import MRR
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
+        from evals.metrics.retrieval import MRR
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
 
         metric = MRR()
 
@@ -313,8 +313,8 @@ class TestMRR:
 
     def test_no_relevant_result(self):
         """No relevant results should yield MRR of 0.0."""
-        from evaluation_cc.metrics.retrieval import MRR
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
+        from evals.metrics.retrieval import MRR
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
 
         metric = MRR()
 
@@ -347,8 +347,8 @@ class TestNDCG:
 
     def test_perfect_ranking(self):
         """Perfect ranking should yield NDCG of 1.0."""
-        from evaluation_cc.metrics.retrieval import NDCG
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
+        from evals.metrics.retrieval import NDCG
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
 
         metric = NDCG(k=3)
 
@@ -380,8 +380,8 @@ class TestNDCG:
 
     def test_inverted_ranking(self):
         """Inverted ranking should yield NDCG less than 1.0."""
-        from evaluation_cc.metrics.retrieval import NDCG
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
+        from evals.metrics.retrieval import NDCG
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, RetrievedChunk
 
         metric = NDCG(k=3)
 
@@ -412,8 +412,8 @@ class TestNDCG:
 
     def test_no_gold_passages(self):
         """No gold passages should default to NDCG of 1.0."""
-        from evaluation_cc.metrics.retrieval import NDCG
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, RetrievedChunk
+        from evals.metrics.retrieval import NDCG
+        from evals.schemas import EvalQuestion, EvalResponse, RetrievedChunk
 
         metric = NDCG(k=3)
 
@@ -447,8 +447,8 @@ class TestCitationPrecision:
 
     def test_perfect_citation_precision(self):
         """All citations pointing to gold chunks should yield precision of 1.0."""
-        from evaluation_cc.metrics.citation import CitationPrecision
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, Citation
+        from evals.metrics.citation import CitationPrecision
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, Citation
 
         metric = CitationPrecision()
 
@@ -478,8 +478,8 @@ class TestCitationPrecision:
 
     def test_partial_citation_precision(self):
         """Some citations to non-gold chunks should yield partial precision."""
-        from evaluation_cc.metrics.citation import CitationPrecision
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, Citation
+        from evals.metrics.citation import CitationPrecision
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, Citation
 
         metric = CitationPrecision()
 
@@ -507,8 +507,8 @@ class TestCitationPrecision:
 
     def test_no_citations(self):
         """No citations should yield precision of 0.0."""
-        from evaluation_cc.metrics.citation import CitationPrecision
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage
+        from evals.metrics.citation import CitationPrecision
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage
 
         metric = CitationPrecision()
 
@@ -538,8 +538,8 @@ class TestCitationRecall:
 
     def test_perfect_citation_recall(self):
         """All gold chunks cited should yield recall of 1.0."""
-        from evaluation_cc.metrics.citation import CitationRecall
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, Citation
+        from evals.metrics.citation import CitationRecall
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, Citation
 
         metric = CitationRecall()
 
@@ -569,8 +569,8 @@ class TestCitationRecall:
 
     def test_partial_citation_recall(self):
         """Only some gold chunks cited should yield partial recall."""
-        from evaluation_cc.metrics.citation import CitationRecall
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, Citation
+        from evals.metrics.citation import CitationRecall
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, Citation
 
         metric = CitationRecall()
 
@@ -598,8 +598,8 @@ class TestCitationRecall:
 
     def test_no_gold_passages(self):
         """No gold passages should default to recall of 1.0."""
-        from evaluation_cc.metrics.citation import CitationRecall
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, Citation
+        from evals.metrics.citation import CitationRecall
+        from evals.schemas import EvalQuestion, EvalResponse, Citation
 
         metric = CitationRecall()
 
@@ -628,8 +628,8 @@ class TestSectionAccuracy:
 
     def test_perfect_section_accuracy(self):
         """All citations to correct doc+section should yield accuracy of 1.0."""
-        from evaluation_cc.metrics.citation import SectionAccuracy
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, Citation
+        from evals.metrics.citation import SectionAccuracy
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, Citation
 
         metric = SectionAccuracy()
 
@@ -660,8 +660,8 @@ class TestSectionAccuracy:
 
     def test_doc_correct_but_section_wrong(self):
         """Citation to right doc but wrong section should show in details."""
-        from evaluation_cc.metrics.citation import SectionAccuracy
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage, Citation
+        from evals.metrics.citation import SectionAccuracy
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage, Citation
 
         metric = SectionAccuracy()
 
@@ -690,8 +690,8 @@ class TestSectionAccuracy:
 
     def test_no_citations(self):
         """No citations should yield section accuracy of 0.0."""
-        from evaluation_cc.metrics.citation import SectionAccuracy
-        from evaluation_cc.schemas import EvalQuestion, EvalResponse, GoldPassage
+        from evals.metrics.citation import SectionAccuracy
+        from evals.schemas import EvalQuestion, EvalResponse, GoldPassage
 
         metric = SectionAccuracy()
 
@@ -941,8 +941,8 @@ class TestDatasetRegistry:
 
     def test_list_available_returns_all_datasets(self):
         """Registry should list all registered datasets."""
-        from evaluation_cc.datasets.registry import list_available
-        from evaluation_cc.config import DatasetName
+        from evals.datasets.registry import list_available
+        from evals.config import DatasetName
 
         available = list_available()
 
@@ -954,8 +954,8 @@ class TestDatasetRegistry:
 
     def test_get_loader_returns_instance(self):
         """get_loader should return cached loader instances."""
-        from evaluation_cc.datasets.registry import get_loader
-        from evaluation_cc.config import DatasetName
+        from evals.datasets.registry import get_loader
+        from evals.config import DatasetName
 
         loader1 = get_loader(DatasetName.RAGBENCH)
         loader2 = get_loader(DatasetName.RAGBENCH)
@@ -966,8 +966,8 @@ class TestDatasetRegistry:
 
     def test_get_metadata_returns_dict(self):
         """get_metadata should return loader metadata."""
-        from evaluation_cc.datasets.registry import get_metadata
-        from evaluation_cc.config import DatasetName
+        from evals.datasets.registry import get_metadata
+        from evals.config import DatasetName
 
         metadata = get_metadata(DatasetName.RAGBENCH)
 
@@ -982,7 +982,7 @@ class TestRAGBenchLoader:
 
     def test_loader_properties(self):
         """RAGBench loader should have correct properties."""
-        from evaluation_cc.datasets.ragbench import RAGBenchLoader
+        from evals.datasets.ragbench import RAGBenchLoader
 
         loader = RAGBenchLoader()
 
@@ -992,7 +992,7 @@ class TestRAGBenchLoader:
 
     def test_load_small_sample(self):
         """Should load small sample from RAGBench."""
-        from evaluation_cc.datasets.ragbench import RAGBenchLoader
+        from evals.datasets.ragbench import RAGBenchLoader
 
         loader = RAGBenchLoader()
         dataset = loader.load(split="test", max_samples=3, seed=42)
@@ -1003,7 +1003,7 @@ class TestRAGBenchLoader:
 
     def test_sampling_is_reproducible(self):
         """Same seed should produce same samples."""
-        from evaluation_cc.datasets.ragbench import RAGBenchLoader
+        from evals.datasets.ragbench import RAGBenchLoader
 
         loader = RAGBenchLoader()
 
@@ -1026,7 +1026,7 @@ class TestQasperLoader:
     )
     def test_load_qasper_sample(self):
         """Should load sample from Qasper dataset."""
-        from evaluation_cc.datasets.qasper import QasperLoader
+        from evals.datasets.qasper import QasperLoader
 
         loader = QasperLoader()
         dataset = loader.load(split="test", max_samples=2, seed=42)
@@ -1041,7 +1041,7 @@ class TestSquadV2Loader:
 
     def test_load_squad_sample(self):
         """Should load sample from SQuAD v2 dataset."""
-        from evaluation_cc.datasets.squad_v2 import SquadV2Loader
+        from evals.datasets.squad_v2 import SquadV2Loader
 
         loader = SquadV2Loader()
         dataset = loader.load(split="validation", max_samples=2, seed=42)
@@ -1051,7 +1051,7 @@ class TestSquadV2Loader:
 
     def test_squad_has_unanswerable_questions(self):
         """SQuAD v2 should include some unanswerable questions."""
-        from evaluation_cc.datasets.squad_v2 import SquadV2Loader
+        from evals.datasets.squad_v2 import SquadV2Loader
 
         loader = SquadV2Loader()
         # Load larger sample to find unanswerable
@@ -1069,7 +1069,7 @@ class TestHotpotQALoader:
 
     def test_load_hotpotqa_sample(self):
         """Should load sample from HotpotQA dataset."""
-        from evaluation_cc.datasets.hotpotqa import HotpotQALoader
+        from evals.datasets.hotpotqa import HotpotQALoader
 
         loader = HotpotQALoader()
         dataset = loader.load(split="validation", max_samples=2, seed=42)
@@ -1084,7 +1084,7 @@ class TestMSMarcoLoader:
 
     def test_load_msmarco_sample(self):
         """Should load sample from MS MARCO dataset."""
-        from evaluation_cc.datasets.msmarco import MSMarcoLoader
+        from evals.datasets.msmarco import MSMarcoLoader
 
         loader = MSMarcoLoader()
         dataset = loader.load(split="validation", max_samples=2, seed=42)
@@ -1099,7 +1099,7 @@ class TestLoadDatasets:
 
     def test_load_multiple_datasets(self):
         """Should load multiple datasets with combined samples."""
-        from evaluation_cc import load_datasets, DatasetName
+        from evals import load_datasets, DatasetName
 
         datasets = load_datasets(
             [DatasetName.RAGBENCH, DatasetName.SQUAD_V2],
@@ -1127,7 +1127,7 @@ class TestCostCalculation:
 
     def test_anthropic_model_cost(self):
         """Anthropic models should use correct pricing."""
-        from evaluation_cc.config import get_model_cost
+        from evals.config import get_model_cost
 
         # Claude Sonnet: $3/1M input, $15/1M output
         cost = get_model_cost(
@@ -1141,7 +1141,7 @@ class TestCostCalculation:
 
     def test_openai_model_cost(self):
         """OpenAI models should use correct pricing."""
-        from evaluation_cc.config import get_model_cost
+        from evals.config import get_model_cost
 
         # GPT-4o: $2.50/1M input, $10/1M output
         cost = get_model_cost(
@@ -1155,7 +1155,7 @@ class TestCostCalculation:
 
     def test_ollama_model_free(self):
         """Ollama models should be free."""
-        from evaluation_cc.config import get_model_cost
+        from evals.config import get_model_cost
 
         cost = get_model_cost(
             model="ollama/gemma3:4b",
@@ -1167,7 +1167,7 @@ class TestCostCalculation:
 
     def test_unknown_model_defaults_free(self):
         """Unknown models should default to free."""
-        from evaluation_cc.config import get_model_cost
+        from evals.config import get_model_cost
 
         cost = get_model_cost(
             model="some-unknown-model",
@@ -1179,8 +1179,8 @@ class TestCostCalculation:
 
     def test_cost_per_query_metric(self):
         """CostPerQuery metric should compute correctly."""
-        from evaluation_cc.metrics.performance import CostPerQuery
-        from evaluation_cc.schemas import (
+        from evals.metrics.performance import CostPerQuery
+        from evals.schemas import (
             EvalQuestion,
             EvalResponse,
             QueryMetrics,
@@ -1221,8 +1221,8 @@ class TestParetoAnalysis:
 
     def test_pareto_single_run(self):
         """Single run should be on the frontier."""
-        from evaluation_cc.runner import compute_pareto_frontier
-        from evaluation_cc.schemas import EvalRun, ConfigSnapshot, WeightedScore
+        from evals.runner import compute_pareto_frontier
+        from evals.schemas import EvalRun, ConfigSnapshot, WeightedScore
         from datetime import datetime
 
         run = EvalRun(
@@ -1247,8 +1247,8 @@ class TestParetoAnalysis:
 
     def test_pareto_dominated_run(self):
         """A dominated run should be marked as such."""
-        from evaluation_cc.runner import compute_pareto_frontier
-        from evaluation_cc.schemas import EvalRun, ConfigSnapshot, WeightedScore
+        from evals.runner import compute_pareto_frontier
+        from evals.schemas import EvalRun, ConfigSnapshot, WeightedScore
         from datetime import datetime
 
         # Run 2 dominates Run 1 (better in both objectives)
@@ -1294,8 +1294,8 @@ class TestParetoAnalysis:
 
     def test_pareto_frontier_tradeoff(self):
         """Runs with tradeoffs should both be on frontier."""
-        from evaluation_cc.runner import compute_pareto_frontier
-        from evaluation_cc.schemas import EvalRun, ConfigSnapshot, WeightedScore
+        from evals.runner import compute_pareto_frontier
+        from evals.schemas import EvalRun, ConfigSnapshot, WeightedScore
         from datetime import datetime
 
         # Run 1: Better accuracy, worse latency
@@ -1341,7 +1341,7 @@ class TestParetoAnalysis:
 
     def test_cli_pareto_from_dicts(self):
         """CLI helper should compute Pareto from dict data."""
-        from evaluation_cc.cli import _compute_pareto_from_dicts
+        from evals.cli import _compute_pareto_from_dicts
 
         runs = [
             {
@@ -1382,14 +1382,14 @@ class TestEvalIntegration:
 
     def test_eval_module_imports(self):
         """Verify evaluation module can be imported."""
-        from evaluation_cc import EvalConfig, run_evaluation
+        from evals import EvalConfig, run_evaluation
 
         assert EvalConfig is not None
         assert run_evaluation is not None
 
     def test_eval_config_creation(self):
         """Verify EvalConfig can be created with defaults."""
-        from evaluation_cc import EvalConfig, DatasetName
+        from evals import EvalConfig, DatasetName
 
         config = EvalConfig(
             datasets=[DatasetName.RAGBENCH],
@@ -1401,7 +1401,7 @@ class TestEvalIntegration:
 
     def test_eval_metrics_initialization(self):
         """Verify metrics can be initialized."""
-        from evaluation_cc.metrics import METRIC_GROUPS
+        from evals.metrics import METRIC_GROUPS
 
         assert "retrieval" in METRIC_GROUPS
         assert "generation" in METRIC_GROUPS
@@ -1409,7 +1409,7 @@ class TestEvalIntegration:
 
     def test_list_available_datasets(self):
         """Verify available datasets can be listed."""
-        from evaluation_cc import list_available_datasets
+        from evals import list_available_datasets
 
         datasets = list_available_datasets()
 
@@ -1417,7 +1417,7 @@ class TestEvalIntegration:
 
     def test_eval_runner_creation(self):
         """Verify EvaluationRunner can be created."""
-        from evaluation_cc import EvalConfig, EvaluationRunner, DatasetName
+        from evals import EvalConfig, EvaluationRunner, DatasetName
 
         config = EvalConfig(
             datasets=[DatasetName.RAGBENCH],

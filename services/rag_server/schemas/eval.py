@@ -18,7 +18,7 @@ Three schema layers exist in this codebase:
    - Used for: /metrics/system, /metrics/models, /metrics/retrieval
    - Contains: ConfigSnapshot, LatencyMetrics, CostMetrics (shared with eval)
 
-3. **evaluation_cc/schemas/** - Dataclasses for internal evaluation
+3. **evals/schemas/** - Dataclasses for internal evaluation
    - Used for: EvaluationRunner, metric computation, result storage
    - Contains: EvalQuestion, EvalResponse, EvalRun, Scorecard
 """

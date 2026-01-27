@@ -18,15 +18,15 @@ from typing import Any
 
 import httpx
 
-from evaluation_cc.config import (
+from evals.config import (
     EvalConfig,
     DatasetName,
     DEFAULT_WEIGHTS,
     get_model_cost,
 )
-from evaluation_cc.datasets.registry import get_dataset, load_datasets
-from evaluation_cc.judges.llm_judge import LLMJudge
-from evaluation_cc.metrics import (
+from evals.datasets.registry import get_dataset, load_datasets
+from evals.judges.llm_judge import LLMJudge
+from evals.metrics import (
     METRIC_GROUPS,
     RecallAtK,
     PrecisionAtK,
@@ -45,7 +45,7 @@ from evaluation_cc.metrics import (
     LatencyP95,
     CostPerQuery,
 )
-from evaluation_cc.schemas import (
+from evals.schemas import (
     EvalQuestion,
     EvalResponse,
     RetrievedChunk,

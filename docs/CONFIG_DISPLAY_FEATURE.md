@@ -34,12 +34,12 @@ These tasks are also automatically run before:
 
 ### 3. CLI Integration
 
-**File:** `services/rag_server/evaluation_cc/cli.py`
+**File:** `services/rag_server/evals/cli.py`
 
 The config banner is automatically displayed at the start of:
-- `python -m evaluation_cc.cli eval`
-- `python -m evaluation_cc.cli stats`
-- `python -m evaluation_cc.cli datasets`
+- `python -m evals.cli eval`
+- `python -m evals.cli stats`
+- `python -m evals.cli datasets`
 
 ## Setup
 
@@ -112,7 +112,7 @@ Evaluation (LLM-as-Judge):
 When running evaluation commands, the config banner is automatically displayed:
 
 ```bash
-$ python -m evaluation_cc.cli eval --samples 5
+$ python -m evals.cli eval --samples 5
 ======================================================================
 RAG Configuration
 ======================================================================

@@ -1,7 +1,7 @@
 """Dataset loaders for evaluation."""
 
-from evaluation_cc.datasets.base import BaseDatasetLoader
-from evaluation_cc.datasets.registry import (
+from evals.datasets.base import BaseDatasetLoader
+from evals.datasets.registry import (
     register,
     get_loader,
     list_available,
@@ -10,11 +10,11 @@ from evaluation_cc.datasets.registry import (
     list_datasets,
     load_datasets,
 )
-from evaluation_cc.datasets.ragbench import RAGBenchLoader
-from evaluation_cc.datasets.qasper import QasperLoader
-from evaluation_cc.datasets.squad_v2 import SquadV2Loader
-from evaluation_cc.datasets.hotpotqa import HotpotQALoader
-from evaluation_cc.datasets.msmarco import MSMarcoLoader
+from evals.datasets.ragbench import RAGBenchLoader
+from evals.datasets.qasper import QasperLoader
+from evals.datasets.squad_v2 import SquadV2Loader
+from evals.datasets.hotpotqa import HotpotQALoader
+from evals.datasets.msmarco import MSMarcoLoader
 
 __all__ = [
     "BaseDatasetLoader",

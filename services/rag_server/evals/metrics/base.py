@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from evaluation_cc.schemas import EvalQuestion, EvalResponse, MetricResult, MetricGroup
+from evals.schemas import EvalQuestion, EvalResponse, MetricResult, MetricGroup
 
 
 class BaseMetric(ABC):
