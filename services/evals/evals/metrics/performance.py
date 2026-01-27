@@ -4,7 +4,6 @@ import statistics
 from typing import Any
 
 from evals.metrics.base import BaseMetric
-from evals.config import get_model_cost
 from evals.schemas import (
     EvalQuestion,
     EvalResponse,
@@ -179,20 +178,25 @@ class CostPerQuery(BaseMetric):
     Lower is better.
     """
 
-    def __init__(self, model: str | None = None):
-        """Initialize with optional model name for cost lookup.
+    def __init__(
+        self,
+        model: str,
+        cost_per_1m_input_tokens: float,
+        cost_per_1m_output_tokens: float,
+    ):
+        """Initialize with model name and cost rates.
 
         Args:
-            model: Model name for cost calculation. If None, uses config.
+            model: Model name for display
+            cost_per_1m_input_tokens: Cost per 1M input tokens in USD
+            cost_per_1m_output_tokens: Cost per 1M output tokens in USD
         """
         self._model = model
+        self._input_cost = cost_per_1m_input_tokens
+        self._output_cost = cost_per_1m_output_tokens
 
     @property
     def model(self) -> str:
-        if self._model is None:
-            from infrastructure.config.models_config import get_models_config
-            config = get_models_config()
-            self._model = config.llm.model
         return self._model
 
     @property
@@ -221,10 +225,10 @@ class CostPerQuery(BaseMetric):
 
         if response.metrics and response.metrics.token_usage:
             usage = response.metrics.token_usage
-            cost = get_model_cost(
-                model=self.model,
-                prompt_tokens=usage.prompt_tokens,
-                completion_tokens=usage.completion_tokens,
+            # Calculate cost using instance rates
+            cost = (
+                (usage.prompt_tokens / 1_000_000) * self._input_cost +
+                (usage.completion_tokens / 1_000_000) * self._output_cost
             )
 
         return MetricResult(
@@ -262,10 +266,10 @@ class CostPerQuery(BaseMetric):
         for r in responses:
             if r.metrics and r.metrics.token_usage:
                 usage = r.metrics.token_usage
-                cost = get_model_cost(
-                    model=self.model,
-                    prompt_tokens=usage.prompt_tokens,
-                    completion_tokens=usage.completion_tokens,
+                # Calculate cost using instance rates
+                cost = (
+                    (usage.prompt_tokens / 1_000_000) * self._input_cost +
+                    (usage.completion_tokens / 1_000_000) * self._output_cost
                 )
                 costs.append(cost)
                 total_prompt_tokens += usage.prompt_tokens

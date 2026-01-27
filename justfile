@@ -86,14 +86,16 @@ test-integration: setup docker-up
     .venv/bin/pytest tests/integration -v --run-integration
 
 test-eval: show-config
-    cd services/rag_server && \
-    uv sync --group dev --group eval && \
-    .venv/bin/pytest tests/test_rag_eval.py --run-eval --eval-samples=5 -v
+    docker compose --profile eval run --rm evals eval --datasets ragbench --samples 5
 
 test-eval-full: show-config
-    cd services/rag_server && \
-    uv sync --group dev --group eval && \
-    .venv/bin/pytest tests/test_rag_eval.py --run-eval -v
+    docker compose --profile eval run --rm evals eval
+
+eval-datasets:
+    docker compose --profile eval run --rm evals datasets
+
+eval-compare +ARGS:
+    docker compose --profile eval run --rm evals compare {{ARGS}}
 
 docker-up:
     docker compose up -d

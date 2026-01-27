@@ -22,7 +22,6 @@ from evals.config import (
     EvalConfig,
     DatasetName,
     DEFAULT_WEIGHTS,
-    get_model_cost,
 )
 from evals.datasets.registry import get_dataset, load_datasets
 from evals.judges.llm_judge import LLMJudge
@@ -202,6 +201,7 @@ class EvaluationRunner:
         self._client: RAGClient | None = None
         self._judge: LLMJudge | None = None
         self._metrics: dict[MetricGroup, list] = {}
+        self._model_config: dict[str, Any] = {}  # Store model config from /models/info
 
     @property
     def client(self) -> RAGClient:
@@ -285,9 +285,11 @@ class EvaluationRunner:
         # Get RAG server config for snapshot
         try:
             rag_config = self.client.get_config()
+            self._model_config = rag_config  # Store for cost calculation
         except Exception as e:
             logger.warning(f"[EVAL] Could not get RAG config: {e}")
             rag_config = {}
+            self._model_config = {}
 
         config_snapshot = self._create_config_snapshot(rag_config)
 
@@ -370,19 +372,15 @@ class EvaluationRunner:
 
     def _create_config_snapshot(self, rag_config: dict) -> ConfigSnapshot:
         """Create a snapshot of the current RAG configuration."""
-        llm_info = rag_config.get("llm", {})
-        embedding_info = rag_config.get("embedding", {})
-        reranker_info = rag_config.get("reranker", {})
-        retrieval_info = rag_config.get("retrieval", {})
-
+        # /models/info returns flat structure now
         return ConfigSnapshot(
-            llm_model=llm_info.get("model", "unknown"),
-            llm_provider=llm_info.get("provider", "unknown"),
-            embedding_model=embedding_info.get("model", "unknown"),
-            reranker_model=reranker_info.get("model") if reranker_info.get("enabled") else None,
-            retrieval_top_k=retrieval_info.get("top_k", 10),
-            hybrid_search_enabled=retrieval_info.get("enable_hybrid_search", False),
-            contextual_retrieval_enabled=retrieval_info.get("enable_contextual_retrieval", False),
+            llm_model=rag_config.get("llm_model", "unknown"),
+            llm_provider=rag_config.get("llm_provider", "unknown"),
+            embedding_model=rag_config.get("embedding_model", "unknown"),
+            reranker_model=rag_config.get("reranker_model"),
+            retrieval_top_k=10,  # Not available in /models/info
+            hybrid_search_enabled=False,  # Not available in /models/info
+            contextual_retrieval_enabled=False,  # Not available in /models/info
             additional=rag_config,
         )
 
@@ -423,36 +421,51 @@ class EvaluationRunner:
                     logger.error(f"[EVAL] Failed to compute {metric.name}: {e}")
 
         # Add performance metrics
-        if self.config.metrics.performance and latencies:
-            # Latency P50
-            sorted_latencies = sorted(latencies)
-            p50_idx = int(len(sorted_latencies) * 0.5)
-            p50 = sorted_latencies[p50_idx] if sorted_latencies else 0
-            scorecard.add_metric(MetricResult(
-                name="latency_p50_ms",
-                value=p50,
-                group=MetricGroup.PERFORMANCE,
-                sample_size=len(latencies),
-            ))
+        if self.config.metrics.performance:
+            # Latency metrics
+            if latencies:
+                # Latency P50
+                sorted_latencies = sorted(latencies)
+                p50_idx = int(len(sorted_latencies) * 0.5)
+                p50 = sorted_latencies[p50_idx] if sorted_latencies else 0
+                scorecard.add_metric(MetricResult(
+                    name="latency_p50_ms",
+                    value=p50,
+                    group=MetricGroup.PERFORMANCE,
+                    sample_size=len(latencies),
+                ))
 
-            # Latency P95
-            p95_idx = int(len(sorted_latencies) * 0.95)
-            p95 = sorted_latencies[min(p95_idx, len(sorted_latencies) - 1)] if sorted_latencies else 0
-            scorecard.add_metric(MetricResult(
-                name="latency_p95_ms",
-                value=p95,
-                group=MetricGroup.PERFORMANCE,
-                sample_size=len(latencies),
-            ))
+                # Latency P95
+                p95_idx = int(len(sorted_latencies) * 0.95)
+                p95 = sorted_latencies[min(p95_idx, len(sorted_latencies) - 1)] if sorted_latencies else 0
+                scorecard.add_metric(MetricResult(
+                    name="latency_p95_ms",
+                    value=p95,
+                    group=MetricGroup.PERFORMANCE,
+                    sample_size=len(latencies),
+                ))
 
-            # Average latency
-            avg_latency = sum(latencies) / len(latencies) if latencies else 0
-            scorecard.add_metric(MetricResult(
-                name="latency_avg_ms",
-                value=avg_latency,
-                group=MetricGroup.PERFORMANCE,
-                sample_size=len(latencies),
-            ))
+                # Average latency
+                avg_latency = sum(latencies) / len(latencies) if latencies else 0
+                scorecard.add_metric(MetricResult(
+                    name="latency_avg_ms",
+                    value=avg_latency,
+                    group=MetricGroup.PERFORMANCE,
+                    sample_size=len(latencies),
+                ))
+
+            # Cost metrics (if model config available)
+            if self._model_config:
+                try:
+                    cost_metric = CostPerQuery(
+                        model=self._model_config.get("llm_model", "unknown"),
+                        cost_per_1m_input_tokens=self._model_config.get("cost_per_1m_input_tokens", 0.0),
+                        cost_per_1m_output_tokens=self._model_config.get("cost_per_1m_output_tokens", 0.0),
+                    )
+                    result = cost_metric.compute_batch(questions, responses)
+                    scorecard.add_metric(result)
+                except Exception as e:
+                    logger.error(f"[EVAL] Failed to compute cost metric: {e}")
 
         return scorecard
 

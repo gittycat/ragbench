@@ -13,7 +13,7 @@ celery_app = Celery(
     "rag_tasks",
     broker=redis_url,
     backend=redis_url,
-    include=["infrastructure.tasks.worker", "infrastructure.tasks.eval_worker"]
+    include=["infrastructure.tasks.worker"]
 )
 
 celery_app.conf.update(
@@ -35,7 +35,6 @@ celery_app.conf.update(
 # Task routing for queue isolation
 celery_app.conf.task_routes = {
     'infrastructure.tasks.worker.process_document_task': {'queue': 'documents'},
-    'infrastructure.tasks.eval_worker.run_evaluation_task': {'queue': 'eval'},
 }
 
 # Periodic task schedule (Celery Beat)

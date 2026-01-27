@@ -53,7 +53,6 @@ services:
     volumes:
       - ./config.yml:/app/config.yml:ro       # Model configuration (read-only)
       - ./data/indexed_documents:/app/documents
-      - ./services/rag_server/evals/data:/app/evals/data  # Evaluation data and results
       - docs_repo:/tmp/shared
       - huggingface_cache:/home/appuser/.cache/huggingface
       - documents_data:/data/documents
@@ -112,40 +111,27 @@ services:
     volumes:
       - ./config.yml:/app/config.yml:ro       # Model configuration (read-only)
       - ./data/indexed_documents:/app/documents
-      - ./services/rag_server/evals/data:/app/evals/data  # Evaluation data and results
       - docs_repo:/tmp/shared
       - huggingface_cache:/home/appuser/.cache/huggingface
       - documents_data:/data/documents
 
-  # Celery Eval Worker - Async evaluation processing (eval queue)
-  eval-worker:
+  # Evals Service - CLI-based evaluation (profile-gated)
+  evals:
     build:
       context: .
-      dockerfile: ./services/rag_server/Dockerfile
-    command: [".venv/bin/celery", "--quiet", "-A", "infrastructure.tasks.celery_app", "worker", "-Q", "eval", "--concurrency=1", "--without-mingle", "--without-gossip"]
-    user: "1000:1000"
-    restart: unless-stopped
+      dockerfile: ./services/evals/Dockerfile
     env_file:
       - ./secrets/.env
-    environment:
-      - CHROMADB_URL=http://chromadb:8000
-      - REDIS_URL=redis://redis:6379/0
-      - LOG_LEVEL=WARNING
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      redis:
-        condition: service_started
-      rag-server:
-        condition: service_healthy
+    volumes:
+      - ./config.yml:/app/config.yml:ro
+      - ./services/evals/evals/data:/app/evals/data
     networks:
       - private
-      - public
-    volumes:
-      - ./config.yml:/app/config.yml:ro       # Model configuration (read-only)
-      - ./services/rag_server/evals/data:/app/evals/data  # Evaluation data and results
-      - ./services/rag_server/data:/app/data              # Evaluation run storage
-      - huggingface_cache:/home/appuser/.cache/huggingface
+    profiles:
+      - eval
+    depends_on:
+      rag-server:
+        condition: service_healthy
 
 # Network configuration for security isolation
 networks:
