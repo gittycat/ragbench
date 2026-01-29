@@ -114,9 +114,9 @@ migrate-sessions: docker-up
     # -H includes hidden dirs (.pytest_cache)
     # -e pyc filters by extension directly
     # -X batches results into single rm call
-    @fd -t d -H -X rm -rf __pycache__ ./services/rag_server
-    @fd -t d -H -X rm -rf '\.pytest_cache' ./services/rag_server
-    @fd -t f -H -e pyc -X rm . ./services/rag_server
+    @fd -t d -H __pycache__ ./services/rag_server -X rm -rf 
+    @fd -t d -H '\.pytest_cache' ./services/rag_server -X rm -rf 
+    @fd -t f -H -e pyc . ./services/rag_server -X rm 
 
 # ============================================================================
 # Benchmarking

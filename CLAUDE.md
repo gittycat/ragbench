@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI coding agent (eg: claude.ai/code) when working with code in this repository.
 
 ## Python
 
@@ -168,7 +168,7 @@ just test-eval-full
 
 ### Evaluation
 
-**Framework:** DeepEval with Anthropic Claude (migrated from RAGAS on 2025-12-07)
+**Framework:** DeepEval with Anthropic Claude 
 
 See [docs/DEEPEVAL_IMPLEMENTATION_SUMMARY.md](docs/DEEPEVAL_IMPLEMENTATION_SUMMARY.md) for complete guide.
 

@@ -27,9 +27,12 @@ services:
     restart: unless-stopped
     ports:
       - "8001:8001"
-    env_file:
-      - ./secrets/.env
+    secrets:
+      - openai-api-key
+      - anthropic-api-key
     environment:
+      - OPENAI_API_KEY=/run/secrets/openai-api-key
+      - ANTHROPIC_API_KEY=/run/secrets/anthropic-api-key
       - CHROMADB_URL=http://chromadb:8000
       - REDIS_URL=redis://redis:6379/0
       - LOG_LEVEL=WARNING
@@ -89,8 +92,6 @@ services:
     command: [".venv/bin/celery", "--quiet", "-A", "infrastructure.tasks.celery_app", "worker", "-Q", "celery,documents", "--concurrency=1", "--without-mingle", "--without-gossip"]
     user: "1000:1000"
     restart: unless-stopped
-    env_file:
-      - ./secrets/.env
     environment:
       - CHROMADB_URL=http://chromadb:8000
       - REDIS_URL=redis://redis:6379/0
@@ -120,11 +121,15 @@ services:
     build:
       context: .
       dockerfile: ./services/evals/Dockerfile
-    env_file:
-      - ./secrets/.env
     volumes:
       - ./config.yml:/app/config.yml:ro
       - ./services/evals/evals/data:/app/evals/data
+    secrets:
+      - openai-api-key
+      - anthropic-api-key
+    environment:
+      - OPENAI_API_KEY=/run/secrets/openai-api-key
+      - ANTHROPIC_API_KEY=/run/secrets/anthropic-api-key
     networks:
       - private
     profiles:
@@ -152,4 +157,11 @@ volumes:
   huggingface_cache:
     driver: local
   documents_data:
-    driver: local 
+    driver: local
+
+secrets:
+  openai-api-key:
+    file: secrets/.env.openai
+  anthropic-api-key:
+    file: secrets/.env.anthropic
+
