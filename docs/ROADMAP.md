@@ -369,6 +369,24 @@ TODO: expand
 
 These features require significant architectural decisions and SLA definitions before implementation:
 
+### Meilisearch as Unified Search Service
+
+The current hybrid search uses an in-memory BM25 index (via LlamaIndex BM25Retriever) that must be rebuilt on every rag-server restart and cannot be shared across services. Meilisearch is a self-hosted, open-source search engine that could replace or complement this approach:
+
+**Advantages:**
+- **Persistence**: Native disk persistence, no rebuild on restart
+- **Service architecture**: Separate container queryable by both rag-server and workers
+- **Hybrid search built-in**: Combines full-text + vector search with automatic score normalization (since v1.3)
+- **Fast**: Sub-50ms queries, optimized for instant search
+- **Typo tolerance**: Built-in fuzzy matching for user-facing search
+
+**Trade-offs vs BM25:**
+- Meilisearch uses rule-based ranking (words, typo, proximity, exactness) rather than BM25's TF-IDF formula with length normalization
+- BM25 has more IR research backing for document retrieval; Meilisearch optimized for end-user search UX
+- Could consolidate vector + full-text into single service, or run alongside ChromaDB
+
+**Decision required**: Whether to use Meilisearch for full-text only (with ChromaDB for vectors) or as a unified search service for both.
+
 ### Security Hardening
 RAG-specific vulnerability testing: prompt injection, content injection, adversarial retrieval attacks.
 
@@ -389,8 +407,14 @@ Images, video, and voice in prompts and responses. Requires vision model integra
 ### Large-scale Data Load Optimization
 Bulk indexing, parallel processing, and incremental updates for datasets with millions of documents.
 
-### Disaster Recovery & High Availability
-Cross-region replication, automated failover, RTO/RPO targets, load balancing.
+### Multi-tenancy
+Isolated data and configuration per tenant (organization or user group). Requires tenant-aware document storage, session isolation, usage quotas, and billing integration. Key decisions include shared vs. dedicated infrastructure per tenant, data isolation strategy (logical vs. physical separation), and tenant provisioning workflows.
+
+### High Availability
+Redundant service instances with automatic failover to eliminate single points of failure. Includes load balancing across multiple rag-server replicas, Redis Sentinel or cluster mode for queue/cache resilience, and ChromaDB replication. Requires health monitoring, graceful degradation (e.g., vector-only search if BM25 unavailable), and defined SLAs for uptime targets (99.9%+).
+
+### Disaster Recovery
+Cross-region replication, automated failover, RTO/RPO targets. Includes automated backup verification, point-in-time recovery capabilities, and documented runbooks for incident response.
 
 ### Data Retention Policies
 Document lifecycle management, automatic archival, GDPR compliance, right-to-be-forgotten.
