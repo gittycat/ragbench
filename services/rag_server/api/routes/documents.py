@@ -20,6 +20,8 @@ from schemas.document import (
 from pipelines.ingestion import SUPPORTED_EXTENSIONS
 from infrastructure.database.chroma import get_or_create_collection, list_documents, delete_document, check_documents_exist
 from infrastructure.tasks.progress import create_batch, get_batch_progress
+from rq import Retry
+from infrastructure.tasks.rq_queue import get_documents_queue
 from infrastructure.tasks.worker import process_document_task
 
 logger = logging.getLogger(__name__)
@@ -109,6 +111,8 @@ async def upload_documents(files: List[UploadFile] = File(...)):
     task_infos = []
     errors = []
 
+    queue = get_documents_queue()
+
     for file in files:
         try:
             file_ext = Path(file.filename).suffix.lower()
@@ -127,11 +131,16 @@ async def upload_documents(files: List[UploadFile] = File(...)):
                 tmp_path = tmp.name
             logger.info(f"[UPLOAD] Saved to: {tmp_path}")
 
-            task = process_document_task.apply_async(  # type: ignore[attr-defined]
-                args=[tmp_path, file.filename, batch_id]
+            job = queue.enqueue(
+                process_document_task,
+                file_path=tmp_path,
+                filename=file.filename,
+                batch_id=batch_id,
+                retry=Retry(max=3, interval=[5, 15, 60]),
+                job_timeout=3600,  # 1 hour timeout
             )
-            task_infos.append(TaskInfo(task_id=task.id, filename=file.filename))
-            logger.info(f"[UPLOAD] Queued task {task.id} for {file.filename}")
+            task_infos.append(TaskInfo(task_id=job.id, filename=file.filename))
+            logger.info(f"[UPLOAD] Queued task {job.id} for {file.filename}")
 
         except Exception as e:
             import traceback

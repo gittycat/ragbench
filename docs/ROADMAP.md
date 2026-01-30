@@ -372,6 +372,11 @@ These features require significant architectural decisions and SLA definitions b
 ### Security Hardening
 RAG-specific vulnerability testing: prompt injection, content injection, adversarial retrieval attacks.
 
+### Secrets Management
+We currently use environment variables to store API KEYS and passwords. In a strictly secure environment, 
+a secrets management solution would need to be used instead (Hashicorp Vault, Doppler, 1Password SDK, IAM,...)
+to remove any risk of secrets being leaked via app logging.
+
 ### Infrastructure Monitoring & Alerting
 Prometheus + Grafana metrics, alerting rules, SLA monitoring, uptime tracking.
 
@@ -395,3 +400,4 @@ Concurrent user support, horizontal scaling, caching strategies, SLA targets (P9
 
 ### Enterprise Authentication & Authorization
 LDAP/IAM/SSO integration, role-based access control, audit logging, group management.
+

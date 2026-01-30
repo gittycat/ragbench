@@ -74,7 +74,7 @@ services:
       - private
     restart: unless-stopped
 
-  # Redis - Message broker and result backend for Celery
+  # Redis - Message broker for RQ, chat memory, progress tracking
   redis:
     image: redis:8-alpine
     command: redis-server --loglevel warning --save 60 1000 --appendonly yes --appendfsync everysec
@@ -84,12 +84,12 @@ services:
       - private
     restart: unless-stopped
 
-  # Celery Worker - Async document processing (documents queue)
-  celery-worker:
+  # RQ Worker - Async document processing (documents queue)
+  rq-worker:
     build:
       context: .
       dockerfile: ./services/rag_server/Dockerfile
-    command: [".venv/bin/celery", "--quiet", "-A", "infrastructure.tasks.celery_app", "worker", "-Q", "celery,documents", "--concurrency=1", "--without-mingle", "--without-gossip"]
+    command: [".venv/bin/python", "-m", "infrastructure.tasks.rq_worker"]
     user: "1000:1000"
     restart: unless-stopped
     environment:

@@ -1,40 +1,53 @@
+"""
+RQ job for asynchronous document processing.
+
+Converted from Celery task to plain function.
+Retry logic is handled by RQ's Retry class at enqueue time.
+"""
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*validate_default.*")
 
-from infrastructure.tasks.celery_app import celery_app
+import logging
+import shutil
+import time
+import uuid
+from pathlib import Path
+
+from rq import get_current_job
+
 from pipelines.ingestion import ingest_document
 from infrastructure.database.chroma import get_or_create_collection
-from infrastructure.tasks.progress import update_task_progress, set_task_total_chunks, increment_task_chunk_progress
-from core.config import initialize_settings
-import logging
-from pathlib import Path
-import time
-import shutil
+from infrastructure.tasks.progress import (
+    update_task_progress,
+    set_task_total_chunks,
+    increment_task_chunk_progress
+)
 
-# Persistent document storage path (shared with main.py via docker volume)
+# Persistent document storage path
 DOCUMENT_STORAGE_PATH = Path("/data/documents")
 
 logger = logging.getLogger(__name__)
 
-@celery_app.task(
-    bind=True,
-    name="infrastructure.tasks.worker.process_document_task",
-    autoretry_for=(Exception,),
-    retry_kwargs={'max_retries': 3, 'countdown': 5},
-    retry_backoff=True,
-    retry_backoff_max=60,
-    retry_jitter=True
-)
-def process_document_task(self, file_path: str, filename: str, batch_id: str):
-    """
-    Celery task for asynchronous document processing.
 
-    Delegates to the ingestion pipeline and tracks progress via Redis.
+def process_document_task(file_path: str, filename: str, batch_id: str) -> dict:
     """
-    import uuid
+    Process a document and index it in ChromaDB.
 
-    task_id = self.request.id
+    Args:
+        file_path: Path to temporary file in /tmp/shared
+        filename: Original filename
+        batch_id: Batch ID for progress tracking
+
+    Returns:
+        dict with document_id and chunks count
+
+    Note:
+        Retry configuration is set at enqueue time via Retry(max=3, interval=[5, 15, 60])
+    """
+    job = get_current_job()
+    task_id = job.id if job else str(uuid.uuid4())
     task_start = time.time()
+
     logger.info(f"[TASK {task_id}] ========== Starting document processing: {filename} ==========")
 
     try:
@@ -42,7 +55,7 @@ def process_document_task(self, file_path: str, filename: str, batch_id: str):
         doc_id = str(uuid.uuid4())
         logger.info(f"[TASK {task_id}] Generated document ID: {doc_id}")
 
-        # Update progress
+        # Update progress: processing
         update_task_progress(batch_id, task_id, "processing", {
             "filename": filename,
             "message": "Processing document..."
@@ -53,6 +66,8 @@ def process_document_task(self, file_path: str, filename: str, batch_id: str):
 
         # Create progress callback for embedding tracking
         def embedding_progress(current: int, total: int):
+            if current == 1:
+                set_task_total_chunks(batch_id, task_id, total)
             increment_task_chunk_progress(batch_id, task_id)
             update_task_progress(batch_id, task_id, "processing", {
                 "filename": filename,
@@ -79,9 +94,8 @@ def process_document_task(self, file_path: str, filename: str, batch_id: str):
             logger.info(f"[TASK {task_id}] Document stored at {dest_path}")
         except Exception as e:
             logger.warning(f"[TASK {task_id}] Failed to store document for downloads: {e}")
-            # Non-critical - indexing succeeded, download won't work
 
-        # Update progress to completed
+        # Update progress: completed
         update_task_progress(batch_id, task_id, "completed", {
             "filename": filename,
             "document_id": result['document_id'],
@@ -90,7 +104,11 @@ def process_document_task(self, file_path: str, filename: str, batch_id: str):
         })
 
         task_duration = time.time() - task_start
-        logger.info(f"[TASK {task_id}] ========== Task completed successfully in {task_duration:.2f}s ==========")
+        logger.info(f"[TASK {task_id}] ========== Task completed in {task_duration:.2f}s ==========")
+
+        # Clean up temp file on success
+        _cleanup_temp_file(file_path, task_id)
+
         return result
 
     except Exception as e:
@@ -99,65 +117,35 @@ def process_document_task(self, file_path: str, filename: str, batch_id: str):
         logger.error(f"[TASK {task_id}] Error processing {filename}: {str(e)}")
         logger.error(f"[TASK {task_id}] Traceback:\n{error_trace}")
 
-        # Create user-friendly error message (hide temp file paths)
+        # Create user-friendly error message
         user_friendly_error = str(e).replace(file_path, filename)
 
-        update_task_progress(batch_id, task_id, "error", {
-            "filename": filename,
-            "error": user_friendly_error,
-            "message": f"Error: {user_friendly_error}"
-        })
+        # Check if this is the final retry attempt
+        job = get_current_job()
+        retries_left = job.retries_left if job and hasattr(job, 'retries_left') else 0
+        is_final_attempt = retries_left == 0
+
+        if is_final_attempt:
+            # Update error status on final failure
+            update_task_progress(batch_id, task_id, "error", {
+                "filename": filename,
+                "error": user_friendly_error,
+                "message": f"Error: {user_friendly_error}"
+            })
+            # Clean up temp file on final failure
+            _cleanup_temp_file(file_path, task_id)
+        else:
+            logger.info(f"[TASK {task_id}] Will retry ({retries_left} retries left)")
 
         raise
-    finally:
-        # Only delete file if task won't be retried
-        will_retry = self.request.retries < self.max_retries
-
-        if not will_retry:
-            try:
-                Path(file_path).unlink()
-                logger.info(f"[TASK {task_id}] Cleaned up temporary file: {file_path}")
-            except Exception as e:
-                logger.warning(f"[TASK {task_id}] Could not delete temp file {file_path}: {e}")
-        else:
-            logger.info(f"[TASK {task_id}] Keeping temp file for retry (attempt {self.request.retries + 1}/{self.max_retries + 1})")
 
 
-@celery_app.task(name="auto_archive_sessions")
-def auto_archive_sessions_task():
-    """
-    Auto-archive inactive sessions.
-
-    Runs daily at midnight (configured via Celery beat).
-    Archives sessions with updated_at > 7 days ago.
-    """
-    from services.session import list_sessions, archive_session
-    from datetime import datetime, timezone, timedelta
-
-    logger.info("[AUTO_ARCHIVE] Starting auto-archive task")
-
-    # Get all active sessions
-    sessions = list_sessions(include_archived=False, limit=1000)
-
-    # Calculate cutoff date (7 days ago)
-    cutoff_date = datetime.now(timezone.utc) - timedelta(days=7)
-
-    archived_count = 0
-
-    for session in sessions:
-        # Parse updated_at timestamp
-        try:
-            updated_at = datetime.fromisoformat(session.updated_at)
-
-            # Archive if older than 7 days
-            if updated_at < cutoff_date:
-                archive_session(session.session_id)
-                archived_count += 1
-                logger.info(f"[AUTO_ARCHIVE] Archived session {session.session_id} (last updated: {session.updated_at})")
-
-        except Exception as e:
-            logger.error(f"[AUTO_ARCHIVE] Error processing session {session.session_id}: {str(e)}")
-            continue
-
-    logger.info(f"[AUTO_ARCHIVE] Task complete - archived {archived_count} sessions")
-    return {"archived_count": archived_count}
+def _cleanup_temp_file(file_path: str, task_id: str):
+    """Clean up temporary file after processing."""
+    try:
+        path = Path(file_path)
+        if path.exists():
+            path.unlink()
+            logger.info(f"[TASK {task_id}] Cleaned up temporary file: {file_path}")
+    except Exception as e:
+        logger.warning(f"[TASK {task_id}] Could not delete temp file {file_path}: {e}")
