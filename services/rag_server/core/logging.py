@@ -12,14 +12,7 @@ class URLShortenerFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         msg = str(record.msg) if hasattr(record, 'msg') else record.getMessage()
 
-        # Shorten long ChromaDB URLs
-        msg = re.sub(
-            r'http://chromadb:8000/api/v2/tenants/[^/]+/databases/[^/]+/collections/([a-f0-9-]{8})[a-f0-9-]*(/\w+)?',
-            r'http://chromadb:8000/.../\1...\2',
-            msg
-        )
-
-        # Shorten other long URLs (keep protocol, host, and last path segment)
+        # Shorten long URLs (keep protocol, host, and last path segment)
         msg = re.sub(
             r'(https?://[^/]+)/([^/]+/){3,}([^/\s"\']+)',
             r'\1/.../\3',

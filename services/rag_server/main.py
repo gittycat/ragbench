@@ -2,6 +2,7 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*validate_default.*")
 
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from core.logging import configure_logging
@@ -11,17 +12,32 @@ from core.config import initialize_settings
 configure_logging()
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
-app = FastAPI(title="RAG Bench")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifecycle - startup and shutdown."""
+    # Startup
+    await startup()
+    yield
+    # Shutdown
+    await shutdown()
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services and pre-load models on startup"""
+async def startup():
+    """Initialize services and pre-load models on startup."""
     initialize_settings()
 
+    # Initialize PostgreSQL connection pool
+    logger.info("[STARTUP] Initializing PostgreSQL connection pool...")
+    try:
+        from infrastructure.database.postgres import init_db
+        await init_db()
+        logger.info("[STARTUP] PostgreSQL connection pool ready")
+    except Exception as e:
+        logger.error(f"[STARTUP] PostgreSQL initialization failed: {e}")
+        raise
+
     # Pre-initialize reranker to download model during startup (if enabled)
-    # This prevents timeout on first query when model downloads from HuggingFace
     from pipelines.inference import create_reranker_postprocessor
     from infrastructure.config.models_config import get_models_config
     config = get_models_config()
@@ -32,31 +48,26 @@ async def startup_event():
     else:
         logger.info("[STARTUP] Reranker disabled, skipping initialization")
 
-    # Verify ChromaDB persistence (defensive measure against reported 2025 reliability issues)
+    # Log hybrid search status
+    if config.retrieval.enable_hybrid_search:
+        logger.info("[STARTUP] Hybrid search enabled (pg_search BM25 + pgvector)")
+    else:
+        logger.info("[STARTUP] Hybrid search disabled, using vector-only retrieval")
+
+
+async def shutdown():
+    """Clean up resources on shutdown."""
+    logger.info("[SHUTDOWN] Closing PostgreSQL connection pool...")
     try:
-        from infrastructure.database.chroma import get_or_create_collection
-        index = get_or_create_collection()
-        collection = index._vector_store._collection
-        count = collection.count()
-        logger.info(f"[STARTUP] ChromaDB persistence check: {count} documents in collection")
-        if count == 0:
-            logger.warning("[STARTUP] ChromaDB collection is empty - may need document upload or restore from backup")
-
-        # Pre-initialize BM25 retriever for hybrid search (if enabled)
-        from pipelines.inference import initialize_bm25_retriever
-        if config.retrieval.enable_hybrid_search and count > 0:
-            logger.info("[STARTUP] Pre-initializing BM25 retriever for hybrid search...")
-            initialize_bm25_retriever(index, config.retrieval.top_k)
-            logger.info("[STARTUP] BM25 retriever ready")
-        elif config.retrieval.enable_hybrid_search:
-            logger.warning("[STARTUP] Hybrid search enabled but no documents in ChromaDB - BM25 will initialize after first upload")
-        else:
-            logger.info("[STARTUP] Hybrid search disabled")
+        from infrastructure.database.postgres import close_db
+        await close_db()
+        logger.info("[SHUTDOWN] PostgreSQL connection pool closed")
     except Exception as e:
-        logger.error(f"[STARTUP] ChromaDB persistence check failed: {str(e)}")
-        # Don't fail startup, but log the error prominently
-        logger.error("[STARTUP] ChromaDB may not be accessible - check service connectivity")
+        logger.error(f"[SHUTDOWN] Error closing PostgreSQL connection: {e}")
 
+
+# Initialize FastAPI app with lifespan
+app = FastAPI(title="RAG Bench", lifespan=lifespan)
 
 # Include routers
 from api.routes import health, query, documents, chat, metrics, sessions

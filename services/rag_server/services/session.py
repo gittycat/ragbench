@@ -1,20 +1,21 @@
 """
 Session Metadata Management Service
 
-Manages chat session metadata separately from chat messages:
+Manages chat session metadata using PostgreSQL:
 - Session metadata: title, timestamps, archive status
-- Redis key pattern: session:metadata:{session_id}
+- Stored in chat_sessions table
 - No TTL (persist indefinitely until deleted)
 """
 
-import json
+import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
-from dataclasses import dataclass, asdict
-import redis
+from typing import List, Optional
+from dataclasses import dataclass
+from uuid import UUID
 
-from core.config import get_required_env
+from infrastructure.database.postgres import get_session
+from infrastructure.database.repositories.sessions import SessionRepository
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +33,21 @@ class SessionMetadata:
     search_type: str | None = None    # "vector" | "hybrid"
 
 
-def _get_redis_client():
-    redis_url = get_required_env("REDIS_URL")
-    return redis.from_url(redis_url, decode_responses=True)
+def _run_async(coro):
+    """Run async function from sync context."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
 
-
-def _metadata_key(session_id: str) -> str:
-    return f"session:metadata:{session_id}"
+    if loop and loop.is_running():
+        # Already in async context - use nest_asyncio approach
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(asyncio.run, coro)
+            return future.result()
+    else:
+        return asyncio.run(coro)
 
 
 def _get_inference_settings() -> tuple[str | None, str | None]:
@@ -61,7 +70,7 @@ def create_session_metadata(
     """
     Create new session metadata.
 
-    If is_temporary=True, metadata is not persisted to Redis.
+    If is_temporary=True, metadata is not persisted to PostgreSQL.
     Captures current inference settings (LLM model, search type) at creation time.
     """
     now = datetime.now(timezone.utc).isoformat()
@@ -79,9 +88,7 @@ def create_session_metadata(
     )
 
     if not is_temporary:
-        client = _get_redis_client()
-        key = _metadata_key(session_id)
-        client.set(key, json.dumps(asdict(metadata)))
+        _run_async(_create_session_async(session_id, title, llm_model, search_type))
         logger.info(f"[SESSION] Created metadata for session: {session_id}")
     else:
         logger.info(f"[SESSION] Created temporary session: {session_id} (not persisted)")
@@ -89,34 +96,78 @@ def create_session_metadata(
     return metadata
 
 
-def get_session_metadata(session_id: str) -> Optional[SessionMetadata]:
-    """Get session metadata from Redis"""
-    client = _get_redis_client()
-    key = _metadata_key(session_id)
-    data = client.get(key)
+async def _create_session_async(
+    session_id: str,
+    title: str,
+    llm_model: str | None,
+    search_type: str | None,
+) -> None:
+    """Create session in PostgreSQL."""
+    async with get_session() as session:
+        repo = SessionRepository(session)
+        try:
+            uuid_id = UUID(session_id)
+        except ValueError:
+            logger.error(f"[SESSION] Invalid session_id format: {session_id}")
+            return
+        await repo.create_session(
+            session_id=uuid_id,
+            title=title,
+            llm_model=llm_model,
+            search_type=search_type,
+            is_temporary=False,
+        )
 
-    if not data:
-        logger.debug(f"[SESSION] Metadata not found: {session_id}")
+
+def get_session_metadata(session_id: str) -> Optional[SessionMetadata]:
+    """Get session metadata from PostgreSQL"""
+    return _run_async(_get_session_metadata_async(session_id))
+
+
+async def _get_session_metadata_async(session_id: str) -> Optional[SessionMetadata]:
+    """Get session metadata from PostgreSQL."""
+    try:
+        uuid_id = UUID(session_id)
+    except ValueError:
         return None
 
-    metadata_dict = json.loads(data)
-    return SessionMetadata(**metadata_dict)
+    async with get_session() as session:
+        repo = SessionRepository(session)
+        data = await repo.get_session_metadata(uuid_id)
+
+        if not data:
+            logger.debug(f"[SESSION] Metadata not found: {session_id}")
+            return None
+
+        return SessionMetadata(
+            session_id=data["session_id"],
+            title=data["title"],
+            created_at=data["created_at"] or "",
+            updated_at=data["updated_at"] or "",
+            is_archived=data["is_archived"],
+            is_temporary=data["is_temporary"],
+            llm_model=data["llm_model"],
+            search_type=data["search_type"],
+        )
 
 
 def update_session_title(session_id: str, title: str) -> None:
     """Update session title (e.g., from first user message)"""
-    metadata = get_session_metadata(session_id)
-    if not metadata:
-        logger.warning(f"[SESSION] Cannot update title - session not found: {session_id}")
+    _run_async(_update_session_title_async(session_id, title))
+    logger.info(f"[SESSION] Updated title for {session_id}: {title}")
+
+
+async def _update_session_title_async(session_id: str, title: str) -> None:
+    """Update session title in PostgreSQL."""
+    try:
+        uuid_id = UUID(session_id)
+    except ValueError:
+        logger.warning(f"[SESSION] Invalid session_id format: {session_id}")
         return
 
-    metadata.title = title
-    metadata.updated_at = datetime.now(timezone.utc).isoformat()
-
-    client = _get_redis_client()
-    key = _metadata_key(session_id)
-    client.set(key, json.dumps(asdict(metadata)))
-    logger.info(f"[SESSION] Updated title for {session_id}: {title}")
+    async with get_session() as session:
+        repo = SessionRepository(session)
+        await repo.update_title(uuid_id, title)
 
 
 def touch_session(session_id: str) -> None:
@@ -128,11 +179,19 @@ def touch_session(session_id: str) -> None:
         create_session_metadata(session_id)
         return
 
-    metadata.updated_at = datetime.now(timezone.utc).isoformat()
+    _run_async(_touch_session_async(session_id))
 
-    client = _get_redis_client()
-    key = _metadata_key(session_id)
-    client.set(key, json.dumps(asdict(metadata)))
+
+async def _touch_session_async(session_id: str) -> None:
+    """Touch session in PostgreSQL."""
+    try:
+        uuid_id = UUID(session_id)
+    except ValueError:
+        return
+
+    async with get_session() as session:
+        repo = SessionRepository(session)
+        await repo.touch(uuid_id)
 
 
 def list_sessions(
@@ -144,74 +203,71 @@ def list_sessions(
     List all sessions (excluding temporary).
 
     Returns sessions sorted by updated_at (newest first).
-    Uses Redis SCAN for efficiency.
     """
-    client = _get_redis_client()
-    pattern = "session:metadata:*"
+    return _run_async(_list_sessions_async(include_archived, limit, offset))
 
-    sessions = []
-    cursor = 0
 
-    # Use SCAN to avoid blocking Redis
-    while True:
-        cursor, keys = client.scan(cursor, match=pattern, count=100)
+async def _list_sessions_async(
+    include_archived: bool,
+    limit: int,
+    offset: int,
+) -> List[SessionMetadata]:
+    """List sessions from PostgreSQL."""
+    async with get_session() as session:
+        repo = SessionRepository(session)
+        sessions_data = await repo.list_sessions(include_archived, limit, offset)
 
-        for key in keys:
-            data = client.get(key)
-            if data:
-                metadata_dict = json.loads(data)
-                metadata = SessionMetadata(**metadata_dict)
-
-                # Filter temporary sessions
-                if metadata.is_temporary:
-                    continue
-
-                # Filter archived if requested
-                if not include_archived and metadata.is_archived:
-                    continue
-
-                sessions.append(metadata)
-
-        if cursor == 0:
-            break
-
-    # Sort by updated_at (newest first)
-    sessions.sort(key=lambda s: s.updated_at, reverse=True)
-
-    # Apply pagination
-    return sessions[offset:offset + limit]
+        return [
+            SessionMetadata(
+                session_id=s["session_id"],
+                title=s["title"],
+                created_at=s["created_at"] or "",
+                updated_at=s["updated_at"] or "",
+                is_archived=s["is_archived"],
+                is_temporary=s["is_temporary"],
+                llm_model=s["llm_model"],
+                search_type=s["search_type"],
+            )
+            for s in sessions_data
+        ]
 
 
 def archive_session(session_id: str) -> None:
     """Mark session as archived"""
-    metadata = get_session_metadata(session_id)
-    if not metadata:
-        logger.warning(f"[SESSION] Cannot archive - session not found: {session_id}")
+    _run_async(_archive_session_async(session_id))
+    logger.info(f"[SESSION] Archived session: {session_id}")
+
+
+async def _archive_session_async(session_id: str) -> None:
+    """Archive session in PostgreSQL."""
+    try:
+        uuid_id = UUID(session_id)
+    except ValueError:
+        logger.warning(f"[SESSION] Invalid session_id format: {session_id}")
         return
 
-    metadata.is_archived = True
-    metadata.updated_at = datetime.now(timezone.utc).isoformat()
-
-    client = _get_redis_client()
-    key = _metadata_key(session_id)
-    client.set(key, json.dumps(asdict(metadata)))
-    logger.info(f"[SESSION] Archived session: {session_id}")
+    async with get_session() as session:
+        repo = SessionRepository(session)
+        await repo.archive(uuid_id)
 
 
 def unarchive_session(session_id: str) -> None:
     """Restore session from archive"""
-    metadata = get_session_metadata(session_id)
-    if not metadata:
-        logger.warning(f"[SESSION] Cannot unarchive - session not found: {session_id}")
+    _run_async(_unarchive_session_async(session_id))
+    logger.info(f"[SESSION] Unarchived session: {session_id}")
+
+
+async def _unarchive_session_async(session_id: str) -> None:
+    """Unarchive session in PostgreSQL."""
+    try:
+        uuid_id = UUID(session_id)
+    except ValueError:
+        logger.warning(f"[SESSION] Invalid session_id format: {session_id}")
         return
 
-    metadata.is_archived = False
-    metadata.updated_at = datetime.now(timezone.utc).isoformat()
-
-    client = _get_redis_client()
-    key = _metadata_key(session_id)
-    client.set(key, json.dumps(asdict(metadata)))
-    logger.info(f"[SESSION] Unarchived session: {session_id}")
+    async with get_session() as session:
+        repo = SessionRepository(session)
+        await repo.unarchive(uuid_id)
 
 
 def delete_session(session_id: str) -> None:
@@ -219,20 +275,27 @@ def delete_session(session_id: str) -> None:
     Delete session completely (metadata + messages).
 
     This deletes:
-    1. Session metadata (session:metadata:{session_id})
-    2. Chat messages (managed by RedisChatStore via LlamaIndex)
+    1. Chat messages via PostgresChatStore
+    2. Session metadata (CASCADE deletes messages)
     """
     from pipelines.inference import clear_session_memory
 
     # Delete messages via LlamaIndex
     clear_session_memory(session_id)
 
-    # Delete metadata
-    client = _get_redis_client()
-    key = _metadata_key(session_id)
-    deleted = client.delete(key)
+    # Delete session (CASCADE deletes messages anyway)
+    _run_async(_delete_session_async(session_id))
+    logger.info(f"[SESSION] Deleted session: {session_id}")
 
-    if deleted:
-        logger.info(f"[SESSION] Deleted session: {session_id}")
-    else:
-        logger.warning(f"[SESSION] Metadata not found for deletion: {session_id}")
+
+async def _delete_session_async(session_id: str) -> None:
+    """Delete session from PostgreSQL."""
+    try:
+        uuid_id = UUID(session_id)
+    except ValueError:
+        logger.warning(f"[SESSION] Invalid session_id format: {session_id}")
+        return
+
+    async with get_session() as session:
+        repo = SessionRepository(session)
+        await repo.delete_by_id(uuid_id)

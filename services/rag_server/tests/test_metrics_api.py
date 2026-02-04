@@ -187,7 +187,7 @@ def mock_system_metrics():
         document_count=2,
         chunk_count=15,
         health_status="healthy",
-        component_status={"chromadb": "healthy", "redis": "healthy", "ollama": "healthy"},
+        component_status={"postgres": "healthy", "ollama": "healthy"},
     )
 
     async def mock_get_system_metrics():
@@ -211,8 +211,7 @@ def mock_env_vars():
         'RETRIEVAL_TOP_K': '10',
         'ENABLE_CONTEXTUAL_RETRIEVAL': 'false',
         'OLLAMA_URL': 'http://localhost:11434',
-        'CHROMADB_URL': 'http://localhost:8000',
-        'REDIS_URL': 'redis://localhost:6379/0',
+        'DATABASE_URL': 'postgresql+asyncpg://raguser:ragpass@localhost:5432/ragbench',
     }
     with patch.dict('os.environ', env_vars):
         yield env_vars

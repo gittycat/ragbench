@@ -2,8 +2,8 @@
 RAG Inference Pipeline
 
 Complete flow for query processing and answer generation:
-1. Initialize chat memory (session-based, Redis-backed)
-2. Build hybrid retriever (BM25 + Vector with RRF fusion)
+1. Initialize chat memory (session-based, PostgreSQL-backed)
+2. Build hybrid retriever (pg_search BM25 + pgvector with RRF fusion)
 3. Create reranker postprocessor (optional)
 4. Build chat engine (condense_plus_context mode)
 5. Query processing (retrieval → reranking → LLM generation)
@@ -17,19 +17,13 @@ import time
 
 from llama_index.core import VectorStoreIndex
 from llama_index.core.memory import ChatMemoryBuffer
-from llama_index.storage.chat_store.redis import RedisChatStore
 from llama_index.core import Settings
-from llama_index.core.retrievers import QueryFusionRetriever
-from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.postprocessor.sbert_rerank import SentenceTransformerRerank
 from llama_index.core.chat_engine import CondensePlusContextChatEngine
-from llama_index.core.schema import TextNode
 from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
 
 from infrastructure.config.models_config import get_models_config
 from infrastructure.llm.prompts import get_system_prompt, get_context_prompt, get_condense_prompt
-from infrastructure.database.chroma import get_all_nodes
-from core.config import get_required_env
 
 logger = logging.getLogger(__name__)
 
@@ -37,14 +31,11 @@ logger = logging.getLogger(__name__)
 # GLOBAL STATE
 # ============================================================================
 
-# Redis-backed chat store (persists across container restarts)
-_chat_store: Optional[RedisChatStore] = None
+# PostgreSQL-backed chat store (persists across container restarts)
+_chat_store = None
 
 # Cache of memory buffers per session
 _memory_cache: Dict[str, ChatMemoryBuffer] = {}
-
-# BM25 retriever cache (refreshed when documents added/deleted)
-_bm25_retriever: Optional[BM25Retriever] = None
 
 # Temporary session cache (in-memory only, cleared on restart)
 _temporary_sessions: Dict[str, ChatMemoryBuffer] = {}
@@ -97,18 +88,16 @@ def get_inference_config() -> Dict:
 
 
 # ============================================================================
-# STEP 1: CHAT MEMORY MANAGEMENT
+# STEP 1: CHAT MEMORY MANAGEMENT (PostgreSQL-backed)
 # ============================================================================
 
-def _get_chat_store() -> RedisChatStore:
-    """Get or initialize Redis chat store (lazy initialization)"""
+def _get_chat_store():
+    """Get or initialize PostgreSQL chat store (lazy initialization)"""
     global _chat_store
     if _chat_store is None:
-        _chat_store = RedisChatStore(
-            redis_url=get_required_env("REDIS_URL"),
-            ttl=None  # No TTL - persist indefinitely
-        )
-        logger.info("[CHAT] Initialized RedisChatStore with no TTL (persistent)")
+        from infrastructure.database.repositories.sessions import PostgresChatStore
+        _chat_store = PostgresChatStore()
+        logger.info("[CHAT] Initialized PostgresChatStore (persistent)")
     return _chat_store
 
 
@@ -153,12 +142,12 @@ def get_or_create_chat_memory(session_id: str, is_temporary: bool = False) -> Ch
     Get or create chat memory for a session.
 
     If is_temporary=True:
-    - Use in-memory dict (not Redis)
+    - Use in-memory dict (not PostgreSQL)
     - Lost on server restart
     - No metadata tracking
 
     Otherwise:
-    - Uses Redis-backed storage (persistent)
+    - Uses PostgreSQL-backed storage (persistent)
     - Session metadata tracked
     """
     from services.session import get_session_metadata, create_session_metadata
@@ -169,7 +158,7 @@ def get_or_create_chat_memory(session_id: str, is_temporary: bool = False) -> Ch
             logger.debug(f"[CHAT] Using temporary memory for session: {session_id}")
             return _temporary_sessions[session_id]
 
-        # Create new temporary memory (no Redis backing)
+        # Create new temporary memory (no persistence)
         token_limit = _get_token_limit_for_chat_history()
         memory = ChatMemoryBuffer.from_defaults(
             token_limit=token_limit,
@@ -192,7 +181,7 @@ def get_or_create_chat_memory(session_id: str, is_temporary: bool = False) -> Ch
         logger.info(f"[CHAT] Lazy-creating metadata for existing session: {session_id}")
         create_session_metadata(session_id)
 
-    # Create new memory buffer
+    # Create new memory buffer with PostgreSQL chat store
     token_limit = _get_token_limit_for_chat_history()
     memory = ChatMemoryBuffer.from_defaults(
         token_limit=token_limit,
@@ -208,12 +197,12 @@ def get_or_create_chat_memory(session_id: str, is_temporary: bool = False) -> Ch
 
 
 def clear_session_memory(session_id: str) -> None:
-    """Clear chat history for a session from Redis."""
+    """Clear chat history for a session from PostgreSQL."""
     # Remove from cache
     if session_id in _memory_cache:
         del _memory_cache[session_id]
 
-    # Clear from Redis
+    # Clear from PostgreSQL
     chat_store = _get_chat_store()
     messages = chat_store.get_messages(session_id)
     if messages:
@@ -229,76 +218,20 @@ def get_chat_history(session_id: str) -> List:
 
 
 # ============================================================================
-# STEP 2: HYBRID RETRIEVAL (BM25 + VECTOR + RRF)
+# STEP 2: HYBRID RETRIEVAL (pg_search BM25 + pgvector + RRF)
 # ============================================================================
 
-def initialize_bm25_retriever(index: VectorStoreIndex, similarity_top_k: int = 10) -> Optional[BM25Retriever]:
+def create_hybrid_retriever(index: VectorStoreIndex, similarity_top_k: int = 10):
     """
-    Initialize BM25 retriever with all nodes from ChromaDB.
-
-    BM25 is a sparse retrieval method (keyword-based).
-    Should be called once at startup and cached.
-    Must be refreshed when documents are added/deleted.
-    """
-    global _bm25_retriever
-
-    logger.info("[HYBRID] Initializing BM25 retriever...")
-
-    nodes = get_all_nodes(index)
-
-    if not nodes:
-        logger.warning("[HYBRID] No nodes in ChromaDB - BM25 retriever will be empty")
-        return None
-
-    _bm25_retriever = BM25Retriever.from_defaults(
-        nodes=nodes,
-        similarity_top_k=similarity_top_k
-    )
-
-    logger.info(f"[HYBRID] BM25 retriever initialized with {len(nodes)} nodes")
-    return _bm25_retriever
-
-
-def get_bm25_retriever() -> Optional[BM25Retriever]:
-    """Get cached BM25 retriever."""
-    return _bm25_retriever
-
-
-def refresh_bm25_retriever(index: VectorStoreIndex) -> None:
-    """
-    Refresh BM25 retriever after documents are added/deleted.
-
-    This rebuilds the BM25 index with the current state of ChromaDB.
-    """
-    global _bm25_retriever
-
-    config = get_inference_config()
-    if not config['hybrid_search_enabled']:
-        logger.info("[HYBRID] Hybrid search disabled - skipping BM25 refresh")
-        return
-
-    logger.info("[HYBRID] Refreshing BM25 retriever...")
-    _bm25_retriever = initialize_bm25_retriever(index, config['retrieval_top_k'])
-    logger.info("[HYBRID] BM25 retriever refreshed")
-
-
-def create_hybrid_retriever(index: VectorStoreIndex, similarity_top_k: int = 10) -> Optional[QueryFusionRetriever]:
-    """
-    Create hybrid retriever combining BM25 + Vector search with RRF fusion.
+    Create hybrid retriever combining pg_search BM25 + pgvector with RRF fusion.
 
     Research (Pinecone benchmark):
     - 48% improvement in retrieval quality vs vector-only
     - BM25 excels at: exact keywords, IDs, names, abbreviations
     - Vector search excels at: semantic understanding, context
-    - RRF (Reciprocal Rank Fusion): simple, robust fusion (no hyperparameter tuning needed)
+    - RRF (Reciprocal Rank Fusion): simple, robust fusion
 
-    Flow:
-    1. Initialize BM25 retriever (if not cached)
-    2. Create vector retriever from index
-    3. Combine with QueryFusionRetriever using RRF mode
-    4. Returns None if hybrid search disabled (falls back to vector-only)
-
-    RRF formula: score = 1/(rank + k) where k=60 is optimal per research
+    Returns None if hybrid search disabled (falls back to vector-only).
     """
     config = get_inference_config()
 
@@ -308,30 +241,16 @@ def create_hybrid_retriever(index: VectorStoreIndex, similarity_top_k: int = 10)
 
     logger.info(f"[HYBRID] Creating hybrid retriever (top_k={similarity_top_k}, rrf_k={config['rrf_k']})")
 
-    # Initialize BM25 if not cached
-    bm25_retriever = get_bm25_retriever()
-    if bm25_retriever is None:
-        bm25_retriever = initialize_bm25_retriever(index, similarity_top_k)
-        if bm25_retriever is None:
-            logger.warning("[HYBRID] BM25 initialization failed - falling back to vector-only")
-            return None
+    from infrastructure.search.hybrid_retriever import create_hybrid_retriever as _create_hybrid
 
-    # Create vector retriever
-    vector_retriever = index.as_retriever(similarity_top_k=similarity_top_k)
-    logger.info("[HYBRID] Vector retriever created")
-
-    # Create fusion retriever with RRF
-    fusion_retriever = QueryFusionRetriever(
-        retrievers=[bm25_retriever, vector_retriever],
+    retriever = _create_hybrid(
+        vector_index=index,
         similarity_top_k=similarity_top_k,
-        num_queries=1,  # Single query (no multi-query generation)
-        mode="reciprocal_rerank",  # RRF mode: score = 1/(rank + k)
-        use_async=True,  # Parallel retrieval for better performance
-        verbose=False
+        rrf_k=config['rrf_k'],
     )
 
-    logger.info(f"[HYBRID] Hybrid retriever created (BM25 + Vector + RRF)")
-    return fusion_retriever
+    logger.info("[HYBRID] Hybrid retriever created (pg_search BM25 + pgvector + RRF)")
+    return retriever
 
 
 # ============================================================================
@@ -433,7 +352,7 @@ def create_chat_engine(
 
     # Create chat engine
     if retriever is not None:
-        logger.info("[CHAT_ENGINE] Using hybrid retriever (BM25 + Vector + RRF)")
+        logger.info("[CHAT_ENGINE] Using hybrid retriever (pg_search BM25 + pgvector + RRF)")
         chat_engine = CondensePlusContextChatEngine.from_defaults(
             retriever=retriever,
             memory=memory,
@@ -572,7 +491,7 @@ def query_rag(
     Execute RAG query pipeline (synchronous, non-streaming).
 
     Flow:
-    1. Get VectorStoreIndex from ChromaDB
+    1. Get VectorStoreIndex from PostgreSQL (pgvector)
     2. Get inference configuration
     3. Create chat engine (with hybrid search, reranking, memory)
     4. Execute query (retrieval → reranking → LLM generation)
@@ -597,7 +516,7 @@ def query_rag(
             }
         }
     """
-    from infrastructure.database.chroma import get_or_create_collection
+    from infrastructure.search.vector_store import get_vector_index
     from services.session import touch_session, get_session_metadata, update_session_title
     from services.session_titles import generate_session_title
 
@@ -608,7 +527,7 @@ def query_rag(
     reset_token_counter()
 
     # Get index and config
-    index = get_or_create_collection()
+    index = get_vector_index()
     config = get_inference_config()
 
     logger.info(f"[QUERY] Config: top_k={config['retrieval_top_k']}, reranker={config['reranker_enabled']}, hybrid={config['hybrid_search_enabled']}")
@@ -704,7 +623,7 @@ def query_rag_stream(
 
     Yields SSE-formatted strings for client consumption.
     """
-    from infrastructure.database.chroma import get_or_create_collection
+    from infrastructure.search.vector_store import get_vector_index
     from services.session import touch_session, get_session_metadata, update_session_title
     from services.session_titles import generate_session_title
 
@@ -712,7 +631,7 @@ def query_rag_stream(
         logger.info(f"[QUERY_STREAM] Starting streaming query for session: {session_id} (temporary={is_temporary})")
 
         # Get index and create chat engine
-        index = get_or_create_collection()
+        index = get_vector_index()
         config = get_inference_config()
         chat_engine = create_chat_engine(index, session_id, retrieval_top_k=config['retrieval_top_k'], is_temporary=is_temporary)
 
@@ -759,3 +678,24 @@ def query_rag_stream(
     except Exception as e:
         logger.error(f"[QUERY_STREAM] Error during streaming: {str(e)}")
         yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+
+
+# ============================================================================
+# BACKWARD COMPATIBILITY
+# ============================================================================
+
+def refresh_bm25_retriever(index: VectorStoreIndex = None) -> None:
+    """No-op for backward compatibility. pg_search BM25 index refreshes automatically."""
+    logger.debug("[HYBRID] refresh_bm25_retriever called - pg_search handles this automatically")
+    pass
+
+
+def initialize_bm25_retriever(index: VectorStoreIndex = None, similarity_top_k: int = 10):
+    """No-op for backward compatibility. pg_search BM25 is used instead."""
+    logger.debug("[HYBRID] initialize_bm25_retriever called - pg_search handles this automatically")
+    return None
+
+
+def get_bm25_retriever():
+    """No-op for backward compatibility."""
+    return None

@@ -255,5 +255,5 @@ class SystemMetrics(BaseModel):
     health_status: str = Field("healthy", description="Overall system health")
     component_status: dict[str, str] = Field(
         default_factory=dict,
-        description="Status of each component (chromadb, redis, ollama)"
+        description="Status of each component (postgres, ollama)"
     )

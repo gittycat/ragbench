@@ -319,7 +319,8 @@ def get_retrieval_config() -> RetrievalConfig:
 
 async def get_system_metrics() -> SystemMetrics:
     """Get complete system metrics overview."""
-    from infrastructure.database.chroma import get_or_create_collection, list_documents
+    from infrastructure.database.postgres import get_session
+    from infrastructure.database.repositories.documents import DocumentRepository
     from services.eval import get_metric_definitions, get_evaluation_summary
 
     models = await get_models_config()
@@ -328,8 +329,9 @@ async def get_system_metrics() -> SystemMetrics:
     eval_summary = get_evaluation_summary()
 
     try:
-        index = get_or_create_collection()
-        documents = list_documents(index)
+        async with get_session() as session:
+            repo = DocumentRepository(session)
+            documents = await repo.list_documents()
         doc_count = len(documents)
         chunk_count = sum(d.get("chunks", 0) for d in documents)
     except Exception as e:
@@ -339,33 +341,17 @@ async def get_system_metrics() -> SystemMetrics:
 
     component_status = {}
 
-    # Check ChromaDB
-    chromadb_url = get_optional_env("CHROMADB_URL", "http://chromadb:8000")
+    # Check PostgreSQL
     try:
-        async with httpx.AsyncClient(timeout=2.0) as client:
-            resp = await client.get(f"{chromadb_url}/api/v2/heartbeat")
-            if resp.status_code == 200:
-                component_status["chromadb"] = "healthy"
-            else:
-                logger.warning(
-                    f"ChromaDB health check failed: status={resp.status_code}"
-                )
-                component_status["chromadb"] = "unhealthy"
+        from sqlalchemy import text
+        from infrastructure.database.postgres import get_engine
+        engine = get_engine()
+        async with engine.begin() as conn:
+            await conn.execute(text("SELECT 1"))
+        component_status["postgres"] = "healthy"
     except Exception as e:
-        logger.warning(f"ChromaDB health check error: {e}")
-        component_status["chromadb"] = "unavailable"
-
-    # Check Redis
-    redis_url = get_optional_env("REDIS_URL", "redis://redis:6379/0")
-    try:
-        import redis
-
-        r = redis.from_url(redis_url)
-        r.ping()
-        component_status["redis"] = "healthy"
-    except Exception as e:
-        logger.warning(f"Redis health check error: {e}")
-        component_status["redis"] = "unavailable"
+        logger.warning(f"PostgreSQL health check error: {e}")
+        component_status["postgres"] = "unavailable"
 
     # Check Ollama
     ollama_url = get_optional_env("OLLAMA_URL", "http://host.docker.internal:11434")

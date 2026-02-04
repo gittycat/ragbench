@@ -2,7 +2,7 @@
 Integration test fixtures requiring docker services.
 
 Run with: pytest tests/integration -v --run-integration
-Requires: docker compose up -d (chromadb, redis, ollama)
+Requires: docker compose up -d (postgres, ollama)
 """
 import pytest
 import os
@@ -31,33 +31,22 @@ def check_services(integration_env):
     Verify required services are running before tests.
     Fails fast if services are unavailable.
     """
-    services = {
-        "chromadb": integration_env["CHROMADB_URL"] + "/api/v1/heartbeat",
-        "ollama": integration_env["OLLAMA_URL"] + "/api/tags",
-        "redis": None,  # Checked differently
-    }
-
-    # Check ChromaDB
+    # Check PostgreSQL
     try:
-        resp = httpx.get(services["chromadb"], timeout=5.0)
-        resp.raise_for_status()
+        import asyncio
+        from infrastructure.database.postgres import init_db, close_db
+        asyncio.run(init_db())
+        asyncio.run(close_db())
     except Exception as e:
-        pytest.skip(f"ChromaDB not available at {integration_env['CHROMADB_URL']}: {e}")
+        pytest.skip(f"PostgreSQL not available: {e}")
 
     # Check Ollama
+    ollama_url = integration_env.get("OLLAMA_URL", "http://localhost:11434")
     try:
-        resp = httpx.get(services["ollama"], timeout=5.0)
+        resp = httpx.get(f"{ollama_url}/api/tags", timeout=5.0)
         resp.raise_for_status()
     except Exception as e:
-        pytest.skip(f"Ollama not available at {integration_env['OLLAMA_URL']}: {e}")
-
-    # Check Redis
-    try:
-        import redis
-        r = redis.from_url(integration_env["REDIS_URL"])
-        r.ping()
-    except Exception as e:
-        pytest.skip(f"Redis not available at {integration_env['REDIS_URL']}: {e}")
+        pytest.skip(f"Ollama not available at {ollama_url}: {e}")
 
     return True
 
@@ -82,9 +71,9 @@ def sample_pdf(tmp_path):
     It contains information about vector databases and embeddings.
 
     Key Concepts:
-    1. ChromaDB is a vector database for storing embeddings.
+    1. PostgreSQL with pgvector stores embeddings.
     2. Ollama provides local LLM inference capabilities.
-    3. BM25 is a sparse retrieval algorithm for keyword matching.
+    3. pg_search provides BM25 full-text search.
     4. Hybrid search combines dense and sparse retrieval methods.
 
     The unique identifier for this test is: TESTID_XYZ789
@@ -148,32 +137,33 @@ def large_text_file(tmp_path):
 
 
 @pytest.fixture
-def clean_test_collection(integration_env, check_services):
+def clean_test_database(integration_env, check_services):
     """
-    Provide a clean ChromaDB collection for testing.
-    Cleans up after test completes.
+    Provide a clean database state for testing.
+    Cleans up documents after test completes.
     """
-    import chromadb
+    import asyncio
+    from infrastructure.database.postgres import get_session
+    from infrastructure.database.repositories.documents import DocumentRepository
 
-    chroma_url = integration_env["CHROMADB_URL"]
-    host = chroma_url.replace("http://", "").replace("https://", "").split(":")[0]
-    port = int(chroma_url.split(":")[-1])
-
-    client = chromadb.HttpClient(host=host, port=port)
-
-    # Use test-specific collection name
-    collection_name = f"test_collection_{uuid.uuid4().hex[:8]}"
+    # Track created documents for cleanup
+    created_doc_ids = []
 
     yield {
-        "client": client,
-        "collection_name": collection_name,
+        "doc_ids": created_doc_ids,
     }
 
-    # Cleanup: delete test collection
-    try:
-        client.delete_collection(collection_name)
-    except Exception:
-        pass  # Collection may not exist
+    # Cleanup: delete test documents
+    async def cleanup():
+        async with get_session() as session:
+            repo = DocumentRepository(session)
+            for doc_id in created_doc_ids:
+                try:
+                    await repo.delete_document_with_chunks(uuid.UUID(doc_id))
+                except Exception:
+                    pass
+
+    asyncio.run(cleanup())
 
 
 @pytest.fixture(scope="session")

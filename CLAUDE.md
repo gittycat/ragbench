@@ -50,70 +50,68 @@ def register(name, item): _items[name] = item
 
 ## Project Overview
 
-Local RAG system with FastAPI REST API using Docling + LlamaIndex for document processing, ChromaDB for vector storage, and Ollama for LLM inference. Implements Hybrid Search (BM25 + Vector + RRF) and Contextual Retrieval (Anthropic method) for improved accuracy.
+Local RAG system with FastAPI REST API using Docling + LlamaIndex for document processing, PostgreSQL with pgvector for vector storage, pg_search for BM25 full-text search, and Ollama for LLM inference. Implements Hybrid Search (pg_search BM25 + pgvector + RRF) and Contextual Retrieval (Anthropic method) for improved accuracy.
 
 ## Architecture
 
 ### Service Design
 
 - `rag-server` (port 8001): RAG API service - exposed to host for client integration
-- `celery-worker`: Async document processing worker
-- `redis`: Message broker + result backend for Celery, chat memory persistence, progress tracking
-- `chromadb`: Vector database (persistent storage)
+- `pgmq-worker`: Async document processing worker (polls PostgreSQL pgmq queue)
+- `postgres`: PostgreSQL 18 with pgvector, pg_search (ParadeDB), and pgmq extensions
 
 ### Network Isolation
 
 - `public` network: RAG server accessible from host on port 8001
-- `private` network: Internal services (ChromaDB, Redis, Celery)
+- `private` network: Internal services (PostgreSQL, worker)
 - Ollama runs on host machine at `http://host.docker.internal:11434`
 
 ### Document Processing Flow
 
-**Upload (Async via Celery):**
+**Upload (Async via pgmq):**
 1. Documents uploaded → `rag-server` `/upload` endpoint
-2. Files saved to `/tmp/shared` volume, Celery tasks queued (one per file)
-3. Celery worker processes tasks: DoclingReader → contextual prefix → DoclingNodeParser → nodes
-4. Embeddings generated per-chunk with progress tracking (via Redis)
-5. Nodes stored in ChromaDB via VectorStoreIndex
-6. BM25 index refreshed with new nodes
+2. Files saved to `/tmp/shared` volume, pgmq tasks queued (one per file)
+3. pgmq-worker polls queue, processes tasks: DoclingReader → contextual prefix → DoclingNodeParser → nodes
+4. Embeddings generated per-chunk with progress tracking (via PostgreSQL job_tasks table)
+5. Nodes stored in PostgreSQL via PGVectorStore (pgvector)
+6. BM25 index auto-refreshes via pg_search
 
 **Query (Synchronous):**
-1. Query → hybrid retrieval (BM25 + Vector + RRF with top-k=10)
+1. Query → hybrid retrieval (pg_search BM25 + pgvector + RRF with top-k=10)
 2. Reranking → top-n selection (5-10 nodes)
 3. LLM (gemma3:4b) generates answer with retrieved context
-4. Chat history saved to Redis (session-based, 1-hour TTL)
+4. Chat history saved to PostgreSQL (session-based, persistent)
 
 ### Key Patterns
 
-- **Hybrid Search**: BM25 (sparse) + Vector (dense) with RRF fusion (k=60), auto-refreshes after uploads/deletes
+- **Hybrid Search**: pg_search BM25 (sparse) + pgvector (dense) with RRF fusion (k=60), auto-indexes
 - **Contextual Retrieval**: LLM-generated document context prepended to chunks before embedding
 - **Retrieval Pipeline**: Hybrid BM25+Vector → RRF fusion → reranking → dynamic top-n selection (5-10 nodes)
-- **Async Processing**: Celery + Redis for background uploads with real-time progress tracking
-- **Conversational RAG**: Session-based memory with `condense_plus_context` mode, Redis persistence (1-hour TTL)
+- **Async Processing**: pgmq + PostgreSQL for background uploads with real-time progress tracking
+- **Conversational RAG**: Session-based memory with `condense_plus_context` mode, PostgreSQL persistence
 - **Document Storage**: Nodes with `document_id` metadata, ID format: `{doc_id}-chunk-{i}`
-- **Data Protection**: ChromaDB persistence verification, automated backup/restore scripts
 
 ## Async Upload Architecture
 
 ### Upload Flow
 
 1. **Client**: Uploads files → `POST /upload`
-2. **RAG Server**: Saves files to `/tmp/shared`, queues Celery tasks, returns `batch_id`
-3. **Celery Worker**: Processes tasks asynchronously, updates Redis progress
+2. **RAG Server**: Saves files to `/tmp/shared`, enqueues pgmq tasks, returns `batch_id`
+3. **pgmq-worker**: Polls queue, processes tasks asynchronously, updates PostgreSQL progress
 4. **Client**: Polls `GET /tasks/{batch_id}/status` for progress
-5. **Completion**: All tasks complete, files indexed in ChromaDB + BM25
+5. **Completion**: All tasks complete, files indexed in PostgreSQL (pgvector + pg_search)
 
 ### Progress Tracking
 
-- **Storage**: Redis (key: `batch:{batch_id}`, TTL: 1 hour)
-- **Structure**: `{batch_id, total, completed, total_chunks, completed_chunks, tasks: {task_id: {...}}}`
+- **Storage**: PostgreSQL tables (job_batches, job_tasks)
+- **Structure**: `{batch_id, total, completed, tasks: {task_id: {filename, status, chunks...}}}`
 - **Granularity**: Per-task status + per-chunk progress (for large documents)
 - **Updates**: Client polls progress endpoint
 
 ### Shared Volume
 
 - **Path**: `/tmp/shared` (Docker volume `docs_repo`)
-- **Purpose**: File transfer between RAG server and Celery worker
+- **Purpose**: File transfer between RAG server and pgmq-worker
 - **Cleanup**: Worker deletes files after processing (success or error)
 
 ## Common Commands
@@ -129,8 +127,8 @@ docker compose build
 
 # View logs
 docker compose logs -f rag-server
-docker compose logs -f celery-worker
-docker compose logs -f redis
+docker compose logs -f pgmq-worker
+docker compose logs -f postgres
 
 # Stop services
 docker compose down -v
@@ -168,7 +166,7 @@ just test-eval-full
 
 ### Evaluation
 
-**Framework:** DeepEval with Anthropic Claude 
+**Framework:** DeepEval with Anthropic Claude
 
 See [docs/DEEPEVAL_IMPLEMENTATION_SUMMARY.md](docs/DEEPEVAL_IMPLEMENTATION_SUMMARY.md) for complete guide.
 
@@ -219,40 +217,59 @@ docker compose -f docker-compose.ci.yml down
 
 ### Hybrid Search & Contextual Retrieval
 
-**Hybrid Search** (`hybrid_retriever.py`):
-- Combines BM25 + Vector with RRF fusion (k=60), auto-refreshes after uploads/deletes
-- Passed to `CondensePlusContextChatEngine.from_defaults(retriever=...)` in rag_pipeline.py
+**Hybrid Search** (`infrastructure/search/`):
+- pg_search BM25 via `PgSearchBM25Retriever` + pgvector via `PGVectorStore`
+- Combined with `HybridRRFRetriever` using RRF fusion (k=60)
+- BM25 index auto-refreshes on insert/update/delete (no manual refresh needed)
 - Falls back to vector-only if `ENABLE_HYBRID_SEARCH=false`
 
-**Contextual Retrieval** (`document_processor.py`):
-- LLM generates 1-2 sentence document context per chunk via `add_contextual_prefix()`
+**Contextual Retrieval** (`pipelines/ingestion.py`):
+- LLM generates 1-2 sentence document context per chunk via `add_contextual_prefix_to_chunk()`
 - Context prepended before embedding (zero query-time overhead)
 - Toggle via `ENABLE_CONTEXTUAL_RETRIEVAL` (default: false for speed)
 
 ### Docling + LlamaIndex Integration
 
-**Document Processing** (`document_processor.py`):
+**Document Processing** (`pipelines/ingestion.py`):
 - **CRITICAL**: Must use `DoclingReader(export_type=DoclingReader.ExportType.JSON)` - DoclingNodeParser requires JSON
-- ChromaDB metadata must be flat types (str, int, float, bool, None) - filtered via `clean_metadata_for_chroma()`
+- PostgreSQL JSONB handles nested metadata (no flattening needed)
 
-**Vector Store** (`chroma_manager.py`):
-- `ChromaVectorStore` wraps ChromaDB collection, `VectorStoreIndex.from_vector_store()` creates index
-- Direct ChromaDB access via `._vector_store._collection`, `get_all_nodes()` for BM25 indexing
+**Vector Store** (`infrastructure/search/vector_store.py`):
+- `PGVectorStore` from llama-index-vector-stores-postgres
+- HNSW index for fast approximate nearest neighbor search
+- Connection pooling via asyncpg + SQLAlchemy 2.0
 
-**RAG Pipeline** (`rag_pipeline.py`):
+**RAG Pipeline** (`pipelines/inference.py`):
 - Hybrid: `create_hybrid_retriever()` → `CondensePlusContextChatEngine.from_defaults(retriever=...)`
 - Vector-only fallback: `index.as_chat_engine(chat_mode="condense_plus_context")`
 - Reranking: `SentenceTransformerRerank` (model: `cross-encoder/ms-marco-MiniLM-L-6-v2`, returns top 5-10 nodes)
-- Session memory via `ChatMemoryBuffer` with `RedisChatStore` (1-hour TTL)
+- Session memory via `ChatMemoryBuffer` with `PostgresChatStore`
 - Reranker pre-initializes at startup to avoid first-query timeout
 
-**Embeddings** (`embeddings.py`): `OllamaEmbedding` (default: `nomic-embed-text:latest`)
+**Embeddings** (`infrastructure/llm/embeddings.py`): `OllamaEmbedding` (default: `nomic-embed-text:latest`, 768 dimensions)
 
 ### Docker Build
 
 **PyTorch CPU Index:** Dockerfile uses `--index-strategy unsafe-best-match` to resolve package version conflicts between PyTorch CPU index and PyPI.
 
-**Build Tools:** Includes gcc, g++, make for pystemmer compilation (required by BM25)
+**Build Tools:** Includes gcc, g++, make for pystemmer compilation (required by sentence-transformers)
+
+### Database Schema
+
+```sql
+-- Core tables (see services/postgres/init.sql)
+documents           -- Source files (id, file_name, file_type, file_hash, uploaded_at)
+document_chunks     -- Chunks with embeddings (id, document_id, content, embedding vector(768))
+chat_sessions       -- Chat sessions (id, title, llm_model, is_archived)
+chat_messages       -- Chat history (id, session_id, role, content)
+job_batches         -- Upload batches (id, total_tasks, completed_tasks, status)
+job_tasks           -- Individual tasks (id, batch_id, filename, status, chunks)
+
+-- Extensions
+pgvector            -- Vector similarity search
+pg_search           -- BM25 full-text search (ParadeDB)
+pgmq                -- PostgreSQL message queue
+```
 
 ### Configuration Files
 
@@ -281,14 +298,13 @@ Models with `requires_api_key: true` in config.yml will fail validation if the c
 **Environment Variables (docker-compose.yml only):**
 
 Minimal environment variables - most config moved to YAML:
-- `CHROMADB_URL`: ChromaDB endpoint (default: `http://chromadb:8000`)
-- `REDIS_URL`: Redis endpoint (default: `redis://redis:6379/0`)
+- `DATABASE_URL`: PostgreSQL connection string (default: `postgresql+asyncpg://raguser:ragpass@postgres:5432/ragbench`)
 - `MAX_UPLOAD_SIZE=80`: Max upload size in MB
 - `LOG_LEVEL=WARNING`: Logging level (INFO or DEBUG for development)
 
 API keys are loaded from `secrets/.env` via Docker Compose `env_file`.
 
-**Note:** Celery worker shares all RAG Server configuration (config.yml and secrets/.env). Ollama settings (`base_url`, `keep_alive`) are now in `config.yml` per model.
+**Note:** pgmq-worker shares all RAG Server configuration (config.yml and secrets/.env). Ollama settings (`base_url`, `keep_alive`) are now in `config.yml` per model.
 
 ## API Endpoints
 
@@ -302,53 +318,47 @@ API keys are loaded from `secrets/.env` via Docker Compose `env_file`.
 
 ## Key Files
 
-**Services** (`services/rag_server/services/`):
-- `rag.py`: RAG query with hybrid search + reranking + chat engine
-- `hybrid_retriever.py`: BM25 + Vector + RRF implementation
-- `document.py`: Document processing with Docling + contextual retrieval
-- `chat.py`: Session-based ChatMemoryBuffer with RedisChatStore
+**Pipelines** (`services/rag_server/pipelines/`):
+- `ingestion.py`: Document chunking, contextual retrieval, embedding
+- `inference.py`: RAG query with hybrid search + reranking + chat engine
+
+**Search Infrastructure** (`services/rag_server/infrastructure/search/`):
+- `vector_store.py`: PGVectorStore wrapper for LlamaIndex
+- `bm25_retriever.py`: pg_search BM25 retriever
+- `hybrid_retriever.py`: RRF fusion combining BM25 + vector
+
+**Database** (`services/rag_server/infrastructure/database/`):
+- `postgres.py`: Async connection pool (asyncpg + SQLAlchemy 2.0)
+- `models.py`: SQLAlchemy ORM models
+- `repositories/`: Document, session, job repositories
+
+**Tasks** (`services/rag_server/infrastructure/tasks/`):
+- `pgmq_queue.py`: pgmq client wrapper
+- `pgmq_worker.py`: Worker polling pgmq queue
+- `worker.py`: Document processing job
 
 **LLM Infrastructure** (`services/rag_server/infrastructure/llm/`):
 - `factory.py`: Multi-provider LLM client factory
-- `config.py`: LLMConfig dataclass + LLMProvider enum
-- `providers.py`: Provider-specific client creators
 - `prompts.py`: System, context, and condense prompts
 - `embeddings.py`: Ollama embedding configuration
 
-**Database** (`services/rag_server/infrastructure/database/`):
-- `chroma.py`: VectorStoreIndex with ChromaDB
+**Services** (`services/rag_server/services/`):
+- `session.py`: Chat session metadata management
 
-**API & Async:** `main.py` (FastAPI), `infrastructure/tasks/celery_app.py`, `tasks.py`
+**API:** `main.py` (FastAPI), `api/routes/`
 
 **Evaluation:** `evaluation/` (DeepEval), `evals/data/golden_qa.json` (10 Q&A pairs)
-
-**Backup:** `scripts/backup_chromadb.sh`, `scripts/restore_chromadb.sh`
-
-## Backup & Restore
-
-```bash
-# Manual backup (saves to ./backups/chromadb/)
-./scripts/backup_chromadb.sh
-
-# Restore from backup
-./scripts/restore_chromadb.sh ./backups/chromadb/chromadb_backup_YYYYMMDD_HHMMSS.tar.gz
-
-# Schedule daily at 2 AM (crontab)
-0 2 * * * cd /path/to/ragbench && ./scripts/backup_chromadb.sh >> /var/log/chromadb_backup.log 2>&1
-```
-
-**Features:** Timestamped backups, 30-day retention, health verification, auto service stop/start
 
 ## Common Issues
 
 - **Ollama not accessible:** `docker compose exec rag-server curl http://host.docker.internal:11434/api/tags`
-- **ChromaDB connection fails:** RAG server must be on `private` network
+- **PostgreSQL connection fails:** Check `DATABASE_URL` environment variable, verify postgres service is healthy
 - **Docker build fails:** Ensure `--index-strategy unsafe-best-match` in Dockerfile
 - **Tests fail:** Use `.venv/bin/pytest` directly, not `uv run pytest`
 - **Reranker performance:** First query downloads model (~80MB), adds ~100-300ms latency
-- **BM25 not initializing:** Check `ENABLE_HYBRID_SEARCH=true`, requires documents at startup or initializes after first upload
+- **Hybrid search not working:** Check `ENABLE_HYBRID_SEARCH=true` in config.yml
 - **Contextual retrieval not working:** Check `ENABLE_CONTEXTUAL_RETRIEVAL=true`, verify OLLAMA_URL accessible
-- **Redis/Celery issues:** `docker compose logs redis|celery-worker`. Worker auto-restarts, tasks timeout after 1 hour
+- **pgmq-worker issues:** `docker compose logs pgmq-worker`. Worker auto-restarts, tasks timeout after 1 hour
 - **Slow processing:** Contextual retrieval takes ~85% of time (LLM calls per chunk). See [Performance Analysis](docs/PERFORMANCE_ANALYSIS.md)
 
 ## Detailed Documentation
@@ -360,21 +370,18 @@ API keys are loaded from `secrets/.env` via Docker Compose `env_file`.
 - **[Performance Analysis](docs/PERFORMANCE_ANALYSIS.md)** - Bottlenecks, timing breakdown
 - **[Ollama Optimization](docs/OLLAMA_OPTIMIZATION.md)** - Keep-alive, KV cache, prompt caching
 - **[DeepEval Implementation](docs/DEEPEVAL_IMPLEMENTATION_SUMMARY.md)** - Metrics, workflow, best practices
-- **[Accuracy Improvement Plan](docs/RAG_ACCURACY_IMPROVEMENT_PLAN_2025.md)** - Future optimizations
-- **[Phase 1 Summary](docs/PHASE1_IMPLEMENTATION_SUMMARY.md)** - Redis chat store, backups, reranker
-- **[Phase 2 Summary](docs/PHASE2_IMPLEMENTATION_SUMMARY.md)** - Hybrid search & contextual retrieval
+- **[PostgreSQL Migration Plan](docs/POSTGRES_MIGRATION_PLAN.md)** - Migration from ChromaDB/Redis to PostgreSQL
 
 ## Testing Strategy
 
 **Tests:** `services/rag_server/tests/`
-- 32 unit tests (mocked dependencies)
-- 25 integration tests (requires docker services, `--run-integration` flag)
-- 27 evaluation tests (requires `--run-eval` flag and `ANTHROPIC_API_KEY`)
+- Unit tests (mocked dependencies)
+- Integration tests (requires docker services, `--run-integration` flag)
+- Evaluation tests (requires `--run-eval` flag and `ANTHROPIC_API_KEY`)
 
-**Unit Tests:** Mock external dependencies via `@patch`. DoclingReader/DoclingNodeParser → Node objects, VectorStoreIndex with `._vector_store._collection` for ChromaDB.
+**Unit Tests:** Mock external dependencies via `@patch`. DoclingReader/DoclingNodeParser → Node objects, mock PostgreSQL via SQLAlchemy fixtures.
 
-**Integration Tests:** Test real services (ChromaDB, Redis, Ollama). Key tests:
-- `test_pdf_full_pipeline`: PDF → Docling → ChromaDB → queryable
-- `test_bm25_refresh_after_upload`: Index sync after document operations
-- `test_celery_task_completes`: Async upload via Celery
+**Integration Tests:** Test real services (PostgreSQL, Ollama). Key tests:
+- `test_pdf_full_pipeline`: PDF → Docling → PostgreSQL → queryable
+- `test_pgmq_task_completes`: Async upload via pgmq
 - `test_corrupted_pdf_handling`: Graceful error handling

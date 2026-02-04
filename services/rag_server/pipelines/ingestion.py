@@ -5,8 +5,8 @@ Complete flow for processing documents from upload to indexing:
 1. Validate file format and extract metadata
 2. Chunk document using Docling (complex) or SentenceSplitter (text)
 3. Optionally add contextual prefixes via LLM (Anthropic method)
-4. Generate embeddings and index in ChromaDB
-5. Refresh BM25 index for hybrid search
+4. Generate embeddings and index in PostgreSQL (pgvector)
+5. BM25 index is automatic via pg_search
 """
 
 from pathlib import Path
@@ -66,8 +66,8 @@ def compute_file_hash(file_path: str) -> str:
 
 def extract_file_metadata(file_path: str) -> Dict[str, Any]:
     """
-    Extract basic metadata from file for ChromaDB storage.
-    Returns flat dictionary (ChromaDB only supports str, int, float, bool, None).
+    Extract basic metadata from file for storage.
+    PostgreSQL JSONB supports nested structures, no flattening needed.
     """
     file_path_obj = Path(file_path)
     file_size = file_path_obj.stat().st_size
@@ -82,28 +82,25 @@ def extract_file_metadata(file_path: str) -> Dict[str, Any]:
     }
 
 
-def clean_metadata_for_chroma(metadata: Dict[str, Any]) -> Dict[str, Any]:
+def clean_metadata_for_storage(metadata: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Clean metadata to only include types compatible with ChromaDB.
-    ChromaDB only supports: str, int, float, bool, None
+    Clean metadata for storage. PostgreSQL JSONB handles most types,
+    but we still need to handle non-JSON-serializable types.
     """
     cleaned = {}
     for key, value in metadata.items():
-        if value is None or isinstance(value, (str, int, float, bool)):
+        if value is None or isinstance(value, (str, int, float, bool, dict, list)):
             cleaned[key] = value
-        elif isinstance(value, dict):
-            # Flatten nested dicts
-            if 'filename' in value:
-                cleaned[f"{key}_filename"] = str(value['filename'])
-            if 'mimetype' in value:
-                cleaned[f"{key}_mimetype"] = str(value['mimetype'])
-        elif isinstance(value, list):
-            logger.debug(f"[METADATA] Skipping list metadata field: {key}")
         else:
+            # Convert other types to string
             logger.debug(f"[METADATA] Converting {key} ({type(value).__name__}) to string")
             cleaned[key] = str(value)
 
     return cleaned
+
+
+# Backward compatibility alias
+clean_metadata_for_chroma = clean_metadata_for_storage
 
 
 # ============================================================================
@@ -117,7 +114,7 @@ def chunk_document_with_docling(file_path: str) -> List[TextNode]:
     Flow:
     - DoclingReader extracts structured content (must use JSON export)
     - DoclingNodeParser creates chunks preserving document structure
-    - Metadata is cleaned for ChromaDB compatibility
+    - Metadata is cleaned for storage
 
     Returns list of TextNode objects ready for embedding.
     """
@@ -156,10 +153,10 @@ def chunk_document_with_docling(file_path: str) -> List[TextNode]:
         logger.error(f"[CHUNKING] DoclingNodeParser failed after {parse_duration:.2f}s: {str(e)}")
         raise ValueError(f"Failed to parse document into chunks: {str(e)}") from e
 
-    # Clean metadata for ChromaDB
-    logger.info(f"[CHUNKING] Cleaning metadata for ChromaDB compatibility")
+    # Clean metadata for storage
+    logger.info(f"[CHUNKING] Cleaning metadata for storage")
     for node in nodes:
-        node.metadata = clean_metadata_for_chroma(node.metadata)
+        node.metadata = clean_metadata_for_storage(node.metadata)
 
     return nodes
 
@@ -373,12 +370,12 @@ def embed_and_index_chunks(
     progress_callback: Optional[Callable[[int, int], None]] = None
 ) -> None:
     """
-    Generate embeddings and index chunks in ChromaDB.
+    Generate embeddings and index chunks in PostgreSQL (pgvector).
 
     Flow:
     - For each chunk:
       - Generate embedding via Ollama (or configured provider)
-      - Insert into ChromaDB vector store
+      - Insert into PostgreSQL vector store
       - Call progress callback for tracking
     - Includes retry logic for Ollama connection errors
 
@@ -452,36 +449,17 @@ def _insert_node_with_retry(index: VectorStoreIndex, node: TextNode, max_retries
 
 
 # ============================================================================
-# STEP 5: HYBRID SEARCH INDEX REFRESH
+# STEP 5: HYBRID SEARCH INDEX REFRESH (NO-OP for pg_search)
 # ============================================================================
 
 def refresh_hybrid_search_index(index: VectorStoreIndex) -> None:
     """
-    Refresh BM25 retriever after adding new documents.
+    No-op for pg_search. BM25 index refreshes automatically with inserts.
 
-    Hybrid search combines BM25 (sparse/keyword) with vector (dense/semantic) search.
-    BM25 index must be refreshed when documents are added or deleted.
+    pg_search maintains the BM25 index automatically when rows are
+    inserted/updated/deleted, so no manual refresh is needed.
     """
-    from infrastructure.config.models_config import get_models_config
-
-    config = get_models_config()
-    if not config.retrieval.enable_hybrid_search:
-        logger.info("[HYBRID] Hybrid search disabled - skipping BM25 refresh")
-        return
-
-    logger.info("[HYBRID] Refreshing BM25 index for hybrid search...")
-    refresh_start = time.time()
-
-    try:
-        from pipelines.inference import refresh_bm25_retriever
-        refresh_bm25_retriever(index)
-
-        refresh_duration = time.time() - refresh_start
-        logger.info(f"[HYBRID] BM25 index refreshed ({refresh_duration:.2f}s)")
-    except Exception as e:
-        refresh_duration = time.time() - refresh_start
-        logger.warning(f"[HYBRID] Failed to refresh BM25 index after {refresh_duration:.2f}s: {e}")
-        # Non-critical - continue
+    logger.debug("[HYBRID] pg_search BM25 index refreshes automatically - no manual refresh needed")
 
 
 # ============================================================================
@@ -503,12 +481,12 @@ def ingest_document(
     2. Chunk document (Docling or SentenceSplitter)
     3. Add contextual prefixes (optional, LLM-based)
     4. Add document metadata to chunks
-    5. Generate embeddings and index in ChromaDB
-    6. Refresh BM25 index for hybrid search
+    5. Generate embeddings and index in PostgreSQL (pgvector)
+    6. BM25 index auto-refreshes via pg_search
 
     Args:
         file_path: Path to document file
-        index: VectorStoreIndex for ChromaDB
+        index: VectorStoreIndex for PostgreSQL
         document_id: Unique document identifier
         filename: Display name for document
         progress_callback: Optional callback for progress tracking (current, total)
@@ -551,14 +529,14 @@ def ingest_document(
     logger.info(f"[INGESTION] Step 4 complete")
 
     # STEP 5: Embed and index
-    logger.info(f"[INGESTION] Step 5: Generating embeddings and indexing in ChromaDB...")
+    logger.info(f"[INGESTION] Step 5: Generating embeddings and indexing in PostgreSQL...")
     embed_start = time.time()
     embed_and_index_chunks(index, nodes, progress_callback)
     embed_duration = time.time() - embed_start
     logger.info(f"[INGESTION] Step 5 complete ({embed_duration:.2f}s)")
 
-    # STEP 6: Refresh hybrid search index
-    logger.info(f"[INGESTION] Step 6: Refreshing hybrid search index...")
+    # STEP 6: BM25 index auto-refreshes (no-op)
+    logger.info(f"[INGESTION] Step 6: BM25 index auto-refreshes via pg_search")
     refresh_hybrid_search_index(index)
     logger.info(f"[INGESTION] Step 6 complete")
 

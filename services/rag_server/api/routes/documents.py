@@ -1,10 +1,12 @@
 import uuid
+import asyncio
 import logging
 import tempfile
 import shutil
 from pathlib import Path
 from typing import List
 from fastapi import APIRouter, HTTPException, UploadFile, File
+
 from fastapi.responses import FileResponse
 
 from schemas.document import (
@@ -17,12 +19,11 @@ from schemas.document import (
     TaskInfo,
     BatchProgressResponse,
 )
-from pipelines.ingestion import SUPPORTED_EXTENSIONS
-from infrastructure.database.chroma import get_or_create_collection, list_documents, delete_document, check_documents_exist
-from infrastructure.tasks.progress import create_batch, get_batch_progress
-from rq import Retry
-from infrastructure.tasks.rq_queue import get_documents_queue
-from infrastructure.tasks.worker import process_document_task
+from pipelines.ingestion import SUPPORTED_EXTENSIONS, compute_file_hash
+from infrastructure.database.postgres import get_session
+from infrastructure.database.repositories.documents import DocumentRepository
+from infrastructure.database.repositories.jobs import JobRepository
+from infrastructure.tasks.pgmq_queue import enqueue_document_task
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -48,16 +49,34 @@ async def get_documents(
     """
     try:
         # Validate sort parameters
-        valid_sort_fields = ['name', 'chunks', 'uploaded_at']
+        valid_sort_fields = ['file_name', 'chunks', 'uploaded_at']
+        # Map 'name' to 'file_name' for backward compatibility
+        if sort_by == 'name':
+            sort_by = 'file_name'
         if sort_by not in valid_sort_fields:
             sort_by = 'uploaded_at'
         if sort_order not in ['asc', 'desc']:
             sort_order = 'desc'
 
-        index = get_or_create_collection()
-        documents = list_documents(index, sort_by=sort_by, sort_order=sort_order)
-        return DocumentListResponse(documents=documents)
+        async with get_session() as session:
+            repo = DocumentRepository(session)
+            documents = await repo.list_documents(sort_by=sort_by, sort_order=sort_order)
+
+        # Convert to response format
+        formatted_docs = []
+        for doc in documents:
+            formatted_docs.append({
+                "id": doc["document_id"],
+                "file_name": doc["file_name"],
+                "file_type": doc["file_type"],
+                "chunks": doc["chunks"],
+                "uploaded_at": doc["uploaded_at"],
+                "file_size_bytes": doc["file_size_bytes"],
+            })
+
+        return DocumentListResponse(documents=formatted_docs)
     except Exception as e:
+        logger.error(f"[DOCUMENTS] Error listing documents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -76,20 +95,35 @@ async def check_duplicate_documents(request: FileCheckRequest):
     try:
         logger.info(f"[CHECK_DUPLICATES] Checking {len(request.files)} files for duplicates")
 
-        index = get_or_create_collection()
-        file_checks = [{"filename": f.filename, "size": f.size, "hash": f.hash} for f in request.files]
-        results = check_documents_exist(index, file_checks)
+        # Get hashes to check
+        hashes_to_check = [f.hash for f in request.files if f.hash]
 
-        # Convert to response model
+        async with get_session() as session:
+            repo = DocumentRepository(session)
+            existing = await repo.check_duplicates(hashes_to_check)
+
+        # Build results
         formatted_results = {}
-        for filename, info in results.items():
-            formatted_results[filename] = FileCheckResult(
-                filename=filename,
-                exists=info["exists"],
-                document_id=info.get("document_id"),
-                existing_filename=info.get("existing_filename"),
-                reason=info.get("reason")
-            )
+        for file_info in request.files:
+            filename = file_info.filename
+            file_hash = file_info.hash
+
+            if file_hash and file_hash in existing:
+                formatted_results[filename] = FileCheckResult(
+                    filename=filename,
+                    exists=True,
+                    document_id=existing[file_hash],
+                    existing_filename=filename,
+                    reason="File with same content already exists"
+                )
+            else:
+                formatted_results[filename] = FileCheckResult(
+                    filename=filename,
+                    exists=False,
+                    document_id=None,
+                    existing_filename=None,
+                    reason=None
+                )
 
         duplicates_count = sum(1 for r in formatted_results.values() if r.exists)
         logger.info(f"[CHECK_DUPLICATES] Found {duplicates_count} duplicate(s) out of {len(request.files)} files")
@@ -111,8 +145,6 @@ async def upload_documents(files: List[UploadFile] = File(...)):
     task_infos = []
     errors = []
 
-    queue = get_documents_queue()
-
     for file in files:
         try:
             file_ext = Path(file.filename).suffix.lower()
@@ -131,16 +163,19 @@ async def upload_documents(files: List[UploadFile] = File(...)):
                 tmp_path = tmp.name
             logger.info(f"[UPLOAD] Saved to: {tmp_path}")
 
-            job = queue.enqueue(
-                process_document_task,
+            # Generate task ID
+            task_id = str(uuid.uuid4())
+
+            # Enqueue via pgmq
+            enqueue_document_task(
                 file_path=tmp_path,
                 filename=file.filename,
                 batch_id=batch_id,
-                retry=Retry(max=3, interval=[5, 15, 60]),
-                job_timeout=3600,  # 1 hour timeout
+                task_id=task_id,
             )
-            task_infos.append(TaskInfo(task_id=job.id, filename=file.filename))
-            logger.info(f"[UPLOAD] Queued task {job.id} for {file.filename}")
+
+            task_infos.append(TaskInfo(task_id=task_id, filename=file.filename))
+            logger.info(f"[UPLOAD] Queued task {task_id} for {file.filename}")
 
         except Exception as e:
             import traceback
@@ -154,9 +189,12 @@ async def upload_documents(files: List[UploadFile] = File(...)):
         logger.error(f"[UPLOAD] Upload failed: {error_msg}")
         raise HTTPException(status_code=400, detail=error_msg)
 
-    task_ids = [ti.task_id for ti in task_infos]
-    filenames = [ti.filename for ti in task_infos]
-    create_batch(batch_id, task_ids, filenames)
+    # Create batch and tasks in PostgreSQL
+    async with get_session() as session:
+        repo = JobRepository(session)
+        await repo.create_batch(uuid.UUID(batch_id), len(task_infos))
+        for ti in task_infos:
+            await repo.create_task(uuid.UUID(ti.task_id), uuid.UUID(batch_id), ti.filename)
 
     logger.info(f"[UPLOAD] Created batch {batch_id} with {len(task_infos)} tasks")
     return BatchUploadResponse(
@@ -169,7 +207,10 @@ async def upload_documents(files: List[UploadFile] = File(...)):
 @router.get("/tasks/{batch_id}/status", response_model=BatchProgressResponse)
 async def get_batch_status(batch_id: str):
     try:
-        progress = get_batch_progress(batch_id)
+        async with get_session() as session:
+            repo = JobRepository(session)
+            progress = await repo.get_batch_progress(uuid.UUID(batch_id))
+
         if not progress:
             raise HTTPException(status_code=404, detail=f"Batch {batch_id} not found")
 
@@ -181,6 +222,8 @@ async def get_batch_status(batch_id: str):
         )
     except HTTPException:
         raise
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid batch ID format")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -188,17 +231,12 @@ async def get_batch_status(batch_id: str):
 @router.delete("/documents/{document_id}", response_model=DeleteResponse)
 async def delete_document_by_id(document_id: str):
     try:
-        index = get_or_create_collection()
-        delete_document(index, document_id)
+        async with get_session() as session:
+            repo = DocumentRepository(session)
+            deleted = await repo.delete_document_with_chunks(uuid.UUID(document_id))
 
-        # Refresh BM25 retriever after deleting documents (for hybrid search)
-        try:
-            from pipelines.inference import refresh_bm25_retriever
-            refresh_bm25_retriever(index)
-            logger.info(f"[DELETE] BM25 retriever refreshed after deleting document {document_id}")
-        except Exception as e:
-            logger.warning(f"[DELETE] Failed to refresh BM25 retriever: {e}")
-            # Non-critical, continue
+        if not deleted:
+            raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
 
         # Clean up stored document file if it exists
         doc_storage_dir = DOCUMENT_STORAGE_PATH / document_id
@@ -213,6 +251,10 @@ async def delete_document_by_id(document_id: str):
             status="success",
             message=f"Document {document_id} deleted successfully"
         )
+    except HTTPException:
+        raise
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID format")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -228,10 +270,10 @@ async def download_document(document_id: str):
         doc_storage_dir = DOCUMENT_STORAGE_PATH / document_id
 
         if not doc_storage_dir.exists():
-            # Try to get document metadata from ChromaDB for error message
-            index = get_or_create_collection()
-            documents = list_documents(index)
-            doc_info = next((d for d in documents if d.get('id') == document_id), None)
+            # Try to get document metadata from PostgreSQL for error message
+            async with get_session() as session:
+                repo = DocumentRepository(session)
+                doc_info = await repo.get_document_info(uuid.UUID(document_id))
 
             if doc_info:
                 raise HTTPException(
@@ -258,6 +300,8 @@ async def download_document(document_id: str):
 
     except HTTPException:
         raise
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid document ID format")
     except Exception as e:
         logger.error(f"[DOWNLOAD] Error downloading document: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

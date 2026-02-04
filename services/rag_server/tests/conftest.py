@@ -12,11 +12,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Set minimal env vars required for module imports (unit tests mock everything)
 # These are only used if not already set (e.g., in Docker or integration tests)
-# Note: ChromaDB uses port 8002 via docker-compose.override.yml (8000 is webapp)
 _DEFAULT_ENV = {
-    "CHROMADB_URL": "http://localhost:8002",
+    "DATABASE_URL": "postgresql+asyncpg://raguser:ragpass@localhost:5432/ragbench",
     "OLLAMA_URL": "http://localhost:11434",
-    "REDIS_URL": "redis://localhost:6379",
     "EMBEDDING_MODEL": "nomic-embed-text:latest",
     "LLM_MODEL": "gemma3:4b",
 }
@@ -100,9 +98,8 @@ def integration_env():
     These should match docker-compose.yml settings.
     """
     env_vars = {
-        "CHROMADB_URL": os.getenv("CHROMADB_URL", "http://localhost:8000"),
+        "DATABASE_URL": os.getenv("DATABASE_URL", "postgresql+asyncpg://raguser:ragpass@localhost:5432/ragbench"),
         "OLLAMA_URL": os.getenv("OLLAMA_URL", "http://localhost:11434"),
-        "REDIS_URL": os.getenv("REDIS_URL", "redis://localhost:6379"),
         "EMBEDDING_MODEL": os.getenv("EMBEDDING_MODEL", "nomic-embed-text:latest"),
         "LLM_MODEL": os.getenv("LLM_MODEL", "gemma3:4b"),
         "ENABLE_HYBRID_SEARCH": "true",

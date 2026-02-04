@@ -1,10 +1,10 @@
 """
-Integration tests for async document upload via Celery.
+Integration tests for async document upload via pgmq.
 
-Tests the full async workflow: API upload -> Celery task -> Progress tracking -> Completion
+Tests the full async workflow: API upload -> pgmq task -> Progress tracking -> Completion
 
 Run with: pytest tests/integration/test_async_upload.py -v --run-integration
-Requires: docker compose up -d (all services including celery-worker)
+Requires: docker compose up -d (all services including pgmq-worker)
 """
 import pytest
 import os
@@ -19,15 +19,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 @pytest.mark.integration
 @pytest.mark.slow
-class TestCeleryTaskCompletion:
+class TestPgmqTaskCompletion:
     """
-    Test Celery async task execution and completion.
+    Test pgmq async task execution and completion.
 
     These tests require the full stack running:
     - rag-server (API)
-    - celery-worker (task processing)
-    - redis (message broker + progress tracking)
-    - chromadb (vector storage)
+    - pgmq-worker (task processing)
+    - postgres (database, vectors, queue, progress)
     - ollama (embeddings)
     """
 

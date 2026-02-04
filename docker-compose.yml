@@ -33,17 +33,14 @@ services:
     environment:
       - OPENAI_API_KEY=/run/secrets/openai-api-key
       - ANTHROPIC_API_KEY=/run/secrets/anthropic-api-key
-      - CHROMADB_URL=http://chromadb:8000
-      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://raguser:ragpass@postgres:5432/ragbench
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      chromadb:
-        condition: service_started
-      redis:
-        condition: service_started
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=2)"]
       interval: 2s
@@ -60,50 +57,44 @@ services:
       - huggingface_cache:/home/appuser/.cache/huggingface
       - documents_data:/data/documents
 
-  # ChromaDB Vector Database (private network only)
-  chromadb:
-    image: chromadb/chroma:latest
+  # PostgreSQL with pgvector + pg_search (ParadeDB) + pgmq
+  postgres:
+    build:
+      context: ./services/postgres
+      dockerfile: Dockerfile
     environment:
-      - IS_PERSISTENT=TRUE
-      - ANONYMIZED_TELEMETRY=FALSE
-      - CHROMA_LOG_CONFIG=/chroma/log_config.yml
+      POSTGRES_USER: raguser
+      POSTGRES_PASSWORD: ragpass
+      POSTGRES_DB: ragbench
     volumes:
-      - chromadb_data:/chroma/chroma
-      - ./services/chromadb/log_config.yml:/chroma/log_config.yml:ro
+      - postgres_data:/var/lib/postgresql
+      - ./services/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U raguser -d ragbench"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     networks:
       - private
     restart: unless-stopped
 
-  # Redis - Message broker for RQ, chat memory, progress tracking
-  redis:
-    image: redis:8-alpine
-    command: redis-server --loglevel warning --save 60 1000 --appendonly yes --appendfsync everysec
-    volumes:
-      - redis_data:/data
-    networks:
-      - private
-    restart: unless-stopped
-
-  # RQ Worker - Async document processing (documents queue)
-  rq-worker:
+  # PGMQ Worker - Async document processing via PostgreSQL queue
+  pgmq-worker:
     build:
       context: .
       dockerfile: ./services/rag_server/Dockerfile
-    command: [".venv/bin/python", "-m", "infrastructure.tasks.rq_worker"]
+    command: [".venv/bin/python", "-m", "infrastructure.tasks.pgmq_worker"]
     user: "1000:1000"
     restart: unless-stopped
     environment:
-      - CHROMADB_URL=http://chromadb:8000
-      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql+asyncpg://raguser:ragpass@postgres:5432/ragbench
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      redis:
-        condition: service_started
-      chromadb:
-        condition: service_started
+      postgres:
+        condition: service_healthy
       rag-server:
         condition: service_healthy
     networks:
@@ -148,9 +139,7 @@ networks:
 
 # Persistent volumes
 volumes:
-  chromadb_data:
-    driver: local
-  redis_data:
+  postgres_data:
     driver: local
   docs_repo:
     driver: local

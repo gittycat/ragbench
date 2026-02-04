@@ -1,27 +1,23 @@
 """
-RQ job for asynchronous document processing.
+Document processing job for pgmq worker.
 
-Converted from Celery task to plain function.
-Retry logic is handled by RQ's Retry class at enqueue time.
+Handles async document processing: chunking, embedding, indexing.
+Progress tracking via PostgreSQL job_batches/job_tasks tables.
 """
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*validate_default.*")
 
+import asyncio
 import logging
 import shutil
 import time
-import uuid
 from pathlib import Path
-
-from rq import get_current_job
+from uuid import UUID
 
 from pipelines.ingestion import ingest_document
-from infrastructure.database.chroma import get_or_create_collection
-from infrastructure.tasks.progress import (
-    update_task_progress,
-    set_task_total_chunks,
-    increment_task_chunk_progress
-)
+from infrastructure.search.vector_store import get_vector_index
+from infrastructure.database.postgres import get_session
+from infrastructure.database.repositories.jobs import JobRepository
 
 # Persistent document storage path
 DOCUMENT_STORAGE_PATH = Path("/data/documents")
@@ -29,50 +25,55 @@ DOCUMENT_STORAGE_PATH = Path("/data/documents")
 logger = logging.getLogger(__name__)
 
 
-def process_document_task(file_path: str, filename: str, batch_id: str) -> dict:
+def _run_async(coro):
+    """Run async function from sync context."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(asyncio.run, coro)
+            return future.result()
+    else:
+        return asyncio.run(coro)
+
+
+def process_document(file_path: str, filename: str, batch_id: str, task_id: str) -> dict:
     """
-    Process a document and index it in ChromaDB.
+    Process a document and index it in PostgreSQL (pgvector).
 
     Args:
         file_path: Path to temporary file in /tmp/shared
         filename: Original filename
         batch_id: Batch ID for progress tracking
+        task_id: Task ID for this specific file
 
     Returns:
         dict with document_id and chunks count
-
-    Note:
-        Retry configuration is set at enqueue time via Retry(max=3, interval=[5, 15, 60])
     """
-    job = get_current_job()
-    task_id = job.id if job else str(uuid.uuid4())
     task_start = time.time()
 
     logger.info(f"[TASK {task_id}] ========== Starting document processing: {filename} ==========")
 
     try:
-        # Generate document ID
-        doc_id = str(uuid.uuid4())
-        logger.info(f"[TASK {task_id}] Generated document ID: {doc_id}")
+        # Generate document ID (use task_id for consistency)
+        doc_id = task_id
+        logger.info(f"[TASK {task_id}] Using document ID: {doc_id}")
 
         # Update progress: processing
-        update_task_progress(batch_id, task_id, "processing", {
-            "filename": filename,
-            "message": "Processing document..."
-        })
+        _run_async(_update_task_status(task_id, "processing"))
 
-        # Get ChromaDB index
-        index = get_or_create_collection()
+        # Get vector index
+        index = get_vector_index()
 
         # Create progress callback for embedding tracking
         def embedding_progress(current: int, total: int):
             if current == 1:
-                set_task_total_chunks(batch_id, task_id, total)
-            increment_task_chunk_progress(batch_id, task_id)
-            update_task_progress(batch_id, task_id, "processing", {
-                "filename": filename,
-                "message": f"Embedding chunk {current}/{total}..."
-            })
+                _run_async(_set_task_total_chunks(task_id, total))
+            _run_async(_increment_task_chunk_progress(task_id))
 
         # Run ingestion pipeline
         logger.info(f"[TASK {task_id}] Running ingestion pipeline...")
@@ -96,12 +97,7 @@ def process_document_task(file_path: str, filename: str, batch_id: str) -> dict:
             logger.warning(f"[TASK {task_id}] Failed to store document for downloads: {e}")
 
         # Update progress: completed
-        update_task_progress(batch_id, task_id, "completed", {
-            "filename": filename,
-            "document_id": result['document_id'],
-            "chunks": result['chunks'],
-            "message": "Successfully indexed"
-        })
+        _run_async(_complete_task(task_id))
 
         task_duration = time.time() - task_start
         logger.info(f"[TASK {task_id}] ========== Task completed in {task_duration:.2f}s ==========")
@@ -120,24 +116,48 @@ def process_document_task(file_path: str, filename: str, batch_id: str) -> dict:
         # Create user-friendly error message
         user_friendly_error = str(e).replace(file_path, filename)
 
-        # Check if this is the final retry attempt
-        job = get_current_job()
-        retries_left = job.retries_left if job and hasattr(job, 'retries_left') else 0
-        is_final_attempt = retries_left == 0
+        # Update error status
+        _run_async(_fail_task(task_id, user_friendly_error))
 
-        if is_final_attempt:
-            # Update error status on final failure
-            update_task_progress(batch_id, task_id, "error", {
-                "filename": filename,
-                "error": user_friendly_error,
-                "message": f"Error: {user_friendly_error}"
-            })
-            # Clean up temp file on final failure
-            _cleanup_temp_file(file_path, task_id)
-        else:
-            logger.info(f"[TASK {task_id}] Will retry ({retries_left} retries left)")
+        # Clean up temp file on failure
+        _cleanup_temp_file(file_path, task_id)
 
         raise
+
+
+async def _update_task_status(task_id: str, status: str) -> None:
+    """Update task status in PostgreSQL."""
+    async with get_session() as session:
+        repo = JobRepository(session)
+        await repo.update_task_status(UUID(task_id), status)
+
+
+async def _set_task_total_chunks(task_id: str, total: int) -> None:
+    """Set total chunks for task."""
+    async with get_session() as session:
+        repo = JobRepository(session)
+        await repo.set_task_total_chunks(UUID(task_id), total)
+
+
+async def _increment_task_chunk_progress(task_id: str) -> None:
+    """Increment chunk progress for task."""
+    async with get_session() as session:
+        repo = JobRepository(session)
+        await repo.increment_task_chunk_progress(UUID(task_id))
+
+
+async def _complete_task(task_id: str) -> None:
+    """Mark task as completed."""
+    async with get_session() as session:
+        repo = JobRepository(session)
+        await repo.complete_task(UUID(task_id))
+
+
+async def _fail_task(task_id: str, error_message: str) -> None:
+    """Mark task as failed."""
+    async with get_session() as session:
+        repo = JobRepository(session)
+        await repo.fail_task(UUID(task_id), error_message)
 
 
 def _cleanup_temp_file(file_path: str, task_id: str):
@@ -149,3 +169,7 @@ def _cleanup_temp_file(file_path: str, task_id: str):
             logger.info(f"[TASK {task_id}] Cleaned up temporary file: {file_path}")
     except Exception as e:
         logger.warning(f"[TASK {task_id}] Could not delete temp file {file_path}: {e}")
+
+
+# Backward compatibility alias
+process_document_task = process_document
