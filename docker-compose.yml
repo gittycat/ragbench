@@ -86,7 +86,12 @@ services:
     command: [".venv/bin/python", "-m", "infrastructure.tasks.pgmq_worker"]
     user: "1000:1000"
     restart: unless-stopped
+    secrets:
+      - openai-api-key
+      - anthropic-api-key
     environment:
+      - OPENAI_API_KEY=/run/secrets/openai-api-key
+      - ANTHROPIC_API_KEY=/run/secrets/anthropic-api-key
       - DATABASE_URL=postgresql+asyncpg://raguser:ragpass@postgres:5432/ragbench
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80

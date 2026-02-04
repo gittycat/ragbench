@@ -26,10 +26,11 @@ from schemas.chat import (
 from services.session import (
     create_session_metadata,
     get_session_metadata,
-    list_sessions,
+    list_sessions_async,
+    get_session_metadata_async,
     delete_session,
-    archive_session,
-    unarchive_session,
+    archive_session_async,
+    unarchive_session_async,
 )
 from services.session_titles import generate_ai_title
 
@@ -49,7 +50,7 @@ async def get_sessions(
     Returns sessions sorted by updated_at (newest first).
     """
     try:
-        sessions = list_sessions(
+        sessions = await list_sessions_async(
             include_archived=include_archived,
             limit=limit,
             offset=offset
@@ -80,7 +81,7 @@ async def get_sessions(
 async def get_session(session_id: str):
     """Get metadata for a specific session"""
     try:
-        metadata = get_session_metadata(session_id)
+        metadata = await get_session_metadata_async(session_id)
 
         if not metadata:
             raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
@@ -149,7 +150,7 @@ async def delete_chat_session(session_id: str):
     """
     try:
         # Check if session exists
-        metadata = get_session_metadata(session_id)
+        metadata = await get_session_metadata_async(session_id)
         if not metadata:
             raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
 
@@ -171,11 +172,11 @@ async def archive_chat_session(session_id: str):
     """Mark a session as archived"""
     try:
         # Check if session exists
-        metadata = get_session_metadata(session_id)
+        metadata = await get_session_metadata_async(session_id)
         if not metadata:
             raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
 
-        archive_session(session_id)
+        await archive_session_async(session_id)
 
         return ArchiveSessionResponse(
             status="success",
@@ -193,11 +194,11 @@ async def unarchive_chat_session(session_id: str):
     """Restore a session from archive"""
     try:
         # Check if session exists
-        metadata = get_session_metadata(session_id)
+        metadata = await get_session_metadata_async(session_id)
         if not metadata:
             raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
 
-        unarchive_session(session_id)
+        await unarchive_session_async(session_id)
 
         return ArchiveSessionResponse(
             status="success",

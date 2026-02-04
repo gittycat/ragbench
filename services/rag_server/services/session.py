@@ -88,7 +88,7 @@ def create_session_metadata(
     )
 
     if not is_temporary:
-        _run_async(_create_session_async(session_id, title, llm_model, search_type))
+        _run_async(create_session_async(session_id, title, llm_model, search_type))
         logger.info(f"[SESSION] Created metadata for session: {session_id}")
     else:
         logger.info(f"[SESSION] Created temporary session: {session_id} (not persisted)")
@@ -96,7 +96,7 @@ def create_session_metadata(
     return metadata
 
 
-async def _create_session_async(
+async def create_session_async(
     session_id: str,
     title: str,
     llm_model: str | None,
@@ -121,10 +121,10 @@ async def _create_session_async(
 
 def get_session_metadata(session_id: str) -> Optional[SessionMetadata]:
     """Get session metadata from PostgreSQL"""
-    return _run_async(_get_session_metadata_async(session_id))
+    return _run_async(get_session_metadata_async(session_id))
 
 
-async def _get_session_metadata_async(session_id: str) -> Optional[SessionMetadata]:
+async def get_session_metadata_async(session_id: str) -> Optional[SessionMetadata]:
     """Get session metadata from PostgreSQL."""
     try:
         uuid_id = UUID(session_id)
@@ -204,10 +204,10 @@ def list_sessions(
 
     Returns sessions sorted by updated_at (newest first).
     """
-    return _run_async(_list_sessions_async(include_archived, limit, offset))
+    return _run_async(list_sessions_async(include_archived, limit, offset))
 
 
-async def _list_sessions_async(
+async def list_sessions_async(
     include_archived: bool,
     limit: int,
     offset: int,
@@ -234,11 +234,11 @@ async def _list_sessions_async(
 
 def archive_session(session_id: str) -> None:
     """Mark session as archived"""
-    _run_async(_archive_session_async(session_id))
+    _run_async(archive_session_async(session_id))
     logger.info(f"[SESSION] Archived session: {session_id}")
 
 
-async def _archive_session_async(session_id: str) -> None:
+async def archive_session_async(session_id: str) -> None:
     """Archive session in PostgreSQL."""
     try:
         uuid_id = UUID(session_id)
@@ -253,11 +253,11 @@ async def _archive_session_async(session_id: str) -> None:
 
 def unarchive_session(session_id: str) -> None:
     """Restore session from archive"""
-    _run_async(_unarchive_session_async(session_id))
+    _run_async(unarchive_session_async(session_id))
     logger.info(f"[SESSION] Unarchived session: {session_id}")
 
 
-async def _unarchive_session_async(session_id: str) -> None:
+async def unarchive_session_async(session_id: str) -> None:
     """Unarchive session in PostgreSQL."""
     try:
         uuid_id = UUID(session_id)
@@ -284,11 +284,11 @@ def delete_session(session_id: str) -> None:
     clear_session_memory(session_id)
 
     # Delete session (CASCADE deletes messages anyway)
-    _run_async(_delete_session_async(session_id))
+    _run_async(delete_session_async(session_id))
     logger.info(f"[SESSION] Deleted session: {session_id}")
 
 
-async def _delete_session_async(session_id: str) -> None:
+async def delete_session_async(session_id: str) -> None:
     """Delete session from PostgreSQL."""
     try:
         uuid_id = UUID(session_id)

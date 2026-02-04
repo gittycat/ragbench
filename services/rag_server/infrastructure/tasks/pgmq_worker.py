@@ -20,8 +20,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Initialize LlamaIndex settings
-from infrastructure.llm.settings import initialize_llamaindex_settings
-initialize_llamaindex_settings()
+from core.config import initialize_settings
+initialize_settings()
 
 from infrastructure.tasks.pgmq_queue import read_message, delete_message, archive_message
 from infrastructure.tasks.worker import process_document

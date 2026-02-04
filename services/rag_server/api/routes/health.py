@@ -36,7 +36,7 @@ async def get_models_info():
 
     models_config = get_models_config()
     llm_model = models_config.llm.model
-    llm_provider = models_config.llm.provider.value
+    llm_provider = models_config.llm.provider
 
     # Determine hosting type
     llm_hosting = "local" if llm_provider == "ollama" else "cloud"
