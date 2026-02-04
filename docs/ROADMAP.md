@@ -21,15 +21,14 @@ This document outlines planned features and enhancements for the RAG system, org
 
 ## Completed Features
 
-### Redis-backed Chat Memory (Oct 2025)
+### PostgreSQL-backed Chat Memory (Oct 2025)
 - Session-based conversation history
-- Persistent storage with configurable TTL
+- Persistent storage with no TTL
 - Progress tracking for async uploads
 
-### ChromaDB Backup/Restore (Oct 2025)
-- Automated backup scripts
-- Health verification
-- 30-day retention policy
+### PostgreSQL Migration (Jan 2026)
+- Consolidated vector storage, full-text search, and queueing into PostgreSQL
+- pgvector for embeddings, pg_search for BM25, pgmq for async tasks
 
 ### Reranker Optimization (Oct 2025)
 - Cross-encoder reranking with ms-marco-MiniLM-L-6-v2
@@ -152,7 +151,7 @@ This document outlines planned features and enhancements for the RAG system, org
    - Identify authoritative leaderboard sources (MTEB for embeddings, BEIR for retrieval, LMSys for LLM inference)
    - Define API integration strategy (web scraping vs. API endpoints)
    - Design recommendation schema (model name, provider, performance metrics, use case fit)
-   - Plan caching strategy for leaderboard data (Redis with daily refresh)
+   - Plan caching strategy for leaderboard data (PostgreSQL table with daily refresh)
 
 2. **Leaderboard Data Aggregation**
    - Implement leaderboard scrapers/API clients for each data source
@@ -234,12 +233,12 @@ TODO: expand
    - Review LlamaIndex SentenceWindowNodeParser
    - Define window sizes (sentence=3-5, parent=10-20 sentences)
    - Design metadata schema for parent-child relationships
-   - Plan ChromaDB storage strategy
+   - Plan PostgreSQL (pgvector) storage strategy
 
 2. **Parsing & Indexing**
    - Implement SentenceWindowNodeParser integration
    - Update document processor to create parent-child node pairs
-   - Modify ChromaDB storage to handle hierarchical nodes
+   - Modify PostgreSQL storage to handle hierarchical nodes
    - Add metadata for parent references
 
 3. **Retrieval Pipeline**
@@ -272,7 +271,7 @@ TODO: expand
 2. **Query Generation**
    - Implement multi-query generation using LLM
    - Create prompt template for query variations
-   - Add caching for generated queries (Redis)
+   - Add caching for generated queries (PostgreSQL table or in-memory)
    - Unit tests for query generation
 
 3. **Retrieval & Fusion**
@@ -347,7 +346,7 @@ TODO: expand
 4. **Session Isolation**
    - Associate sessions with user IDs
    - Update session endpoints to filter by user
-   - Add user context to Redis session storage
+   - Add user context to PostgreSQL session storage
    - Implement session access control
 
 5. **Frontend Integration**
@@ -383,9 +382,9 @@ The current hybrid search uses an in-memory BM25 index (via LlamaIndex BM25Retri
 **Trade-offs vs BM25:**
 - Meilisearch uses rule-based ranking (words, typo, proximity, exactness) rather than BM25's TF-IDF formula with length normalization
 - BM25 has more IR research backing for document retrieval; Meilisearch optimized for end-user search UX
-- Could consolidate vector + full-text into single service, or run alongside ChromaDB
+- Could consolidate vector + full-text into single service, or run alongside PostgreSQL
 
-**Decision required**: Whether to use Meilisearch for full-text only (with ChromaDB for vectors) or as a unified search service for both.
+**Decision required**: Whether to use Meilisearch for full-text only (with PostgreSQL/pgvector for vectors) or as a unified search service for both.
 
 ### Security Hardening
 RAG-specific vulnerability testing: prompt injection, content injection, adversarial retrieval attacks.
@@ -411,7 +410,7 @@ Bulk indexing, parallel processing, and incremental updates for datasets with mi
 Isolated data and configuration per tenant (organization or user group). Requires tenant-aware document storage, session isolation, usage quotas, and billing integration. Key decisions include shared vs. dedicated infrastructure per tenant, data isolation strategy (logical vs. physical separation), and tenant provisioning workflows.
 
 ### High Availability
-Redundant service instances with automatic failover to eliminate single points of failure. Includes load balancing across multiple rag-server replicas, Redis Sentinel or cluster mode for queue/cache resilience, and ChromaDB replication. Requires health monitoring, graceful degradation (e.g., vector-only search if BM25 unavailable), and defined SLAs for uptime targets (99.9%+).
+Redundant service instances with automatic failover to eliminate single points of failure. Includes load balancing across multiple rag-server replicas and PostgreSQL high availability (streaming replication + failover) for vector, BM25, and queue resilience. Requires health monitoring, graceful degradation (e.g., vector-only search if BM25 unavailable), and defined SLAs for uptime targets (99.9%+).
 
 ### Disaster Recovery
 Cross-region replication, automated failover, RTO/RPO targets. Includes automated backup verification, point-in-time recovery capabilities, and documented runbooks for incident response.
@@ -424,4 +423,3 @@ Concurrent user support, horizontal scaling, caching strategies, SLA targets (P9
 
 ### Enterprise Authentication & Authorization
 LDAP/IAM/SSO integration, role-based access control, audit logging, group management.
-

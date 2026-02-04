@@ -55,7 +55,7 @@ class VectorSearchConfig(BaseModel):
     enabled: bool = Field(True, description="Vector search is always enabled")
     chunk_size: int = Field(..., description="Chunk size in tokens")
     chunk_overlap: int = Field(..., description="Chunk overlap in tokens")
-    vector_store: str = Field("ChromaDB", description="Vector database used")
+    vector_store: str = Field("PostgreSQL (pgvector)", description="Vector database used")
     collection_name: str = Field("documents", description="Collection name")
 
 

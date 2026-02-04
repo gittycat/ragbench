@@ -10,8 +10,8 @@ Implement a production-ready centralized logging stack using **Grafana Loki + Pr
 ## Current State
 
 - **Logging foundation:** `core/logging.py` with environment-based LOG_LEVEL, custom filters (URLShortener, HealthCheck)
-- **312 logging calls** across 34 files using contextual prefixes: `[STARTUP]`, `[QUERY]`, `[TASK {id}]`, `[CELERY]`
-- **5 Docker services:** rag-server, celery-worker, eval-worker, redis, chromadb
+- **312 logging calls** across 34 files using contextual prefixes: `[STARTUP]`, `[QUERY]`, `[TASK {id}]`, `[PGMQ]`
+- **5 Docker services:** rag-server, pgmq-worker, evals, postgres, webapp
 - **Pain point:** Logs scattered across containers, no centralization, lost on restart
 
 ## Implementation Phases
@@ -47,7 +47,7 @@ Implement a production-ready centralized logging stack using **Grafana Loki + Pr
 - Features:
   - Generate `request_id` (UUID) per API request
   - Bind to structlog context: `structlog.contextvars.bind_contextvars(request_id=...)`
-  - Pass `request_id` to Celery tasks via `apply_async(headers={'request_id': ...})`
+  - Pass `request_id` to PGMQ tasks via message metadata
   - Return `X-Request-ID` header in responses for client tracing
 
 **1.5 Update FastAPI application**
@@ -76,7 +76,7 @@ Implement a production-ready centralized logging stack using **Grafana Loki + Pr
 
 **2.2 Update main docker-compose.yml**
 - File: `docker-compose.yml`
-- Changes for all services (rag-server, celery-worker, eval-worker, redis, chromadb, webapp):
+- Changes for all services (rag-server, pgmq-worker, evals, postgres, webapp):
   - Add `logging` network
   - Add logging driver config:
     ```yaml
@@ -139,16 +139,16 @@ Implement a production-ready centralized logging stack using **Grafana Loki + Pr
   - Recent error logs (table with request_id, session_id)
   - Top error sources (by logger name)
   - Error correlation (task_id → error)
-- Example LogQL: `{service=~"rag-server|celery-worker"} |= "ERROR" | json`
+- Example LogQL: `{service=~"rag-server|pgmq-worker"} |= "ERROR" | json`
 
-**3.4 Celery Task Tracking Dashboard**
-- File: `config/grafana/dashboards/celery-tasks.json` (new)
+**3.4 PGMQ Task Tracking Dashboard**
+- File: `config/grafana/dashboards/pgmq-tasks.json` (new)
 - Panels:
   - Task processing rate (tasks/min)
   - Task duration histogram
   - Failed tasks (by filename)
   - Task progress tracking (chunk embeddings)
-- Example LogQL: `{service="celery-worker"} |~ "TASK" | json | task_id != ""`
+- Example LogQL: `{service="pgmq-worker"} |~ "TASK" | json | task_id != ""`
 
 **3.5 Query Performance Dashboard**
 - File: `config/grafana/dashboards/query-performance.json` (new)
@@ -163,11 +163,11 @@ Implement a production-ready centralized logging stack using **Grafana Loki + Pr
 - File: `config/grafana/dashboards/infrastructure.json` (new)
 - Panels:
   - Container status (up/down)
-  - ChromaDB document count
-  - Redis connection errors
+  - PostgreSQL document count
+  - PostgreSQL connection errors
   - Ollama model load status
   - BM25 index refresh events
-- Example LogQL: `{service="rag-server"} |~ "chromadb" |= "ERROR"`
+- Example LogQL: `{service="rag-server"} |~ "postgres" |= "ERROR"`
 
 **Impact:** 6 new JSON files for dashboards + datasource provisioning
 
@@ -239,25 +239,25 @@ Implement a production-ready centralized logging stack using **Grafana Loki + Pr
 
   **Dashboards:**
   - Application Errors: Track exceptions across services
-  - Celery Tasks: Monitor async processing
+  - PGMQ Tasks: Monitor async processing
   - Query Performance: Latency, token usage
-  - Infrastructure: Container health, ChromaDB/Redis status
+  - Infrastructure: Container health, PostgreSQL status
 
   **Correlation IDs:**
   - `request_id`: Full API request trace
   - `session_id`: Conversation history
-  - `task_id`: Celery task execution
+  - `task_id`: PGMQ task execution
 
   **Common Queries:**
   ```logql
   # Find all logs for a specific request
   {service="rag-server"} | json | request_id = "abc123"
 
-  # Track Celery task from queue to completion
-  {service="celery-worker"} | json | task_id = "xyz789"
+  # Track PGMQ task from queue to completion
+  {service="pgmq-worker"} | json | task_id = "xyz789"
 
   # All errors in last hour
-  {service=~"rag-server|celery-worker"} |= "ERROR" | json
+  {service=~"rag-server|pgmq-worker"} |= "ERROR" | json
   ```
   ```
 
@@ -284,7 +284,7 @@ Implement a production-ready centralized logging stack using **Grafana Loki + Pr
 6. `config/grafana/datasources/loki.yml` - Grafana datasource
 7. `config/grafana/dashboards/dashboard.yml` - Dashboard provisioning
 8. `config/grafana/dashboards/application-errors.json` - Errors dashboard
-9. `config/grafana/dashboards/celery-tasks.json` - Tasks dashboard
+9. `config/grafana/dashboards/pgmq-tasks.json` - Tasks dashboard
 10. `config/grafana/dashboards/query-performance.json` - Performance dashboard
 11. `config/grafana/dashboards/infrastructure.json` - Infrastructure dashboard
 12. `docs/LOGGING_INFRASTRUCTURE.md` - User documentation
@@ -322,7 +322,7 @@ curl -X POST http://localhost:8001/upload -F "file=@test.pdf"
 
 # 4. Check Grafana
 just logging-open
-# Navigate to Celery Tasks dashboard
+# Navigate to PGMQ Tasks dashboard
 # Verify task logs appear with task_id
 
 # 5. Run a query

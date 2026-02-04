@@ -30,7 +30,7 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.36",
     "pgvector>=0.3.6",
     "alembic>=1.14.0",
-    "tembo-pgmq-python>=1.2.0",
+    "pgmq>=1.0.3",
 ]
 
 [dependency-groups]

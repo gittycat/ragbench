@@ -13,7 +13,7 @@ This document outlines publicly available datasets for evaluating our RAG system
 - **Gold passages required**: Need ground truth chunks to measure retrieval precision/recall
 - **Multiple sizes**: Options for quick validation and comprehensive benchmarking
 - **Domain agnostic**: Open to any domain that tests RAG capabilities well
-- **Corpus ingestion**: Documents must be ingestable into ChromaDB for end-to-end testing
+- **Corpus ingestion**: Documents must be ingestable into PostgreSQL (pgvector + pg_search) for end-to-end testing
 
 ---
 
@@ -174,7 +174,7 @@ Datasets for specialized document types. Implement on a need basis when deployin
 
 ### Phase 1: Pipeline Validation
 1. Start with **SQuAD 2.0** (smallest corpus)
-2. Validate ingestion into ChromaDB works correctly
+2. Validate ingestion into PostgreSQL works correctly
 3. Run baseline evaluation with existing DeepEval setup
 4. Verify gold passage retrieval metrics can be computed
 
@@ -295,7 +295,7 @@ These choices drive the architecture recommendations below. Update these if requ
 | Aspect | Current Choice | Alternatives |
 |--------|----------------|--------------|
 | **Run frequency** | Ad-hoc/manual | On every PR, Scheduled (nightly/weekly) |
-| **Data isolation** | Ephemeral per test run | Separate ChromaDB instance, Separate collection |
+| **Data isolation** | Ephemeral per test run | Separate PostgreSQL instance, Separate schema |
 | **Results display** | Dashboard/UI (local) | CLI only, JSON files, Cloud service |
 | **Result persistence** | Store all runs | Keep last N runs, No persistence |
 | **Runtime budget** | 5-30 minutes | Under 5 min (CI), Hours (comprehensive) |
@@ -317,8 +317,7 @@ These choices drive the architecture recommendations below. Update these if requ
 │                    Ephemeral Test Environment                    │
 ├─────────────────────────────────────────────────────────────────┤
 │  docker-compose.bench.yml                                        │
-│  ├── chromadb-bench (fresh instance, port 8002)                 │
-│  ├── redis-bench (isolated)                                      │
+│  ├── postgres-bench (fresh instance)                             │
 │  └── rag-server-bench (points to bench DBs)                     │
 └─────────────────────────────────────────────────────────────────┘
                                   │
@@ -369,8 +368,8 @@ These choices drive the architecture recommendations below. Update these if requ
 ### Workflow
 
 1. **Load dataset**: `just bench-load squad` downloads and prepares SQuAD 2.0
-2. **Start ephemeral env**: Spins up isolated ChromaDB + Redis
-3. **Ingest corpus**: Uploads dataset documents to ephemeral ChromaDB
+2. **Start ephemeral env**: Spins up isolated PostgreSQL
+3. **Ingest corpus**: Uploads dataset documents to PostgreSQL (pgvector)
 4. **Run queries**: Executes all test questions against the RAG
 5. **Compute metrics**: DeepEval metrics + retrieval metrics (Recall@K, MRR)
 6. **Store results**: Saves to SQLite with timestamp and run metadata

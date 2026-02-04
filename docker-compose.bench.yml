@@ -6,42 +6,26 @@
 #   just bench-down     # Stop and remove (ephemeral data lost)
 
 services:
-  # ChromaDB for benchmark (ephemeral - no volume mount)
-  chromadb-bench:
-    image: chromadb/chroma:latest
+  # PostgreSQL for benchmark (ephemeral)
+  postgres-bench:
+    build:
+      context: ./services/postgres
+      dockerfile: Dockerfile
     environment:
-      - IS_PERSISTENT=TRUE
-      - ANONYMIZED_TELEMETRY=FALSE
-    # No volume mount - data is ephemeral
+      POSTGRES_USER: raguser
+      POSTGRES_PASSWORD: ragpass
+      POSTGRES_DB: ragbench
     tmpfs:
-      - /chroma/chroma
-    ports:
-      - "8002:8000"  # Different port from main chromadb
-    networks:
-      - bench-private
+      - /var/lib/postgresql
+    volumes:
+      - ./services/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/localhost/8000' || exit 1"]
-      interval: 2s
+      test: ["CMD-SHELL", "pg_isready -U raguser -d ragbench"]
+      interval: 5s
       timeout: 5s
-      retries: 15
-      start_period: 10s
-
-  # Redis for benchmark (ephemeral)
-  redis-bench:
-    image: redis:8-alpine
-    command: redis-server --loglevel warning
-    # No volume mount - data is ephemeral
-    tmpfs:
-      - /data
-    ports:
-      - "6380:6379"  # Different port from main redis
+      retries: 5
     networks:
       - bench-private
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 2s
-      timeout: 3s
-      retries: 5
 
   # RAG Server for benchmark
   rag-server-bench:
@@ -52,21 +36,15 @@ services:
     ports:
       - "8003:8001"  # Different port from main rag-server
     environment:
-      # Point to benchmark databases
-      - CHROMADB_URL=http://chromadb-bench:8000
-      - REDIS_URL=redis://redis-bench:6379/0
-      # API Keys (from secrets/.env)
-      - LLM_API_KEY=${LLM_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      # Application Settings
+      - DATABASE_URL=postgresql+asyncpg://raguser:ragpass@postgres-bench:5432/ragbench
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      chromadb-bench:
-        condition: service_healthy
-      redis-bench:
+      postgres-bench:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=2)"]
@@ -79,7 +57,36 @@ services:
       - bench-public
     volumes:
       - ./config.yml:/app/config.yml:ro
+      - docs_repo_bench:/tmp/shared
       - huggingface_cache:/home/appuser/.cache/huggingface
+      - documents_data_bench:/data/documents
+
+  # PGMQ Worker for benchmark
+  pgmq-worker-bench:
+    build:
+      context: .
+      dockerfile: ./services/rag_server/Dockerfile
+    command: [".venv/bin/python", "-m", "infrastructure.tasks.pgmq_worker"]
+    user: "1000:1000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://raguser:ragpass@postgres-bench:5432/ragbench
+      - LOG_LEVEL=WARNING
+      - MAX_UPLOAD_SIZE=80
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres-bench:
+        condition: service_healthy
+      rag-server-bench:
+        condition: service_healthy
+    networks:
+      - bench-private
+      - bench-public
+    volumes:
+      - ./config.yml:/app/config.yml:ro
+      - docs_repo_bench:/tmp/shared
+      - huggingface_cache:/home/appuser/.cache/huggingface
+      - documents_data_bench:/data/documents
 
 networks:
   bench-public:
@@ -91,3 +98,7 @@ networks:
 volumes:
   huggingface_cache:
     driver: local  # Persists across bench runs to avoid re-downloading models
+  docs_repo_bench:
+    driver: local
+  documents_data_bench:
+    driver: local

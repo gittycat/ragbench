@@ -20,9 +20,9 @@
 | `evals/datasets/golden.py` | ✅ Created | Golden dataset loader |
 | `evals/config.py` | ✅ Updated | Added `GOLDEN` to `DatasetName` enum |
 | `evals/datasets/registry.py` | ✅ Updated | Registered golden loader |
-| `infrastructure/tasks/eval_progress.py` | ✅ Created | Redis progress tracking |
-| `infrastructure/tasks/eval_worker.py` | ✅ Created | Celery task for async evaluation |
-| `infrastructure/tasks/celery_app.py` | ✅ Updated | Added eval queue routing |
+| `infrastructure/tasks/eval_progress.py` | ✅ Created | PostgreSQL progress tracking |
+| `infrastructure/tasks/eval_worker.py` | ✅ Created | PGMQ task for async evaluation |
+| `infrastructure/tasks/pgmq_queue.py` | ✅ Updated | Added eval queue routing |
 | `services/eval/__init__.py` | ✅ Created | Consolidated eval service exports |
 | `services/eval/history.py` | ✅ Created | Eval run storage/retrieval |
 | `services/eval/baseline.py` | ✅ Created | Golden baseline management (functions) |
@@ -42,7 +42,7 @@
 - **Lazy imports**: `api/routes/eval.py` and `infrastructure/tasks/eval_worker.py` use lazy imports to avoid loading heavy evaluation dependencies (HuggingFace `datasets`) during API startup
 - **Schema architecture**: Two schema files - `schemas/metrics.py` for system/model configs, `schemas/eval.py` for all eval-related schemas
 - **Service architecture**: Eval services consolidated in `services/eval/` with functions (not classes) per project guidelines
-- **Progress tracking**: Coarse-grained (phase-level) progress updates; per-question updates deferred
+- **Progress tracking**: Coarse-grained (phase-level) progress updates; per-question updates deferred (PostgreSQL)
 
 ---
 
@@ -585,9 +585,9 @@ Get recommended configuration based on evaluation history.
 
 ## Architecture
 
-### Async Execution with Celery
+### Async Execution with PGMQ
 
-Evaluation runs are executed asynchronously via Celery using a **dedicated task queue** (`eval`) to isolate evaluation workloads from document processing.
+Evaluation runs are executed asynchronously via PGMQ using a **dedicated queue** (`evals`) to isolate evaluation workloads from document processing.
 
 ```
 ┌─────────────────┐  POST /metrics/eval/runs  ┌─────────────────┐
@@ -598,13 +598,13 @@ Evaluation runs are executed asynchronously via Celery using a **dedicated task 
          │ SSE /progress                                │ queue task (eval queue)
          │                                              ▼
          │                                     ┌─────────────────┐
-         │                                     │      Redis      │
-         │                                     │    (Broker)     │
+         │                                     │  PostgreSQL     │
+         │                                     │   (pgmq)        │
          │                                     └────────┬────────┘
          │                                              │
          │                                              ▼
          │                                     ┌─────────────────┐
-         │◀──────────progress updates──────────│  Celery Worker  │
+         │◀──────────progress updates──────────│  PGMQ Worker    │
          │                                     │  (eval queue)   │
          │                                     └────────┬────────┘
          │                                              │
@@ -616,33 +616,29 @@ Evaluation runs are executed asynchronously via Celery using a **dedicated task 
          │                                     └─────────────────┘
 ```
 
-### Celery Queue Configuration
+### PGMQ Queue Configuration
 
 ```python
-# celery_app.py - Add eval queue
-celery_app.conf.task_routes = {
-    'infrastructure.tasks.worker.process_document_task': {'queue': 'documents'},
-    'infrastructure.tasks.eval_worker.run_evaluation_task': {'queue': 'eval'},
-}
+from pgmq import PGMQueue
 
-celery_app.conf.task_queues = {
-    'documents': {'exchange': 'documents', 'routing_key': 'documents'},
-    'eval': {'exchange': 'eval', 'routing_key': 'eval'},
-}
+queue = PGMQueue()
+QUEUE_NAME = "evals"
+
+msg_id: int = queue.send(QUEUE_NAME, {"run_id": run_id, "dataset": dataset})
 ```
 
 **Worker startup:**
 ```bash
-# Document worker (existing)
-celery -A infrastructure.tasks.celery_app worker -Q documents --loglevel=info
+# Document worker
+.venv/bin/python -m infrastructure.tasks.pgmq_worker
 
-# Evaluation worker (new)
-celery -A infrastructure.tasks.celery_app worker -Q eval --loglevel=info --concurrency=1
+# Evaluation worker (planned)
+.venv/bin/python -m infrastructure.tasks.pgmq_eval_worker
 ```
 
 ### Progress Tracking
 
-Progress is stored in Redis with the following structure:
+Progress is stored in PostgreSQL with the following structure:
 
 ```json
 {
@@ -661,8 +657,8 @@ Progress is stored in Redis with the following structure:
 }
 ```
 
-Redis key: `eval:run:{run_id}:progress`
-TTL: 24 hours after completion
+Primary key: `eval_runs.id`
+Retention: Keep indefinitely (or add a cleanup job)
 
 ### Result Storage
 
@@ -754,12 +750,12 @@ class GoldenDatasetLoader(BaseDatasetLoader):
 - [x] Add `DatasetName.GOLDEN` enum value
 - [x] Test loader with existing `evals/data/golden_qa.json`
 
-#### 1.4 Celery Eval Task
+#### 1.4 PGMQ Eval Task
 - [x] Create `infrastructure/tasks/eval_worker.py` with `run_evaluation_task`
 - [x] Configure `eval` queue in `celery_app.py`
 - [x] Update docker-compose to start worker with `-Q eval` flag
 - [ ] Adapt `EvaluationRunner` to accept progress callback (deferred - using coarse phase updates)
-- [x] Implement progress callback that writes to Redis
+- [x] Implement progress callback that writes to PostgreSQL
 
 #### 1.5 Run Management Endpoints
 - [x] Implement `POST /metrics/eval/runs` - start evaluation, return run_id
@@ -769,7 +765,7 @@ class GoldenDatasetLoader(BaseDatasetLoader):
 - [x] Create Pydantic schemas: `EvalRunRequest`, `EvalRunResponse`, `EvalRunListResponse`
 
 #### 1.6 Progress Tracking
-- [x] Create `infrastructure/tasks/eval_progress.py` with Redis helpers
+- [x] Create `infrastructure/tasks/eval_progress.py` with PostgreSQL helpers
 - [x] Implement `create_eval_run()`, `update_eval_progress()`, `get_eval_progress()`
 - [x] Implement `GET /metrics/eval/runs/{run_id}/progress` SSE endpoint
 - [ ] Test SSE with frontend client
@@ -825,7 +821,7 @@ class GoldenDatasetLoader(BaseDatasetLoader):
 ### Phase 3: Advanced Features
 
 #### 3.1 Run Cancellation
-- [ ] Add `cancel_evaluation_task()` using Celery revoke
+- [ ] Add `cancel_evaluation_task()` using pgmq delete + status update
 - [ ] Implement graceful shutdown (finish current question, skip remaining)
 - [ ] Update progress to "cancelled" status
 - [ ] Clean up partial results
@@ -894,7 +890,7 @@ class GoldenDatasetLoader(BaseDatasetLoader):
 | 409 | Run already exists / evaluation already running |
 | 422 | Configuration error (judge required but not enabled) |
 | 500 | Internal error (RAG server unavailable) |
-| 503 | Service unavailable (Celery worker down) |
+| 503 | Service unavailable (PGMQ worker down) |
 
 **Error Response Format:**
 ```json
@@ -974,8 +970,8 @@ services/rag_server/
 │   └── metrics.py                 # System/model info services only
 ├── infrastructure/tasks/
 │   ├── celery_app.py              # Eval queue config
-│   ├── eval_worker.py             # Evaluation Celery task
-│   └── eval_progress.py           # Redis progress helpers
+│   ├── eval_worker.py             # Evaluation PGMQ task
+│   └── eval_progress.py           # PostgreSQL progress helpers
 ├── evals/
 │   ├── config.py                  # Group-based MetricConfig
 │   └── datasets/

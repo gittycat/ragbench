@@ -6,7 +6,7 @@ import os
 from typing import Any
 from uuid import UUID
 
-from tembo_pgmq_python import PGMQueue, Message
+from pgmq import PGMQueue, Message
 
 logger = logging.getLogger(__name__)
 

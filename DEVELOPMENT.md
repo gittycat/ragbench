@@ -31,7 +31,7 @@ The differentiating features of this RAG are:
 ### a) Data Privacy & Deployment Flexibility
 
 **Fully On-Premises Option**:
-- Complete open-source stack: Ollama (LLM + embeddings), ChromaDB (vectors), Redis (cache/memory)
+- Complete open-source stack: Ollama (LLM + embeddings), PostgreSQL (pgvector + pg_search + pgmq)
 - No external network calls required - runs entirely within your infrastructure
 - Ideal for sensitive documents requiring air-gapped deployment
 
@@ -69,7 +69,7 @@ The differentiating features of this RAG are:
 - **Hybrid Search**: Combines BM25 (sparse) + vector (dense) with Reciprocal Rank Fusion (~48% retrieval improvement)
 - **Contextual Retrieval**: LLM-generated chunk context before embedding (~49% fewer retrieval failures)
 - **Reranking**: Cross-encoder reranking for relevance optimization
-- **Conversational Memory**: Redis-backed session management with chat history
+- **Conversational Memory**: PostgreSQL-backed session management with chat history
 - **Multi-Format Documents**: PDF, DOCX, PPTX, XLSX, Markdown, HTML, AsciiDoc via Docling parser
 - **Async Processing**: Background document ingestion with progress tracking
 - **Deduplication**: SHA-256 hash-based duplicate detection
@@ -95,9 +95,8 @@ The system is composed of multiple services running in a Docker Compose managed 
   - Contextual Retrieval (optional)
 
 **Support Services**:
-- **chromadb** (Python + ChromaDB): Vector database for embeddings storage and retrieval
-- **redis** (Redis 8+): Message broker for Celery + result backend + chat memory persistence
-- **celery-worker** (Python 3.13 + Celery): Background task processor for async document ingestion
+- **postgres** (PostgreSQL 18 + pgvector + pg_search + pgmq): Vector storage, BM25 search, message queue, and persistence
+- **pgmq-worker** (Python 3.13): Background task processor for async document ingestion
   - Shares codebase with rag_server (same Docker image, different entrypoint)
 
 **Frontend Service**:
@@ -116,15 +115,15 @@ The system is composed of multiple services running in a Docker Compose managed 
 ### Network Isolation
 
 - **Public network**: webapp, rag-server (accessible from host)
-- **Private network**: chromadb, redis, celery-worker (internal only)
-- **Shared volumes**: Document staging (`/tmp/shared`), vector DB persistence, Redis data, model cache
+- **Private network**: postgres, pgmq-worker (internal only)
+- **Shared volumes**: Document staging (`/tmp/shared`), PostgreSQL data, model cache
 
 ### Data Flow
 
 **Document Upload:**
 1. Client uploads files → Webapp proxies to RAG Server
-2. RAG Server saves to shared volume, queues Celery task
-3. Celery Worker: Docling parsing → chunking → embeddings → ChromaDB
+2. RAG Server saves to shared volume, enqueues PGMQ task
+3. PGMQ Worker: Docling parsing → chunking → embeddings → PostgreSQL (pgvector)
 4. BM25 index refreshes automatically
 5. Client polls progress via batch_id
 
@@ -143,9 +142,9 @@ The system is composed of multiple services running in a Docker Compose managed 
 | API Framework | FastAPI | 0.118+ |
 | Python | Python | 3.13+ |
 | Package Manager | uv | Latest |
-| Vector Database | ChromaDB | 1.1+ |
-| Cache/Broker | Redis | 8+ |
-| Task Queue | Celery | 5.5+ |
+| Vector Database | PostgreSQL (pgvector) | 18+ |
+| Full-text Search | pg_search (ParadeDB) | 0.10+ |
+| Task Queue | pgmq (PostgreSQL) | 1.0+ |
 | Document Parser | Docling | 2.53+ |
 | RAG Framework | LlamaIndex | 0.14+ |
 | Reranker | SentenceTransformers | 5.1+ |
@@ -204,11 +203,11 @@ services/rag_server/
 - `pipelines/ingestion.py`: Document processing (parsing, chunking, embedding, indexing)
 - `pipelines/inference.py`: Query processing (retrieval, reranking, generation)
 - `infrastructure/llm/`: Multi-provider LLM client factory
-- `infrastructure/database/`: ChromaDB vector store management
-- `infrastructure/tasks/`: Celery configuration and workers
+- `infrastructure/database/`: PostgreSQL + pgvector + pg_search
+- `infrastructure/tasks/`: PGMQ queue and worker
 - `infrastructure/config/`: YAML configuration loading
 
-### Celery Worker
+### PGMQ Worker
 
 Shares codebase with RAG Server (same Docker image, different entrypoint).
 
@@ -225,8 +224,7 @@ Shares codebase with RAG Server (same Docker image, different entrypoint).
 
 ### Docker Volumes
 
-- `chromadb_data`: Vector database persistence
-- `redis_data`: Cache and session persistence
+- `postgres_data`: PostgreSQL persistence (documents, embeddings, sessions, queues)
 - `docs_repo`: Shared file upload staging
 - `huggingface_cache`: Reranker model cache
 - `documents_data`: Original document storage for downloads
@@ -243,7 +241,7 @@ Shares codebase with RAG Server (same Docker image, different entrypoint).
 3. Chunking (500 tokens, 50 overlap)
 4. Optional contextual enhancement (LLM-generated chunk context)
 5. Embedding generation
-6. Indexing (ChromaDB + BM25)
+6. Indexing (PostgreSQL pgvector + pg_search BM25)
 
 ### Retrieval Strategy
 
@@ -255,7 +253,7 @@ Shares codebase with RAG Server (same Docker image, different entrypoint).
 
 ### Chat Features
 
-**Session Management**: Redis-backed conversation history with persistent storage (no TTL).
+**Session Management**: PostgreSQL-backed conversation history with persistent storage (no TTL).
 
 **Chat Mode**: Uses `condense_plus_context` - condenses conversation history into standalone query, then retrieves context.
 
@@ -286,8 +284,7 @@ API keys and credentials (git-ignored).
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `CHROMADB_URL` | `http://chromadb:8000` | Vector database endpoint |
-| `REDIS_URL` | `redis://redis:6379/0` | Cache and broker endpoint |
+| `DATABASE_URL` | `postgresql+asyncpg://raguser:ragpass@postgres:5432/ragbench` | PostgreSQL connection string |
 | `LOG_LEVEL` | `WARNING` | Logging verbosity |
 | `MAX_UPLOAD_SIZE` | `80` | Max upload size in MB |
 | `LLM_API_KEY` | - | Cloud LLM API key |
@@ -499,7 +496,7 @@ Base URL: `http://localhost:8001`
 ```bash
 # Clone and setup
 git clone <repo-url>
-cd wt-dashboard
+cd ragbench
 
 # Backend dependencies
 cd services/rag_server
@@ -516,7 +513,7 @@ cp config.yml.example config.yml
 cp secrets/.env.example secrets/.env
 
 # Start infrastructure
-docker compose up chromadb redis -d
+docker compose up -d
 
 # Run RAG server (development)
 cd services/rag_server
@@ -584,9 +581,9 @@ tests/
 
 ### Key Integration Tests
 
-- `test_pdf_full_pipeline`: PDF → Docling → ChromaDB → queryable
+- `test_pdf_full_pipeline`: PDF → Docling → PostgreSQL → queryable
 - `test_bm25_refresh_after_upload`: Index sync after document operations
-- `test_celery_task_completes`: Async upload via Celery
+- `test_pgmq_task_completes`: Async upload via PGMQ
 - `test_corrupted_pdf_handling`: Graceful error handling
 
 ### Pytest Markers
@@ -695,8 +692,7 @@ Comprehensive visibility into system configuration and performance.
 ### Health Monitoring
 
 Component health via `/metrics/system`:
-- ChromaDB: Vector database connectivity
-- Redis: Cache and broker connectivity
+- PostgreSQL: Vector store + BM25 + queue connectivity
 - Ollama: LLM availability
 
 ### Key Metrics
@@ -712,7 +708,7 @@ Component health via `/metrics/system`:
 ### Common Issues
 
 - **Ollama not accessible**: Check host binding with `curl http://localhost:11434/api/tags`
-- **ChromaDB connection fails**: Verify `private` network connectivity
+- **PostgreSQL connection fails**: Verify `DATABASE_URL` and `private` network connectivity
 - **Docker build fails**: Ensure `--index-strategy unsafe-best-match` in Dockerfile
 - **Tests fail**: Use `.venv/bin/pytest` not `uv run pytest`
 - **Reranker slow first query**: Model downloads ~80MB on first use
@@ -727,31 +723,25 @@ docker compose logs -f
 
 # Specific service
 docker compose logs -f rag-server
-docker compose logs -f celery-worker
-docker compose logs -f redis
-docker compose logs -f chromadb
+docker compose logs -f pgmq-worker
+docker compose logs -f postgres
 ```
 
 ### Database Reset
 
 ```bash
-docker compose down
-docker volume rm wt-dashboard_chromadb_data
-docker volume rm wt-dashboard_redis_data
+docker compose down -v
 docker compose up -d
 ```
 
 ### Backup & Restore
 
 ```bash
-# Manual backup
-./scripts/backup_chromadb.sh
+# Manual backup (PostgreSQL)
+docker compose exec postgres pg_dump -U raguser ragbench > backups/ragbench.sql
 
 # Restore
-./scripts/restore_chromadb.sh ./backups/chromadb_backup_*.tar.gz
-
-# Scheduled (crontab)
-0 2 * * * cd /path/to/project && ./scripts/backup_chromadb.sh
+cat backups/ragbench.sql | docker compose exec -T postgres psql -U raguser -d ragbench
 ```
 
 ## PII Masking
@@ -820,7 +810,7 @@ When `audit.enabled: true`, all masking/unmasking operations are logged:
 
 - **Token preservation**: LLMs may alter tokens (e.g., remove brackets). Validation detects this; fuzzy recovery attempts restoration
 - **Performance**: Adds ~20-50ms per request for Presidio analysis
-- **Not for embeddings**: Embeddings are generated from original text (stored locally in ChromaDB)
+- **Not for embeddings**: Embeddings are generated from original text (stored locally in PostgreSQL)
 
 ### When to Enable
 
@@ -836,7 +826,7 @@ For detailed feature roadmap including implementation tasks and effort estimates
 
 ### Recently Completed
 
-- **Redis-backed Chat Memory** (Oct 2025): Session-based conversation history with persistent storage
+- **PostgreSQL-backed Chat Memory** (Oct 2025): Session-based conversation history with persistent storage
 - **Hybrid Search** (Oct 2025): BM25 + Vector + RRF fusion with ~48% retrieval improvement
 - **Contextual Retrieval** (Oct 2025): LLM-generated chunk context with ~49% fewer retrieval failures
 - **DeepEval Framework** (Dec 2025): Anthropic Claude Sonnet 4 as LLM judge with pytest integration

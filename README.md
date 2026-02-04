@@ -17,9 +17,9 @@ This covers both measures of the **quality** of the data (accuracy, completeness
 
 ## Tech Stack
 
-- **Backend**: Python, FastAPI, Redis, Celery (async processing)
+- **Backend**: Python, FastAPI, PostgreSQL (pgvector + pg_search + pgmq)
 - **RAG Pipeline**: Docling, LlamaIndex
-- **Vector DB**: ChromaDB
+- **Vector DB**: PostgreSQL (pgvector)
 - **Search**: Hybrid (BM25 + Vector + RRF)
 - **LLM**: Ollama (local) or cloud providers (OpenAI, Anthropic, etc.)
 - **Infrastructure**: Docker compose

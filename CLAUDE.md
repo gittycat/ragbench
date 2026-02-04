@@ -385,3 +385,7 @@ API keys are loaded from `secrets/.env` via Docker Compose `env_file`.
 - `test_pdf_full_pipeline`: PDF → Docling → PostgreSQL → queryable
 - `test_pgmq_task_completes`: Async upload via pgmq
 - `test_corrupted_pdf_handling`: Graceful error handling
+
+## TODO
+
+- Re-implement document pipeline integration tests for PostgreSQL/pgvector (ChromaDB-based tests were removed).

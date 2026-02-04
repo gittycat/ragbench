@@ -107,7 +107,7 @@ async def create_new_session(request: CreateSessionRequest):
     """
     Create a new chat session.
 
-    If is_temporary=True, session is not persisted to Redis.
+    If is_temporary=True, session is not persisted to PostgreSQL.
     If first_message is provided, generates an AI title from the message.
     """
     try:
