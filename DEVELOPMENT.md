@@ -11,6 +11,7 @@ For frontend/UI documentation, see [FRONT_END.md](FRONT_END.md).
 - [Technology Stack](#technology-stack)
 - [Service Architecture](#service-architecture)
 - [Configuration](#configuration)
+- [Secrets](#secrets)
 - [Evaluation Framework](#evaluation-framework)
 - [API Reference](#api-reference)
 - [Development Setup](#development-setup)
@@ -272,14 +273,6 @@ Primary configuration file for models and retrieval settings.
 
 **Setup:** Simply edit the existing file.
 
-### Secrets (`secrets/.env`)
-
-API keys and credentials (git-ignored).
-
-**Setup:** Copy `secrets/.env.example` to `secrets/.env`.
-
-**Note:** Ollama settings (`base_url`, `keep_alive`) are now configured per-model in `config.yml`.
-
 ### Environment Variables (docker-compose.yml)
 
 | Variable | Default | Purpose |
@@ -287,8 +280,20 @@ API keys and credentials (git-ignored).
 | `DATABASE_URL` | `postgresql+asyncpg://raguser:ragpass@postgres:5432/ragbench` | PostgreSQL connection string |
 | `LOG_LEVEL` | `WARNING` | Logging verbosity |
 | `MAX_UPLOAD_SIZE` | `80` | Max upload size in MB |
-| `LLM_API_KEY` | - | Cloud LLM API key |
-| `ANTHROPIC_API_KEY` | - | Evaluation API key |
+
+## Secrets
+
+Main points:
+- API keys are provided via Docker Compose secrets mounted as files under `/run/secrets`.
+- Each service reads secrets independently at startup (for example `rag-server`, `pgmq-worker`, and `evals`).
+- Secret files contain only the raw value (no `KEY=VALUE` format).
+- Secrets are loaded via Pydantic Settings (file-based secrets) and kept in memory; do not log secret values.
+- Avoid environment variables for API keys; use the mounted secret files instead.
+
+References:
+- `docker-compose.yml` (secrets definitions and mounts)
+- `services/rag_server/app/settings.py`
+- `services/evals/infrastructure/settings.py`
 
 ## Evaluation Framework
 

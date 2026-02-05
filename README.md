@@ -92,24 +92,14 @@ active:
 
 To switch models, change the active model name to any model defined in the `models` section. Local models (Ollama) work out of the box. Cloud models require API keys.
 
-**API Keys** (`secrets/.env`):
+**Secrets**:
 
-Cloud models (OpenAI, Anthropic, Google, DeepSeek, Moonshot) require API keys. Create your secrets file and add the keys you need:
+API keys are provided via Docker Compose secrets mounted as files under `/run/secrets` and loaded at startup via Pydantic Settings (no environment variables). This follows OWASP best practices for secrets handling and storage guidance:
 
-```bash
-cp secrets/.env.example secrets/.env
 ```
-
-Add keys using the naming convention `{PROVIDER}_API_KEY`:
+https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html?utm_source=chatgpt.com
+https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html
 ```
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-GOOGLE_API_KEY=...
-DEEPSEEK_API_KEY=...
-MOONSHOT_API_KEY=...
-```
-
-Only add keys for providers you plan to use. Models in `config.yml` with `requires_api_key: true` need the corresponding key set.
 
 ### 4. Start the Application
 

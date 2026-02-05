@@ -28,11 +28,9 @@ services:
     ports:
       - "8001:8001"
     secrets:
-      - openai-api-key
-      - anthropic-api-key
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
     environment:
-      - OPENAI_API_KEY=/run/secrets/openai-api-key
-      - ANTHROPIC_API_KEY=/run/secrets/anthropic-api-key
       - DATABASE_URL=postgresql+asyncpg://raguser:ragpass@postgres:5432/ragbench
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80
@@ -87,11 +85,9 @@ services:
     user: "1000:1000"
     restart: unless-stopped
     secrets:
-      - openai-api-key
-      - anthropic-api-key
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
     environment:
-      - OPENAI_API_KEY=/run/secrets/openai-api-key
-      - ANTHROPIC_API_KEY=/run/secrets/anthropic-api-key
       - DATABASE_URL=postgresql+asyncpg://raguser:ragpass@postgres:5432/ragbench
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80
@@ -121,11 +117,8 @@ services:
       - ./config.yml:/app/config.yml:ro
       - ./services/evals/evals/data:/app/evals/data
     secrets:
-      - openai-api-key
-      - anthropic-api-key
-    environment:
-      - OPENAI_API_KEY=/run/secrets/openai-api-key
-      - ANTHROPIC_API_KEY=/run/secrets/anthropic-api-key
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY 
     networks:
       - private
     profiles:
@@ -154,8 +147,12 @@ volumes:
     driver: local
 
 secrets:
-  openai-api-key:
-    file: secrets/.env.openai
-  anthropic-api-key:
-    file: secrets/.env.anthropic
+  OPENAI_API_KEY:
+    file: secrets/OPENAI_API_KEY
+  ANTHROPIC_API_KEY:
+    file: secrets/ANTHROPIC_API_KEY
+  POSTGRES_USER:
+    file: secrets/POSTGRES_USER
+  POSTGRES_PASSWORD:
+    file: secrets/POSTGRES_PASSWORD
 

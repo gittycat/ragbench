@@ -6,9 +6,18 @@ import os
 import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+from pydantic import SecretStr
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+class _TestSettings:
+    OPENAI_API_KEY = SecretStr("test-openai-key")
+    ANTHROPIC_API_KEY = SecretStr("test-anthropic-key")
+    GOOGLE_API_KEY = SecretStr("test-google-key")
+    DEEPSEEK_API_KEY = SecretStr("test-deepseek-key")
+    MOONSHOT_API_KEY = SecretStr("test-moonshot-key")
 
 # Set minimal env vars required for module imports (unit tests mock everything)
 # These are only used if not already set (e.g., in Docker or integration tests)
@@ -22,6 +31,15 @@ _DEFAULT_ENV = {
 for key, value in _DEFAULT_ENV.items():
     if key not in os.environ:
         os.environ[key] = value
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _test_secrets():
+    from app import settings as app_settings
+
+    app_settings.SETTINGS = _TestSettings()
+    yield
+    app_settings.SETTINGS = None
 
 
 def pytest_addoption(parser):

@@ -281,17 +281,10 @@ The system uses YAML configuration for all model settings and prompt templates. 
 - **Local (no API keys):** ollama
 - **Cloud (require API keys):** openai, anthropic, google, deepseek, moonshot
 
-**API Keys (secrets/.env):**
+**API Keys:**
 
-Secrets are stored in `secrets/.env` (copy from `secrets/.env.example`). Use the naming convention `{PROVIDER}_API_KEY`:
-
-```bash
-OPENAI_API_KEY=      # For OpenAI models
-ANTHROPIC_API_KEY=   # For Anthropic models and DeepEval
-GOOGLE_API_KEY=      # For Google models
-DEEPSEEK_API_KEY=    # For DeepSeek models
-MOONSHOT_API_KEY=    # For Moonshot models
-```
+API Keys are stored as `.env.PROVIDER` files under `secrets/` (copy from `secrets/.env.example`). 
+Env vars will use the naming convention `{PROVIDER}_API_KEY` where PROVIDER are: OPENAI,ANTHROPIC,GOOGLE,META,DEEPSEEK,...
 
 Models with `requires_api_key: true` in config.yml will fail validation if the corresponding API key is not set.
 

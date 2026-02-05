@@ -1,26 +1,20 @@
 # Secrets Directory
 
-This directory contains sensitive API keys and credentials.
+Store passwords, api keys and other credentials in the `secrets/` dir.
 
-## Setup
+**Environment Vars NOT USED**
+We do not store credentials as environment variables.
+Env variables can leak through application logging, metrics tracing, docker inspect, proc introspection and child processes inheritance, core dump to name a few.
 
-Create `secrets/.env` from the example:
+Reading from a mounted file is the current best practice as per (OWASP)[https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html?utm_source=chatgpt.com] and Cryptographic Storage Cheat Sheet
 
-```bash
-cp .env.example .env
-```
 
-Edit `.env` and add your API keys:
-
-```bash
-# For cloud LLM providers (not needed for Ollama)
-LLM_API_KEY=sk-...
-
-# For DeepEval evaluations (required)
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-**Note:** Ollama configuration (URL, keep-alive) is now in `config.yml` per model, not in secrets.
+**Rules:**
+- One secret per file.
+- The file name is the key. The content of the file is the value.
+  Eg: /secrets/OPENAI_API_KEY   => content: sjk-aabbcc112233...   (no comments, just one line)
+- Add /secrets to both `.gitignore` AND AI deny rules (eg: in .claude/settings.json)
+- Use docker compose secrets to mount the files. This avoids exposing the entire /secrets dir content on mount.
 
 ## Getting API Keys
 
@@ -28,13 +22,14 @@ ANTHROPIC_API_KEY=sk-ant-...
 1. Sign up at https://console.anthropic.com/
 2. Navigate to API Keys section
 3. Create new key
-4. Add to `ANTHROPIC_API_KEY` in `.env`
+4. Add `ANTHROPIC_API_KEY` to `secrets/`
+5. Update `config.yml` to use OpenAI provider
 
 ### OpenAI
 1. Sign up at https://platform.openai.com/
 2. Navigate to API Keys
 3. Create new key
-4. Add to `LLM_API_KEY` in `.env`
+4. Add `OPENAI_API_KEY` to `secrets/`
 5. Update `config.yml` to use OpenAI provider
 
 ## Security Notes
@@ -43,30 +38,4 @@ ANTHROPIC_API_KEY=sk-ant-...
 - Store production keys securely (use secret managers in production)
 - Rotate keys regularly
 - Use different keys for development and production
-- The `.env.example` files are safe to commit (no secrets)
 
-## Docker Integration
-
-Environment variables from `.env` are loaded by `docker-compose.yml`:
-```yaml
-environment:
-  - LLM_API_KEY=${LLM_API_KEY:-}
-  - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-```
-
-## Troubleshooting
-
-### "API key required" Error
-- Verify API key is set in `.env`
-- Restart services: `docker compose down && docker compose up -d`
-- Check key format matches provider requirements
-
-### Ollama Connection Failed
-- Ensure Ollama is running on host: `ollama list`
-- Verify `base_url` in `config.yml` for Ollama models
-- Check Docker can reach host: `docker compose exec rag-server curl http://host.docker.internal:11434/api/tags`
-
-### Environment Variables Not Loading
-- Ensure `.env` file exists in `secrets/` directory
-- Check file permissions (should be readable)
-- Restart Docker Compose to reload environment

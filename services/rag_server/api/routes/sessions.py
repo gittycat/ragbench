@@ -25,6 +25,7 @@ from schemas.chat import (
 )
 from services.session import (
     create_session_metadata,
+    create_session_async,
     get_session_metadata,
     list_sessions_async,
     get_session_metadata_async,

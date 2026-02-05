@@ -34,10 +34,12 @@ from evals.datasets.registry import list_datasets, get_dataset
 from evals.runner import EvaluationRunner, run_evaluation, compute_pareto_frontier
 from evals.schemas import EvalRun
 from infrastructure.config.display import print_config_banner
+from infrastructure.settings import init_settings
 
 
 def main():
     """Main CLI entry point."""
+    init_settings()
     parser = argparse.ArgumentParser(
         description="RAG Evaluation Framework",
         formatter_class=argparse.RawDescriptionHelpFormatter,

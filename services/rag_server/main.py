@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from core.logging import configure_logging
 from core.config import initialize_settings
+from app.settings import init_settings
 
 # Configure logging
 configure_logging()
@@ -25,6 +26,7 @@ async def lifespan(app: FastAPI):
 
 async def startup():
     """Initialize services and pre-load models on startup."""
+    init_settings()
     initialize_settings()
 
     # Initialize PostgreSQL connection pool

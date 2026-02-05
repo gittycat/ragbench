@@ -1,12 +1,12 @@
 """Model configuration management using Pydantic for type safety and validation."""
 
-import os
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+from infrastructure.settings import get_api_key_for_provider
 class LLMConfig(BaseModel):
     """Configuration for the main LLM."""
 
@@ -29,10 +29,9 @@ class LLMConfig(BaseModel):
     def validate_provider_requirements(self) -> None:
         """Validate that required fields are present for the selected provider."""
         if self.requires_api_key and not self.api_key:
-            env_var = f"{self.provider.upper()}_API_KEY"
             raise ValueError(
                 f"API key is required for provider '{self.provider}'. "
-                f"Set {env_var} environment variable."
+                f"Mount /run/secrets/{self.provider.upper()}_API_KEY."
             )
 
 
@@ -56,10 +55,9 @@ class EmbeddingConfig(BaseModel):
     def validate_provider_requirements(self) -> None:
         """Validate that required fields are present for the selected provider."""
         if self.requires_api_key and not self.api_key:
-            env_var = f"{self.provider.upper()}_API_KEY"
             raise ValueError(
                 f"API key is required for embedding provider '{self.provider}'. "
-                f"Set {env_var} environment variable."
+                f"Mount /run/secrets/{self.provider.upper()}_API_KEY."
             )
 
 
@@ -82,10 +80,9 @@ class EvalModelConfig(BaseModel):
     def validate_provider_requirements(self) -> None:
         """Validate that required fields are present for the selected provider."""
         if self.requires_api_key and not self.api_key:
-            env_var = f"{self.provider.upper()}_API_KEY"
             raise ValueError(
                 f"API key is required for eval provider '{self.provider}'. "
-                f"Set {env_var} environment variable."
+                f"Mount /run/secrets/{self.provider.upper()}_API_KEY."
             )
 
 
@@ -137,10 +134,9 @@ class EvalConfig(BaseModel):
     def validate_provider_requirements(self) -> None:
         """Validate that required fields are present for the selected provider."""
         if self.requires_api_key and not self.api_key:
-            env_var = f"{self.provider.upper()}_API_KEY"
             raise ValueError(
                 f"API key is required for eval provider '{self.provider}'. "
-                f"Set {env_var} environment variable."
+                f"Mount /run/secrets/{self.provider.upper()}_API_KEY."
             )
 
 
@@ -246,7 +242,7 @@ class ModelsConfig(BaseModel):
 
     @classmethod
     def load(cls, config_path: str | Path | None = None) -> "ModelsConfig":
-        """Load configuration from YAML file and inject secrets from environment.
+        """Load configuration from YAML file and inject secrets from /run/secrets.
 
         Args:
             config_path: Path to the models.yml file. If None, searches in standard locations.
@@ -288,14 +284,14 @@ class ModelsConfig(BaseModel):
             # Legacy format - use as-is
             resolved_data = data
 
-        # Inject API keys from environment based on requires_api_key flag
+        # Inject API keys from secrets based on requires_api_key flag
         for key in ["llm", "embedding", "eval"]:
             if key in resolved_data and resolved_data[key].get("requires_api_key"):
                 provider = resolved_data[key].get("provider")
-                env_var = f"{provider.upper()}_API_KEY"
-                api_key = os.getenv(env_var)
-                if api_key:
-                    resolved_data[key]["api_key"] = api_key
+                if provider:
+                    api_key = get_api_key_for_provider(provider)
+                    if api_key:
+                        resolved_data[key]["api_key"] = api_key
 
         # Create and validate config
         config = cls(**resolved_data)

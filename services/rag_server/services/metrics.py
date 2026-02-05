@@ -8,7 +8,6 @@ Provides methods to:
 Note: Evaluation-related functions have been moved to services/eval/.
 """
 
-import os
 import logging
 
 import httpx
@@ -26,6 +25,7 @@ from schemas.metrics import (
     SystemMetrics,
 )
 from core.config import get_optional_env
+from app.settings import has_anthropic_key
 from pipelines.inference import get_inference_config
 from pipelines.ingestion import get_ingestion_config
 
@@ -255,7 +255,7 @@ async def get_models_config() -> ModelsConfig:
         size=eval_size,
         reference_url=eval_ref.get("url"),
         description=eval_ref.get("description"),
-        status="available" if os.getenv("ANTHROPIC_API_KEY") else "unavailable",
+        status="available" if has_anthropic_key() else "unavailable",
     )
 
     return ModelsConfig(
@@ -321,12 +321,9 @@ async def get_system_metrics() -> SystemMetrics:
     """Get complete system metrics overview."""
     from infrastructure.database.postgres import get_session
     from infrastructure.database.repositories.documents import DocumentRepository
-    from services.eval import get_metric_definitions, get_evaluation_summary
 
     models = await get_models_config()
     retrieval = get_retrieval_config()
-    metrics_defs = get_metric_definitions()
-    eval_summary = get_evaluation_summary()
 
     try:
         async with get_session() as session:

@@ -19,8 +19,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize LlamaIndex settings
+# Initialize secrets and LlamaIndex settings
+from app.settings import init_settings
 from core.config import initialize_settings
+init_settings()
 initialize_settings()
 
 from infrastructure.tasks.pgmq_queue import read_message, delete_message, archive_message
