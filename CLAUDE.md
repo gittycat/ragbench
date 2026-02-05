@@ -279,12 +279,12 @@ The system uses YAML configuration for all model settings and prompt templates. 
 
 **Supported providers:**
 - **Local (no API keys):** ollama
-- **Cloud (require API keys):** openai, anthropic, google, deepseek, moonshot
+- **Cloud (require API keys):** openai, anthropic, google, deepseek
 
 **API Keys:**
 
-API Keys are stored as `.env.PROVIDER` files under `secrets/` (copy from `secrets/.env.example`). 
-Env vars will use the naming convention `{PROVIDER}_API_KEY` where PROVIDER are: OPENAI,ANTHROPIC,GOOGLE,META,DEEPSEEK,...
+API Keys are stored as files under `secrets/`. One file per secret value and the filename is the key to be used.
+eg: secrets/OPENAI_API_KEY contains the api key for openai.
 
 Models with `requires_api_key: true` in config.yml will fail validation if the corresponding API key is not set.
 
@@ -294,8 +294,6 @@ Minimal environment variables - most config moved to YAML:
 - `DATABASE_URL`: PostgreSQL connection string (default: `postgresql+asyncpg://raguser:ragpass@postgres:5432/ragbench`)
 - `MAX_UPLOAD_SIZE=80`: Max upload size in MB
 - `LOG_LEVEL=WARNING`: Logging level (INFO or DEBUG for development)
-
-API keys are loaded from `secrets/.env` via Docker Compose `env_file`.
 
 **Note:** pgmq-worker shares all RAG Server configuration (config.yml and secrets/.env). Ollama settings (`base_url`, `keep_alive`) are now in `config.yml` per model.
 
