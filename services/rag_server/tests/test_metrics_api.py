@@ -211,7 +211,9 @@ def mock_env_vars():
         'RETRIEVAL_TOP_K': '10',
         'ENABLE_CONTEXTUAL_RETRIEVAL': 'false',
         'OLLAMA_URL': 'http://localhost:11434',
-        'DATABASE_URL': 'postgresql+asyncpg://raguser:ragpass@localhost:5432/ragbench',
+        'DATABASE_HOST': 'localhost',
+        'DATABASE_PORT': '5432',
+        'DATABASE_NAME': 'ragbench',
     }
     with patch.dict('os.environ', env_vars):
         yield env_vars

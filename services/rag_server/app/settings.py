@@ -1,4 +1,7 @@
 from typing import Optional
+from urllib.parse import quote_plus
+
+import os
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,6 +19,8 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: SecretStr | None = None
     DEEPSEEK_API_KEY: SecretStr | None = None
     MOONSHOT_API_KEY: SecretStr | None = None
+    RAG_SERVER_DB_USER: SecretStr
+    RAG_SERVER_DB_PASSWORD: SecretStr
 
     @classmethod
     def settings_customise_sources(
@@ -90,3 +95,44 @@ def has_anthropic_key() -> bool:
         return bool(get_anthropic_key())
     except Exception:
         return False
+
+
+def get_postgres_user() -> str:
+    s = init_settings()
+    return s.RAG_SERVER_DB_USER.get_secret_value()
+
+
+def get_postgres_password() -> str:
+    s = init_settings()
+    return s.RAG_SERVER_DB_PASSWORD.get_secret_value()
+
+
+def get_database_host() -> str:
+    return os.getenv("DATABASE_HOST", "postgres")
+
+
+def get_database_port() -> int:
+    return int(os.getenv("DATABASE_PORT", "5432"))
+
+
+def get_database_name() -> str:
+    return os.getenv("DATABASE_NAME", "ragbench")
+
+
+def get_database_url() -> str:
+    user = quote_plus(get_postgres_user())
+    password = quote_plus(get_postgres_password())
+    host = get_database_host()
+    port = get_database_port()
+    db = get_database_name()
+    return f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{db}"
+
+
+def get_database_params() -> dict[str, str]:
+    return {
+        "database": get_database_name(),
+        "host": get_database_host(),
+        "port": str(get_database_port()),
+        "user": get_postgres_user(),
+        "password": get_postgres_password(),
+    }

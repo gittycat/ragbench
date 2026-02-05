@@ -6,7 +6,7 @@ Store passwords, api keys and other credentials in the `secrets/` dir.
 We do not store credentials as environment variables.
 Env variables can leak through application logging, metrics tracing, docker inspect, proc introspection and child processes inheritance, core dump to name a few.
 
-Reading from a mounted file is the current best practice as per (OWASP)[https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html?utm_source=chatgpt.com] and Cryptographic Storage Cheat Sheet
+Reading from a mounted file is the current best practice as per the OWASP Secrets Management and Cryptographic Storage cheat sheets.
 
 
 **Rules:**
@@ -15,6 +15,16 @@ Reading from a mounted file is the current best practice as per (OWASP)[https://
   Eg: /secrets/OPENAI_API_KEY   => content: sjk-aabbcc112233...   (no comments, just one line)
 - Add /secrets to both `.gitignore` AND AI deny rules (eg: in .claude/settings.json)
 - Use docker compose secrets to mount the files. This avoids exposing the entire /secrets dir content on mount.
+
+## Required Secrets
+
+Create a file for each of these keys in `secrets/`:
+- `POSTGRES_SUPERUSER`
+- `POSTGRES_SUPERPASSWORD`
+- `RAG_SERVER_DB_USER`
+- `RAG_SERVER_DB_PASSWORD`
+- `OPENAI_API_KEY` (only if using OpenAI)
+- `ANTHROPIC_API_KEY` (only if using Anthropic)
 
 ## Getting API Keys
 
@@ -38,4 +48,3 @@ Reading from a mounted file is the current best practice as per (OWASP)[https://
 - Store production keys securely (use secret managers in production)
 - Rotate keys regularly
 - Use different keys for development and production
-

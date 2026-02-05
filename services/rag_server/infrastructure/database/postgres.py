@@ -1,7 +1,7 @@
 """PostgreSQL async connection pool using SQLAlchemy 2.0 + asyncpg."""
 
-import os
 import logging
+import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -13,18 +13,12 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from app.settings import get_database_url
+
 logger = logging.getLogger(__name__)
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
-
-
-def get_database_url() -> str:
-    """Get database URL from environment."""
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise ValueError("DATABASE_URL environment variable not set")
-    return url
 
 
 def get_engine() -> AsyncEngine:

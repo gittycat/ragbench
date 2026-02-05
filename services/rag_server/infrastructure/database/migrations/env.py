@@ -1,12 +1,13 @@
 """Alembic environment configuration for async PostgreSQL migrations."""
 
 import asyncio
-import os
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
+
+from app.settings import get_database_url
 
 # Import models for autogenerate
 from infrastructure.database.models import Base
@@ -24,10 +25,7 @@ target_metadata = Base.metadata
 
 def get_url() -> str:
     """Get database URL from environment."""
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise ValueError("DATABASE_URL environment variable not set")
-    return url
+    return get_database_url()
 
 
 def run_migrations_offline() -> None:

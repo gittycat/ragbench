@@ -1,11 +1,11 @@
 """PGVectorStore wrapper for LlamaIndex integration."""
 
-import os
 import logging
-from urllib.parse import urlparse
 
 from llama_index.core import VectorStoreIndex
 from llama_index.vector_stores.postgres import PGVectorStore
+
+from app.settings import get_database_params
 
 logger = logging.getLogger(__name__)
 
@@ -13,31 +13,11 @@ _vector_store: PGVectorStore | None = None
 _vector_index: VectorStoreIndex | None = None
 
 
-def _parse_database_url() -> dict:
-    """Parse DATABASE_URL into connection parameters."""
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise ValueError("DATABASE_URL environment variable not set")
-
-    # Handle asyncpg:// prefix
-    if "+asyncpg" in url:
-        url = url.replace("+asyncpg", "")
-
-    parsed = urlparse(url)
-    return {
-        "database": parsed.path.lstrip("/"),
-        "host": parsed.hostname or "localhost",
-        "port": str(parsed.port or 5432),
-        "user": parsed.username or "raguser",
-        "password": parsed.password or "ragpass",
-    }
-
-
 def get_vector_store() -> PGVectorStore:
     """Get or create the PGVectorStore singleton."""
     global _vector_store
     if _vector_store is None:
-        params = _parse_database_url()
+        params = get_database_params()
         _vector_store = PGVectorStore.from_params(
             database=params["database"],
             host=params["host"],

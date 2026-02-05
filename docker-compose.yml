@@ -30,8 +30,12 @@ services:
     secrets:
       - OPENAI_API_KEY
       - ANTHROPIC_API_KEY
+      - RAG_SERVER_DB_USER
+      - RAG_SERVER_DB_PASSWORD
     environment:
-      - DATABASE_URL=postgresql+asyncpg://raguser:ragpass@postgres:5432/ragbench
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=ragbench
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80
     extra_hosts:
@@ -61,14 +65,21 @@ services:
       context: ./services/postgres
       dockerfile: Dockerfile
     environment:
-      POSTGRES_USER: raguser
-      POSTGRES_PASSWORD: ragpass
+      POSTGRES_USER_FILE: /run/secrets/POSTGRES_SUPERUSER
+      POSTGRES_PASSWORD_FILE: /run/secrets/POSTGRES_SUPERPASSWORD
       POSTGRES_DB: ragbench
+    secrets:
+      - POSTGRES_SUPERUSER
+      - POSTGRES_SUPERPASSWORD
+      - RAG_SERVER_DB_USER
+      - RAG_SERVER_DB_PASSWORD
     volumes:
       - postgres_data:/var/lib/postgresql
+      - ./services/postgres/00-roles.sh:/docker-entrypoint-initdb.d/00-roles.sh:ro
       - ./services/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./services/postgres/02-grants.sh:/docker-entrypoint-initdb.d/02-grants.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U raguser -d ragbench"]
+      test: ["CMD-SHELL", "pg_isready -U $(cat /run/secrets/POSTGRES_SUPERUSER) -d ragbench"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -87,8 +98,12 @@ services:
     secrets:
       - OPENAI_API_KEY
       - ANTHROPIC_API_KEY
+      - RAG_SERVER_DB_USER
+      - RAG_SERVER_DB_PASSWORD
     environment:
-      - DATABASE_URL=postgresql+asyncpg://raguser:ragpass@postgres:5432/ragbench
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=ragbench
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80
     extra_hosts:
@@ -118,7 +133,7 @@ services:
       - ./services/evals/evals/data:/app/evals/data
     secrets:
       - OPENAI_API_KEY
-      - ANTHROPIC_API_KEY 
+      - ANTHROPIC_API_KEY
     networks:
       - private
     profiles:
@@ -151,8 +166,11 @@ secrets:
     file: secrets/OPENAI_API_KEY
   ANTHROPIC_API_KEY:
     file: secrets/ANTHROPIC_API_KEY
-  POSTGRES_USER:
-    file: secrets/POSTGRES_USER
-  POSTGRES_PASSWORD:
-    file: secrets/POSTGRES_PASSWORD
-
+  POSTGRES_SUPERUSER:
+    file: secrets/POSTGRES_SUPERUSER
+  POSTGRES_SUPERPASSWORD:
+    file: secrets/POSTGRES_SUPERPASSWORD
+  RAG_SERVER_DB_USER:
+    file: secrets/RAG_SERVER_DB_USER
+  RAG_SERVER_DB_PASSWORD:
+    file: secrets/RAG_SERVER_DB_PASSWORD

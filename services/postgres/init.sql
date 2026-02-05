@@ -90,6 +90,4 @@ CREATE INDEX IF NOT EXISTS idx_tasks_batch ON job_tasks(batch_id);
 -- Create pgmq queue for document processing
 SELECT pgmq.create('documents');
 
--- Grant permissions to raguser (paranoid, usually owner has all)
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO raguser;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO raguser;
+-- Grants are handled in 02-grants.sh using secrets-backed roles.

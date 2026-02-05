@@ -101,6 +101,8 @@ https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.ht
 https://cheatsheetseries.owasp.org/cheatsheets/Cryptographic_Storage_Cheat_Sheet.html
 ```
 
+Database access also uses secrets per service. Create the required files under `secrets/` before starting containers.
+
 ### 4. Start the Application
 
 ```bash

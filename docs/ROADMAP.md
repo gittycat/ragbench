@@ -368,6 +368,10 @@ TODO: expand
 
 These features require significant architectural decisions and SLA definitions before implementation:
 
+### PageIndex - Vectorless Reasoning-Based RAG Alternative
+
+[PageIndex by VectifyAI](https://github.com/VectifyAI/PageIndex) represents a fundamentally different approach to RAG by eliminating vector databases entirely. Instead of embeddings and similarity search, it builds hierarchical document tree structures (similar to table-of-contents) and uses LLM reasoning to navigate the tree for retrieval. The system claims 98.7% accuracy on FinanceBench by mimicking how humans read documents - reasoning about structure rather than matching keywords. The project has gained significant traction (13.4k GitHub stars, MIT licensed) but developer sentiment on Hacker News (Jan 2026) shows cautious interest rather than hype: concerns include scalability (tree size grows with documents), query latency (multiple LLM calls per retrieval), and lack of comparative benchmarks against GraphRAG or vector-based systems. Before considering adoption, the system should be evaluated through side-by-side benchmarking with the current pgvector+BM25 hybrid approach, measuring accuracy, latency, LLM costs, and scalability with 1000+ documents. If validated, this could simplify infrastructure by removing the vector database dependency entirely, though it would introduce new LLM API dependencies and reasoning overhead.
+
 ### Meilisearch as Unified Search Service
 
 The current hybrid search uses an in-memory BM25 index (via LlamaIndex BM25Retriever) that must be rebuilt on every rag-server restart and cannot be shared across services. Meilisearch is a self-hosted, open-source search engine that could replace or complement this approach:

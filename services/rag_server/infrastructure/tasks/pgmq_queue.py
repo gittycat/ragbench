@@ -2,11 +2,11 @@
 
 import json
 import logging
-import os
 from typing import Any
-from uuid import UUID
 
 from pgmq import PGMQueue, Message
+
+from app.settings import get_database_params
 
 logger = logging.getLogger(__name__)
 
@@ -15,37 +15,15 @@ _queue: PGMQueue | None = None
 QUEUE_NAME = "documents"
 
 
-def _parse_database_url() -> dict:
-    """Parse DATABASE_URL into connection parameters."""
-    from urllib.parse import urlparse
-
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise ValueError("DATABASE_URL environment variable not set")
-
-    # Handle asyncpg:// prefix - convert to standard postgresql
-    if "+asyncpg" in url:
-        url = url.replace("+asyncpg", "")
-
-    parsed = urlparse(url)
-    return {
-        "host": parsed.hostname or "localhost",
-        "port": str(parsed.port or 5432),
-        "username": parsed.username or "raguser",
-        "password": parsed.password or "ragpass",
-        "database": parsed.path.lstrip("/"),
-    }
-
-
 def get_queue() -> PGMQueue:
     """Get or create pgmq connection (lazy initialization)."""
     global _queue
     if _queue is None:
-        params = _parse_database_url()
+        params = get_database_params()
         _queue = PGMQueue(
             host=params["host"],
             port=params["port"],
-            username=params["username"],
+            username=params["user"],
             password=params["password"],
             database=params["database"],
         )

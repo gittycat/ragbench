@@ -18,11 +18,15 @@ class _TestSettings:
     GOOGLE_API_KEY = SecretStr("test-google-key")
     DEEPSEEK_API_KEY = SecretStr("test-deepseek-key")
     MOONSHOT_API_KEY = SecretStr("test-moonshot-key")
+    RAG_SERVER_DB_USER = SecretStr("raguser")
+    RAG_SERVER_DB_PASSWORD = SecretStr("ragpass")
 
 # Set minimal env vars required for module imports (unit tests mock everything)
 # These are only used if not already set (e.g., in Docker or integration tests)
 _DEFAULT_ENV = {
-    "DATABASE_URL": "postgresql+asyncpg://raguser:ragpass@localhost:5432/ragbench",
+    "DATABASE_HOST": "localhost",
+    "DATABASE_PORT": "5432",
+    "DATABASE_NAME": "ragbench",
     "OLLAMA_URL": "http://localhost:11434",
     "EMBEDDING_MODEL": "nomic-embed-text:latest",
     "LLM_MODEL": "gemma3:4b",
@@ -116,7 +120,9 @@ def integration_env():
     These should match docker-compose.yml settings.
     """
     env_vars = {
-        "DATABASE_URL": os.getenv("DATABASE_URL", "postgresql+asyncpg://raguser:ragpass@localhost:5432/ragbench"),
+        "DATABASE_HOST": os.getenv("DATABASE_HOST", "localhost"),
+        "DATABASE_PORT": os.getenv("DATABASE_PORT", "5432"),
+        "DATABASE_NAME": os.getenv("DATABASE_NAME", "ragbench"),
         "OLLAMA_URL": os.getenv("OLLAMA_URL", "http://localhost:11434"),
         "EMBEDDING_MODEL": os.getenv("EMBEDDING_MODEL", "nomic-embed-text:latest"),
         "LLM_MODEL": os.getenv("LLM_MODEL", "gemma3:4b"),
