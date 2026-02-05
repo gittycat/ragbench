@@ -94,9 +94,29 @@ def read_message(visibility_timeout: int = 60) -> Message | None:
 
     Returns:
         Message object or None if queue is empty
+
+    Note: Patched to handle pgmq extension v1.9.0 which returns 7 columns
+    (msg_id, read_ct, enqueued_at, last_read_at, vt, message, headers)
+    instead of the 5 columns the Python library expects.
     """
     queue = get_queue()
-    return queue.read(QUEUE_NAME, vt=visibility_timeout)
+
+    # Call the underlying SQL function directly to handle correct column mapping
+    query = "select * from pgmq.read(queue_name=>%s::text, vt=>%s::integer, qty=>%s::integer);"
+    rows = queue._execute_query_with_result(query, [QUEUE_NAME, visibility_timeout, 1])
+
+    if not rows:
+        return None
+
+    # Handle 7-column structure: msg_id, read_ct, enqueued_at, last_read_at, vt, message, headers
+    row = rows[0]
+    return Message(
+        msg_id=row[0],
+        read_ct=row[1],
+        enqueued_at=row[2],
+        vt=row[4],  # Skip last_read_at at index 3
+        message=row[5]  # Message is at index 5, not 4
+    )
 
 
 def delete_message(msg_id: int) -> bool:

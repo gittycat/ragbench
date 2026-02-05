@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS job_batches (
     id UUID PRIMARY KEY,
     total_tasks INTEGER NOT NULL,
     completed_tasks INTEGER DEFAULT 0,
-    status VARCHAR(20) DEFAULT 'pending',
+    status VARCHAR(30) DEFAULT 'pending',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS job_tasks (
     id UUID PRIMARY KEY,
     batch_id UUID NOT NULL REFERENCES job_batches(id) ON DELETE CASCADE,
     filename VARCHAR(255) NOT NULL,
-    status VARCHAR(20) DEFAULT 'pending',
+    status VARCHAR(30) DEFAULT 'pending',
     total_chunks INTEGER DEFAULT 0,
     completed_chunks INTEGER DEFAULT 0,
     error_message TEXT

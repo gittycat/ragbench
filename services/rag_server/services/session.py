@@ -34,19 +34,27 @@ class SessionMetadata:
 
 
 def _run_async(coro):
-    """Run async function from sync context."""
+    """
+    Run async function from sync context.
+
+    WARNING: This should NOT be called from async contexts (like FastAPI endpoints).
+    Use the *_async() functions directly instead.
+    """
     try:
         loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        # Already in async context - use nest_asyncio approach
+        # If we're in a running loop, we can't use asyncio.run()
+        # This is a programming error - the caller should use await instead
+        logger.error(
+            "[SESSION] _run_async() called from async context. "
+            "Use the async version of this function instead."
+        )
+        # Try to run in a new thread as a fallback
         import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(asyncio.run, coro)
-            return future.result()
-    else:
+            return future.result(timeout=30)
+    except RuntimeError:
+        # No running loop - safe to use asyncio.run()
         return asyncio.run(coro)
 
 

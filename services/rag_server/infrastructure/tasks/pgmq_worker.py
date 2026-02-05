@@ -24,7 +24,7 @@ from core.config import initialize_settings
 initialize_settings()
 
 from infrastructure.tasks.pgmq_queue import read_message, delete_message, archive_message
-from infrastructure.tasks.worker import process_document
+from infrastructure.tasks.worker import process_document_async
 
 # Worker configuration
 POLL_INTERVAL = 1  # Seconds between queue checks when idle
@@ -43,13 +43,9 @@ def signal_handler(signum, frame):
     _shutdown = True
 
 
-def run_worker():
+async def run_worker_async():
     """Main worker loop - polls pgmq for messages."""
     global _shutdown
-
-    # Register signal handlers
-    signal.signal(signal.SIGTERM, signal_handler)
-    signal.signal(signal.SIGINT, signal_handler)
 
     logger.info("=" * 60)
     logger.info("PGMQ Worker starting...")
@@ -72,6 +68,10 @@ def run_worker():
             msg_id = message.msg_id
             data = message.message
 
+            # Debug logging
+            logger.info(f"[WORKER] Message object: msg_id={msg_id}, type(message.message)={type(data)}")
+            logger.info(f"[WORKER] Message content: {data}")
+
             logger.info(f"[WORKER] Processing message {msg_id}: {data.get('filename', 'unknown')}")
 
             try:
@@ -82,7 +82,7 @@ def run_worker():
                 task_id = data["task_id"]
 
                 # Process with retry logic
-                success = process_with_retry(
+                success = await process_with_retry_async(
                     file_path=file_path,
                     filename=filename,
                     batch_id=batch_id,
@@ -115,7 +115,7 @@ def run_worker():
     logger.info("PGMQ Worker stopped")
 
 
-def process_with_retry(
+async def process_with_retry_async(
     file_path: str,
     filename: str,
     batch_id: str,
@@ -130,7 +130,7 @@ def process_with_retry(
     """
     for attempt in range(max_retries + 1):
         try:
-            process_document(
+            await process_document_async(
                 file_path=file_path,
                 filename=filename,
                 batch_id=batch_id,
@@ -145,7 +145,7 @@ def process_with_retry(
                     f"[WORKER] Attempt {attempt + 1}/{max_retries + 1} failed: {e}"
                 )
                 logger.info(f"[WORKER] Retrying in {delay}s...")
-                time.sleep(delay)
+                await asyncio.sleep(delay)
             else:
                 logger.error(
                     f"[WORKER] All {max_retries + 1} attempts failed for {filename}: {e}"
@@ -153,6 +153,16 @@ def process_with_retry(
                 return False
 
     return False
+
+
+def run_worker():
+    """Entry point for worker - sets up async loop and signal handlers."""
+    # Register signal handlers
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
+    # Run the async worker loop
+    asyncio.run(run_worker_async())
 
 
 if __name__ == "__main__":

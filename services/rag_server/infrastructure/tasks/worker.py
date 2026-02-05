@@ -25,23 +25,7 @@ DOCUMENT_STORAGE_PATH = Path("/data/documents")
 logger = logging.getLogger(__name__)
 
 
-def _run_async(coro):
-    """Run async function from sync context."""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            future = pool.submit(asyncio.run, coro)
-            return future.result()
-    else:
-        return asyncio.run(coro)
-
-
-def process_document(file_path: str, filename: str, batch_id: str, task_id: str) -> dict:
+async def process_document_async(file_path: str, filename: str, batch_id: str, task_id: str) -> dict:
     """
     Process a document and index it in PostgreSQL (pgvector).
 
@@ -64,16 +48,26 @@ def process_document(file_path: str, filename: str, batch_id: str, task_id: str)
         logger.info(f"[TASK {task_id}] Using document ID: {doc_id}")
 
         # Update progress: processing
-        _run_async(_update_task_status(task_id, "processing"))
+        await _update_task_status(task_id, "processing")
 
         # Get vector index
         index = get_vector_index()
 
         # Create progress callback for embedding tracking
         def embedding_progress(current: int, total: int):
-            if current == 1:
-                _run_async(_set_task_total_chunks(task_id, total))
-            _run_async(_increment_task_chunk_progress(task_id))
+            # Run async operations in the current event loop
+            # Note: This is called from sync context (LlamaIndex), so we need asyncio.run
+            try:
+                loop = asyncio.get_running_loop()
+                # We're in an async context, create a task
+                if current == 1:
+                    asyncio.create_task(_set_task_total_chunks(task_id, total))
+                asyncio.create_task(_increment_task_chunk_progress(task_id))
+            except RuntimeError:
+                # No running loop - create one (shouldn't happen in async function)
+                if current == 1:
+                    asyncio.run(_set_task_total_chunks(task_id, total))
+                asyncio.run(_increment_task_chunk_progress(task_id))
 
         # Run ingestion pipeline
         logger.info(f"[TASK {task_id}] Running ingestion pipeline...")
@@ -97,7 +91,7 @@ def process_document(file_path: str, filename: str, batch_id: str, task_id: str)
             logger.warning(f"[TASK {task_id}] Failed to store document for downloads: {e}")
 
         # Update progress: completed
-        _run_async(_complete_task(task_id))
+        await _complete_task(task_id)
 
         task_duration = time.time() - task_start
         logger.info(f"[TASK {task_id}] ========== Task completed in {task_duration:.2f}s ==========")
@@ -117,12 +111,22 @@ def process_document(file_path: str, filename: str, batch_id: str, task_id: str)
         user_friendly_error = str(e).replace(file_path, filename)
 
         # Update error status
-        _run_async(_fail_task(task_id, user_friendly_error))
+        await _fail_task(task_id, user_friendly_error)
 
         # Clean up temp file on failure
         _cleanup_temp_file(file_path, task_id)
 
         raise
+
+
+def process_document(file_path: str, filename: str, batch_id: str, task_id: str) -> dict:
+    """
+    Sync wrapper for process_document_async. Used by pgmq worker.
+
+    Note: Uses asyncio.run() which may produce event loop warnings when mixing
+    with sync pgmq library, but these are generally harmless.
+    """
+    return asyncio.run(process_document_async(file_path, filename, batch_id, task_id))
 
 
 async def _update_task_status(task_id: str, status: str) -> None:

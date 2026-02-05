@@ -112,6 +112,9 @@ async def create_new_session(request: CreateSessionRequest):
     If first_message is provided, generates an AI title from the message.
     """
     try:
+        from datetime import datetime, timezone
+        from uuid import UUID
+
         session_id = str(uuid.uuid4())
 
         # Determine title: explicit > AI-generated from first_message > default
@@ -122,19 +125,33 @@ async def create_new_session(request: CreateSessionRequest):
         else:
             title = "New Chat"
 
-        metadata = create_session_metadata(
-            session_id=session_id,
-            is_temporary=request.is_temporary,
-            title=title
-        )
+        # Get inference settings
+        try:
+            from infrastructure.config.models_config import get_models_config
+            config = get_models_config()
+            llm_model = config.llm.model
+            search_type = "hybrid" if config.retrieval.enable_hybrid_search else "vector"
+        except Exception as e:
+            logger.warning(f"[SESSION] Could not get inference settings: {e}")
+            llm_model = None
+            search_type = None
+
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Persist to database if not temporary
+        if not request.is_temporary:
+            await create_session_async(session_id, title, llm_model, search_type)
+            logger.info(f"[SESSION] Created session: {session_id}")
+        else:
+            logger.info(f"[SESSION] Created temporary session: {session_id} (not persisted)")
 
         return CreateSessionResponse(
-            session_id=metadata.session_id,
-            title=metadata.title,
-            created_at=metadata.created_at,
-            is_temporary=metadata.is_temporary,
-            llm_model=metadata.llm_model,
-            search_type=metadata.search_type
+            session_id=session_id,
+            title=title,
+            created_at=now,
+            is_temporary=request.is_temporary,
+            llm_model=llm_model,
+            search_type=search_type
         )
     except Exception as e:
         logger.error(f"[SESSIONS_API] Error creating session: {str(e)}")
