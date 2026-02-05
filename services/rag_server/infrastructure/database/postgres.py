@@ -59,15 +59,18 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 
 @asynccontextmanager
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """Get an async session for database operations."""
+    """
+    Get an async session for database operations.
+
+    Uses explicit transaction control via session.begin() as recommended
+    in SQLAlchemy 2.0. Commits on success, rolls back on exception.
+    """
     factory = get_session_factory()
     async with factory() as session:
-        try:
+        async with session.begin():
             yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
+            # Commit happens automatically at context exit
+            # Rollback happens automatically on exception
 
 
 async def init_db() -> None:
@@ -93,19 +96,42 @@ def close_all_connections() -> None:
     """
     Close all database connections synchronously.
 
-    Used by worker to cleanup before creating new event loop.
+    Used by pgmq-worker to cleanup connections before creating a new event loop.
+    This is necessary because the worker runs in a separate process and needs to
+    dispose of any inherited connections from the parent process.
+
+    Note: Creates a temporary event loop for async cleanup since this must be
+    called from sync context during worker initialization.
     """
     global _engine, _session_factory
     if _engine is not None:
-        # Dispose engine in a sync manner (best effort cleanup)
         try:
             import asyncio
+
+            # Try to use existing event loop if available
+            try:
+                loop = asyncio.get_running_loop()
+                # If we're in a running loop, we can't call run_until_complete
+                # Just log and reset the globals
+                logger.warning(
+                    "Cannot dispose engine from running event loop. "
+                    "Resetting connection globals."
+                )
+                _engine = None
+                _session_factory = None
+                return
+            except RuntimeError:
+                # No running loop - create temporary one for cleanup
+                pass
+
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
                 loop.run_until_complete(_engine.dispose())
+                logger.info("Database connections closed successfully")
             finally:
                 loop.close()
+                asyncio.set_event_loop(None)
         except Exception as e:
             logger.warning(f"Error closing database connections: {e}")
         finally:

@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload, joinedload  # noqa: F401 - Available for subclasses
 
 from infrastructure.database.models import Base
 
@@ -12,7 +13,25 @@ T = TypeVar("T", bound=Base)
 
 
 class BaseRepository(Generic[T]):
-    """Base repository providing common CRUD operations."""
+    """
+    Base repository providing common CRUD operations.
+
+    Relationship Loading
+    --------------------
+    To avoid N+1 queries when accessing relationships, use explicit loading:
+
+    Example with selectinload (separate query):
+        result = await session.execute(
+            select(Document).options(selectinload(Document.chunks))
+        )
+
+    Example with joinedload (single query with JOIN):
+        result = await session.execute(
+            select(Document).options(joinedload(Document.chunks))
+        )
+
+    See: https://docs.sqlalchemy.org/en/20/orm/queryguide/relationships.html
+    """
 
     def __init__(self, session: AsyncSession, model: Type[T]):
         self.session = session

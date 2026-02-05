@@ -161,6 +161,20 @@ class PostgresChatStore(BaseChatStore):
     PostgreSQL-backed chat store implementing LlamaIndex's BaseChatStore interface.
 
     This replaces RedisChatStore for persistent chat history storage.
+
+    Note on Sync-to-Async Bridge:
+    --------------------------------
+    LlamaIndex's BaseChatStore interface requires synchronous methods, but our
+    SQLAlchemy implementation is fully async. We use asyncio.run() to bridge
+    this gap, which creates a new event loop for each call.
+
+    Limitations:
+    - Cannot be called from within an existing async context (will raise RuntimeError)
+    - Less efficient than native async due to event loop creation overhead
+    - This is a necessary compromise to integrate with LlamaIndex's sync API
+
+    The underlying async methods (_async_*) are available if you need direct
+    async access from async contexts.
     """
 
     def set_messages(self, key: str, messages: List[ChatMessage]) -> None:
@@ -192,6 +206,8 @@ class PostgresChatStore(BaseChatStore):
         return asyncio.run(self._async_get_keys())
 
     # Async implementations
+    # These methods can be called directly from async contexts to avoid
+    # the event loop overhead of the sync wrapper methods above.
 
     async def _async_set_messages(self, key: str, messages: List[ChatMessage]) -> None:
         """Set messages for a session (overwrites existing)."""
