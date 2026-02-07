@@ -137,7 +137,11 @@ def _get_token_limit_for_chat_history() -> int:
     return default_limit
 
 
-def get_or_create_chat_memory(session_id: str, is_temporary: bool = False) -> ChatMemoryBuffer:
+def get_or_create_chat_memory(
+    session_id: str,
+    is_temporary: bool = False,
+    ensure_metadata: bool = True,
+) -> ChatMemoryBuffer:
     """
     Get or create chat memory for a session.
 
@@ -176,10 +180,11 @@ def get_or_create_chat_memory(session_id: str, is_temporary: bool = False) -> Ch
         return _memory_cache[session_id]
 
     # Lazy-create metadata if missing (for existing sessions)
-    metadata = get_session_metadata(session_id)
-    if not metadata:
-        logger.info(f"[CHAT] Lazy-creating metadata for existing session: {session_id}")
-        create_session_metadata(session_id)
+    if ensure_metadata:
+        metadata = get_session_metadata(session_id)
+        if not metadata:
+            logger.info(f"[CHAT] Lazy-creating metadata for existing session: {session_id}")
+            create_session_metadata(session_id)
 
     # Create new memory buffer with PostgreSQL chat store
     token_limit = _get_token_limit_for_chat_history()
@@ -290,9 +295,34 @@ def create_reranker_postprocessor() -> Optional[List]:
             top_n=top_n
         )
     ]
-
     logger.info("[RERANKER] Postprocessor initialized")
     return postprocessors
+
+
+def ensure_reranker_model_cached() -> None:
+    """Fail fast if the reranker model is not present in the local HF cache."""
+    config = get_inference_config()
+
+    if not config['reranker_enabled']:
+        return
+
+    from huggingface_hub import snapshot_download
+    from huggingface_hub.utils import LocalEntryNotFoundError
+
+    model = config['reranker_model']
+    try:
+        snapshot_download(model, local_files_only=True)
+    except LocalEntryNotFoundError as e:
+        logger.error(
+            "[STARTUP] Reranker model missing in local cache. "
+            "Run `just init` to download '%s' into ./.hf_cache, then restart.",
+            model,
+        )
+        raise RuntimeError(
+            "[STARTUP] Reranker model not found in local cache. "
+            f"Run `just init` to download '{model}' into ./.hf_cache, "
+            "then restart the service."
+        ) from e
 
 
 # ============================================================================
@@ -303,7 +333,8 @@ def create_chat_engine(
     index: VectorStoreIndex,
     session_id: str,
     retrieval_top_k: int = 10,
-    is_temporary: bool = False
+    is_temporary: bool = False,
+    ensure_metadata: bool = True,
 ) -> CondensePlusContextChatEngine:
     """
     Create chat engine with hybrid search, reranking, and conversational memory.
@@ -345,7 +376,11 @@ def create_chat_engine(
     condense_prompt = get_condense_prompt()  # None = use LlamaIndex default
 
     # Get chat memory (with temporary support)
-    memory = get_or_create_chat_memory(session_id, is_temporary=is_temporary)
+    memory = get_or_create_chat_memory(
+        session_id,
+        is_temporary=is_temporary,
+        ensure_metadata=ensure_metadata,
+    )
 
     # Create retriever (hybrid or vector-only)
     retriever = create_hybrid_retriever(index, similarity_top_k=retrieval_top_k)
@@ -486,6 +521,8 @@ def query_rag(
     session_id: str,
     is_temporary: bool = False,
     include_chunks: bool = False,
+    ensure_metadata: bool = True,
+    update_session_metadata: bool = True,
 ) -> Dict:
     """
     Execute RAG query pipeline (synchronous, non-streaming).
@@ -533,7 +570,13 @@ def query_rag(
     logger.info(f"[QUERY] Config: top_k={config['retrieval_top_k']}, reranker={config['reranker_enabled']}, hybrid={config['hybrid_search_enabled']}")
 
     # Create chat engine
-    chat_engine = create_chat_engine(index, session_id, retrieval_top_k=config['retrieval_top_k'], is_temporary=is_temporary)
+    chat_engine = create_chat_engine(
+        index,
+        session_id,
+        retrieval_top_k=config['retrieval_top_k'],
+        is_temporary=is_temporary,
+        ensure_metadata=ensure_metadata,
+    )
 
     # Execute query
     logger.info(f"[QUERY] Executing RAG query...")
@@ -575,7 +618,7 @@ def query_rag(
             citations = None
 
     # Update session metadata (non-temporary sessions only)
-    if not is_temporary:
+    if update_session_metadata and not is_temporary:
         touch_session(session_id)
 
         # Auto-generate title from first user message if needed
@@ -607,6 +650,8 @@ def query_rag_stream(
     session_id: str,
     is_temporary: bool = False,
     include_chunks: bool = False,
+    ensure_metadata: bool = True,
+    update_session_metadata: bool = True,
 ) -> Generator[str, None, None]:
     """
     Execute RAG query pipeline with streaming response (Server-Sent Events).
@@ -633,7 +678,13 @@ def query_rag_stream(
         # Get index and create chat engine
         index = get_vector_index()
         config = get_inference_config()
-        chat_engine = create_chat_engine(index, session_id, retrieval_top_k=config['retrieval_top_k'], is_temporary=is_temporary)
+        chat_engine = create_chat_engine(
+            index,
+            session_id,
+            retrieval_top_k=config['retrieval_top_k'],
+            is_temporary=is_temporary,
+            ensure_metadata=ensure_metadata,
+        )
 
         # Stream response tokens
         logger.info(f"[QUERY_STREAM] Executing streaming RAG query...")
@@ -661,7 +712,7 @@ def query_rag_stream(
         logger.info(f"[QUERY_STREAM] Streaming complete - {len(sources)} sources")
 
         # Update session metadata (non-temporary sessions only)
-        if not is_temporary:
+        if update_session_metadata and not is_temporary:
             touch_session(session_id)
 
             # Auto-generate title from first user message if needed

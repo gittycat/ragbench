@@ -53,6 +53,7 @@ docker-compose.override.yml
 /indexed_documents/
 /services/rag_server/.deepeval/
 /services/rag_server/evals/data/results
+/.hf_cache/
 
 # Secrets and configuration
 /secrets/*

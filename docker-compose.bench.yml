@@ -70,7 +70,7 @@ services:
     volumes:
       - ./config.yml:/app/config.yml:ro
       - docs_repo_bench:/tmp/shared
-      - huggingface_cache:/home/appuser/.cache/huggingface
+      - ./.hf_cache:/home/appuser/.cache/huggingface
       - documents_data_bench:/data/documents
 
   # PGMQ Worker for benchmark
@@ -104,7 +104,7 @@ services:
     volumes:
       - ./config.yml:/app/config.yml:ro
       - docs_repo_bench:/tmp/shared
-      - huggingface_cache:/home/appuser/.cache/huggingface
+      - ./.hf_cache:/home/appuser/.cache/huggingface
       - documents_data_bench:/data/documents
 
 networks:
@@ -115,8 +115,6 @@ networks:
     internal: true
 
 volumes:
-  huggingface_cache:
-    driver: local  # Persists across bench runs to avoid re-downloading models
   docs_repo_bench:
     driver: local
   documents_data_bench:

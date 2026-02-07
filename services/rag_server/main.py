@@ -39,11 +39,12 @@ async def startup():
         logger.error(f"[STARTUP] PostgreSQL initialization failed: {e}")
         raise
 
-    # Pre-initialize reranker to download model during startup (if enabled)
-    from pipelines.inference import create_reranker_postprocessor
+    # Pre-initialize reranker (if enabled) and fail fast if model is missing
+    from pipelines.inference import create_reranker_postprocessor, ensure_reranker_model_cached
     from infrastructure.config.models_config import get_models_config
     config = get_models_config()
     if config.reranker.enabled:
+        ensure_reranker_model_cached()
         logger.info("[STARTUP] Pre-initializing reranker model...")
         create_reranker_postprocessor()
         logger.info("[STARTUP] Reranker model ready")

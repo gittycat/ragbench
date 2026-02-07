@@ -38,6 +38,7 @@ services:
       - DATABASE_NAME=ragbench
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80
+      - SHARED_UPLOAD_DIR=/tmp/shared
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -56,7 +57,7 @@ services:
       - ./config.yml:/app/config.yml:ro       # Model configuration (read-only)
       - ./data/indexed_documents:/app/documents
       - docs_repo:/tmp/shared
-      - huggingface_cache:/home/appuser/.cache/huggingface
+      - ./.hf_cache:/home/appuser/.cache/huggingface
       - documents_data:/data/documents
 
   # PostgreSQL with pgvector + pg_search (ParadeDB) + pgmq
@@ -106,6 +107,7 @@ services:
       - DATABASE_NAME=ragbench
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80
+      - SHARED_UPLOAD_DIR=/tmp/shared
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -120,7 +122,7 @@ services:
       - ./config.yml:/app/config.yml:ro       # Model configuration (read-only)
       - ./data/indexed_documents:/app/documents
       - docs_repo:/tmp/shared
-      - huggingface_cache:/home/appuser/.cache/huggingface
+      - ./.hf_cache:/home/appuser/.cache/huggingface
       - documents_data:/data/documents
 
   # Evals Service - CLI-based evaluation (profile-gated)
@@ -155,8 +157,6 @@ volumes:
   postgres_data:
     driver: local
   docs_repo:
-    driver: local
-  huggingface_cache:
     driver: local
   documents_data:
     driver: local
