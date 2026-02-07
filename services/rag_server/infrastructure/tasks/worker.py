@@ -43,6 +43,14 @@ async def process_document_async(file_path: str, filename: str, batch_id: str, t
     logger.info(f"[TASK {task_id}] ========== Starting document processing: {filename} ==========")
 
     try:
+        file_path_obj = Path(file_path)
+        if not file_path_obj.exists():
+            raise FileNotFoundError(
+                f"Temporary upload file not found: {file_path}. "
+                "The shared upload volume may have been reset or the file was already cleaned up. "
+                "Please re-upload the document."
+            )
+
         # Generate document ID (use task_id for consistency)
         doc_id = task_id
         logger.info(f"[TASK {task_id}] Using document ID: {doc_id}")

@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 
 from schemas.chat import ChatHistoryResponse, ClearSessionRequest, ClearSessionResponse, SessionMetadataResponse
 from pipelines.inference import get_chat_history, clear_session_memory
-from services.session import get_session_metadata
+from services.session import get_session_metadata_async
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -24,7 +24,7 @@ async def get_session_history(session_id: str):
             })
 
         # Get session metadata
-        session_meta = get_session_metadata(session_id)
+        session_meta = await get_session_metadata_async(session_id)
         metadata = None
         if session_meta:
             metadata = SessionMetadataResponse(

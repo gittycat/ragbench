@@ -19,17 +19,30 @@ async def query(request: QueryRequest):
 
         # Create session metadata if needed (non-temporary sessions only)
         if not request.is_temporary:
-            from services.session import get_session_metadata, create_session_metadata
-            metadata = get_session_metadata(session_id)
+            from services.session import get_session_metadata_async, create_session_metadata_async
+            metadata = await get_session_metadata_async(session_id)
             if not metadata:
-                create_session_metadata(session_id, is_temporary=False)
+                await create_session_metadata_async(session_id, is_temporary=False)
 
         result = query_rag(
             request.query,
             session_id=session_id,
             is_temporary=request.is_temporary,
             include_chunks=request.include_chunks,
+            ensure_metadata=False,
+            update_session_metadata=False,
         )
+
+        # Update session metadata after query (non-temporary sessions only)
+        if not request.is_temporary:
+            from services.session import touch_session_async, update_session_title_async, get_session_metadata_async
+            from services.session_titles import generate_session_title
+
+            await touch_session_async(session_id)
+            metadata = await get_session_metadata_async(session_id)
+            if metadata and metadata.title == "New Chat":
+                title = generate_session_title(request.query)
+                await update_session_title_async(session_id, title)
 
         # Build metrics if available
         metrics = None
@@ -77,10 +90,10 @@ async def query_stream(request: QueryRequest):
 
     # Create session metadata if needed (non-temporary sessions only)
     if not request.is_temporary:
-        from services.session import get_session_metadata, create_session_metadata
-        metadata = get_session_metadata(session_id)
+        from services.session import get_session_metadata_async, create_session_metadata_async
+        metadata = await get_session_metadata_async(session_id)
         if not metadata:
-            create_session_metadata(session_id, is_temporary=False)
+            await create_session_metadata_async(session_id, is_temporary=False)
 
     return StreamingResponse(
         query_rag_stream(
@@ -88,6 +101,7 @@ async def query_stream(request: QueryRequest):
             session_id,
             is_temporary=request.is_temporary,
             include_chunks=request.include_chunks,
+            ensure_metadata=False,
         ),
         media_type="text/event-stream",
         headers={

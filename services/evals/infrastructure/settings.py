@@ -32,6 +32,11 @@ class Settings(BaseSettings):
 SETTINGS: Optional[Settings] = None
 
 
+def _sanitize_secret(value: str) -> str:
+    # Trim whitespace and remove null bytes commonly present in mounted secret files.
+    return value.strip().replace("\x00", "")
+
+
 def init_settings() -> Settings:
     global SETTINGS
     if SETTINGS is None:
@@ -41,33 +46,36 @@ def init_settings() -> Settings:
 
 def get_openai_key() -> str:
     s = init_settings()
-    return s.OPENAI_API_KEY.get_secret_value()
+    return _sanitize_secret(s.OPENAI_API_KEY.get_secret_value())
 
 
 def get_anthropic_key() -> str:
     s = init_settings()
-    return s.ANTHROPIC_API_KEY.get_secret_value()
+    return _sanitize_secret(s.ANTHROPIC_API_KEY.get_secret_value())
 
 
 def get_google_key() -> str | None:
     s = init_settings()
     if s.GOOGLE_API_KEY is None:
         return None
-    return s.GOOGLE_API_KEY.get_secret_value()
+    value = _sanitize_secret(s.GOOGLE_API_KEY.get_secret_value())
+    return value or None
 
 
 def get_deepseek_key() -> str | None:
     s = init_settings()
     if s.DEEPSEEK_API_KEY is None:
         return None
-    return s.DEEPSEEK_API_KEY.get_secret_value()
+    value = _sanitize_secret(s.DEEPSEEK_API_KEY.get_secret_value())
+    return value or None
 
 
 def get_moonshot_key() -> str | None:
     s = init_settings()
     if s.MOONSHOT_API_KEY is None:
         return None
-    return s.MOONSHOT_API_KEY.get_secret_value()
+    value = _sanitize_secret(s.MOONSHOT_API_KEY.get_secret_value())
+    return value or None
 
 
 def get_api_key_for_provider(provider: str) -> str | None:

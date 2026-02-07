@@ -141,6 +141,12 @@ async def process_with_retry_async(
             return True
 
         except Exception as e:
+            if isinstance(e, FileNotFoundError):
+                logger.error(
+                    "[WORKER] Permanent failure (missing upload file). "
+                    "Not retrying."
+                )
+                return False
             if attempt < max_retries:
                 delay = retry_delays[min(attempt, len(retry_delays) - 1)]
                 logger.warning(

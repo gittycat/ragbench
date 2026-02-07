@@ -51,6 +51,7 @@ COPY --chown=appuser:appuser services/rag_server/services ./services
 COPY --chown=appuser:appuser services/rag_server/pipelines ./pipelines
 COPY --chown=appuser:appuser services/rag_server/infrastructure ./infrastructure
 COPY --chown=appuser:appuser services/rag_server/core ./core
+COPY --chown=appuser:appuser services/rag_server/app ./app
 COPY --chown=appuser:appuser services/rag_server/tests ./tests
 COPY --chown=appuser:appuser services/rag_server/scripts ./scripts
 COPY --chown=appuser:appuser services/rag_server/main.py ./

@@ -37,6 +37,11 @@ class Settings(BaseSettings):
 SETTINGS: Optional[Settings] = None
 
 
+def _sanitize_secret(value: str) -> str:
+    # Trim whitespace and remove null bytes commonly present in mounted secret files.
+    return value.strip().replace("\x00", "")
+
+
 def init_settings() -> Settings:
     global SETTINGS
     if SETTINGS is None:
@@ -46,33 +51,36 @@ def init_settings() -> Settings:
 
 def get_openai_key() -> str:
     s = init_settings()
-    return s.OPENAI_API_KEY.get_secret_value()
+    return _sanitize_secret(s.OPENAI_API_KEY.get_secret_value())
 
 
 def get_anthropic_key() -> str:
     s = init_settings()
-    return s.ANTHROPIC_API_KEY.get_secret_value()
+    return _sanitize_secret(s.ANTHROPIC_API_KEY.get_secret_value())
 
 
 def get_google_key() -> str | None:
     s = init_settings()
     if s.GOOGLE_API_KEY is None:
         return None
-    return s.GOOGLE_API_KEY.get_secret_value()
+    value = _sanitize_secret(s.GOOGLE_API_KEY.get_secret_value())
+    return value or None
 
 
 def get_deepseek_key() -> str | None:
     s = init_settings()
     if s.DEEPSEEK_API_KEY is None:
         return None
-    return s.DEEPSEEK_API_KEY.get_secret_value()
+    value = _sanitize_secret(s.DEEPSEEK_API_KEY.get_secret_value())
+    return value or None
 
 
 def get_moonshot_key() -> str | None:
     s = init_settings()
     if s.MOONSHOT_API_KEY is None:
         return None
-    return s.MOONSHOT_API_KEY.get_secret_value()
+    value = _sanitize_secret(s.MOONSHOT_API_KEY.get_secret_value())
+    return value or None
 
 
 def get_api_key_for_provider(provider: str) -> str | None:
@@ -99,12 +107,12 @@ def has_anthropic_key() -> bool:
 
 def get_postgres_user() -> str:
     s = init_settings()
-    return s.RAG_SERVER_DB_USER.get_secret_value()
+    return _sanitize_secret(s.RAG_SERVER_DB_USER.get_secret_value())
 
 
 def get_postgres_password() -> str:
     s = init_settings()
-    return s.RAG_SERVER_DB_PASSWORD.get_secret_value()
+    return _sanitize_secret(s.RAG_SERVER_DB_PASSWORD.get_secret_value())
 
 
 def get_database_host() -> str:
@@ -136,3 +144,7 @@ def get_database_params() -> dict[str, str]:
         "user": get_postgres_user(),
         "password": get_postgres_password(),
     }
+
+
+def get_shared_upload_dir() -> str:
+    return os.getenv("SHARED_UPLOAD_DIR", "/tmp/shared")

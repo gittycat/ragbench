@@ -31,8 +31,14 @@ DECLARE
   rag_user text := '${RAG_USER_SQL}';
 BEGIN
   EXECUTE format('GRANT USAGE ON SCHEMA public TO %I', rag_user);
+  EXECUTE format('GRANT CREATE ON SCHEMA public TO %I', rag_user);
+  EXECUTE format('GRANT USAGE ON SCHEMA pgmq TO %I', rag_user);
   EXECUTE format(
     'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I',
+    rag_user
+  );
+  EXECUTE format(
+    'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA pgmq TO %I',
     rag_user
   );
   EXECUTE format(
@@ -40,11 +46,31 @@ BEGIN
     rag_user
   );
   EXECUTE format(
+    'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA pgmq TO %I',
+    rag_user
+  );
+  EXECUTE format(
+    'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA pgmq TO %I',
+    rag_user
+  );
+  EXECUTE format(
     'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I',
     rag_user
   );
   EXECUTE format(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I',
+    rag_user
+  );
+  EXECUTE format(
     'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO %I',
+    rag_user
+  );
+  EXECUTE format(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT USAGE, SELECT ON SEQUENCES TO %I',
+    rag_user
+  );
+  EXECUTE format(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA pgmq GRANT EXECUTE ON FUNCTIONS TO %I',
     rag_user
   );
 END

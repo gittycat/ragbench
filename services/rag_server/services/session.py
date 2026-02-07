@@ -104,6 +104,40 @@ def create_session_metadata(
     return metadata
 
 
+async def create_session_metadata_async(
+    session_id: str,
+    is_temporary: bool = False,
+    title: str = "New Chat",
+) -> SessionMetadata:
+    """
+    Create new session metadata (async).
+
+    If is_temporary=True, metadata is not persisted to PostgreSQL.
+    Captures current inference settings (LLM model, search type) at creation time.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    llm_model, search_type = _get_inference_settings()
+
+    metadata = SessionMetadata(
+        session_id=session_id,
+        title=title,
+        created_at=now,
+        updated_at=now,
+        is_archived=False,
+        is_temporary=is_temporary,
+        llm_model=llm_model,
+        search_type=search_type,
+    )
+
+    if not is_temporary:
+        await create_session_async(session_id, title, llm_model, search_type)
+        logger.info(f"[SESSION] Created metadata for session: {session_id}")
+    else:
+        logger.info(f"[SESSION] Created temporary session: {session_id} (not persisted)")
+
+    return metadata
+
+
 async def create_session_async(
     session_id: str,
     title: str,
@@ -165,6 +199,12 @@ def update_session_title(session_id: str, title: str) -> None:
     logger.info(f"[SESSION] Updated title for {session_id}: {title}")
 
 
+async def update_session_title_async(session_id: str, title: str) -> None:
+    """Update session title in PostgreSQL (async)."""
+    await _update_session_title_async(session_id, title)
+    logger.info(f"[SESSION] Updated title for {session_id}: {title}")
+
+
 async def _update_session_title_async(session_id: str, title: str) -> None:
     """Update session title in PostgreSQL."""
     try:
@@ -188,6 +228,17 @@ def touch_session(session_id: str) -> None:
         return
 
     _run_async(_touch_session_async(session_id))
+
+
+async def touch_session_async(session_id: str) -> None:
+    """Update session's updated_at timestamp (async)."""
+    metadata = await get_session_metadata_async(session_id)
+    if not metadata:
+        logger.info(f"[SESSION] Lazy-creating metadata for existing session: {session_id}")
+        await create_session_metadata_async(session_id)
+        return
+
+    await _touch_session_async(session_id)
 
 
 async def _touch_session_async(session_id: str) -> None:

@@ -24,6 +24,7 @@ from infrastructure.database.postgres import get_session
 from infrastructure.database.repositories.documents import DocumentRepository
 from infrastructure.database.repositories.jobs import JobRepository
 from infrastructure.tasks.pgmq_queue import enqueue_document_task
+from app.settings import get_shared_upload_dir
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -156,8 +157,10 @@ async def upload_documents(files: List[UploadFile] = File(...)):
                 errors.append(error_msg)
                 continue
 
-            logger.info(f"[UPLOAD] Saving {file.filename} to temporary file")
-            with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext, dir="/tmp/shared") as tmp:
+            shared_dir = Path(get_shared_upload_dir())
+            shared_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"[UPLOAD] Saving {file.filename} to temporary file in {shared_dir}")
+            with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext, dir=str(shared_dir)) as tmp:
                 content = await file.read()
                 tmp.write(content)
                 tmp_path = tmp.name
