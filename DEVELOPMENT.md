@@ -567,40 +567,93 @@ just release X.Y.Z      # Full release workflow
 
 ### Test Categories
 
-- **Unit** (32 tests): No dependencies, fully mocked. Run: `just test-unit`
-- **Integration** (25 tests): Requires Docker services. Run: `just test-integration`
-- **Evaluation** (27 tests): Requires ANTHROPIC_API_KEY. Run: `just test-eval`
+| Category | Tests | Dependencies | Command |
+|----------|-------|-------------|---------|
+| **Unit** | ~32 | None (fully mocked) | `just test-unit` |
+| **Integration** | 25 | Docker services (PostgreSQL, Ollama, RAG server) | `just test-integration` |
+| **Integration (full)** | 25 + slow | Same + longer timeouts | `just test-integration-full` |
+| **Evaluation** | 27 | ANTHROPIC_API_KEY + Docker services | `just test-eval` |
 
 ### Test Structure
 
 ```
 tests/
-├── test_*.py                    # Unit tests (mocked dependencies)
-├── integration/                 # Integration tests
-│   ├── test_document_pipeline.py
-│   ├── test_hybrid_search.py
-│   ├── test_async_upload.py
-│   └── test_error_recovery.py
-└── evaluation/                  # Evaluation tests
-    ├── test_dataset_loader.py
-    ├── test_retrieval_eval.py
-    └── test_reranking_eval.py
+├── test_*.py                         # Unit tests (mocked dependencies)
+├── integration/
+│   ├── conftest.py                   # Shared fixtures (api_client, upload_and_wait, test_document, cleanup)
+│   ├── test_infrastructure.py        # Service connectivity + database schema (8 tests)
+│   ├── test_pipeline.py              # Upload → index → query → delete round-trips (9 tests)
+│   ├── test_chat_sessions.py         # Session lifecycle via HTTP API (5 tests)
+│   ├── test_async_upload.py          # Async pgmq upload workflow + progress tracking (8 tests)
+│   ├── test_api_documents.py         # Document management endpoints (1 test)
+│   └── test_hybrid_search.py         # BROKEN: imports dead ChromaDB module (see Roadmap)
+└── evaluation/                       # Evaluation tests (DeepEval + Claude judge)
 ```
 
-### Key Integration Tests
+### Integration Test Design
 
-- `test_pdf_full_pipeline`: PDF → Docling → PostgreSQL → queryable
-- `test_bm25_refresh_after_upload`: Index sync after document operations
-- `test_pgmq_task_completes`: Async upload via PGMQ
-- `test_corrupted_pdf_handling`: Graceful error handling
+Integration tests verify **execution, connectivity, and structure** — not answer quality. Quality evaluation (relevance, faithfulness, hallucination) is the eval suite's job.
+
+This separation follows industry consensus for RAG testing (Meta's [2024 RAG systems paper](https://arxiv.org/abs/2312.10997), Anthropic's [contextual retrieval guide](https://www.anthropic.com/news/contextual-retrieval), and Docker's [testing best practices](https://docs.docker.com/build/tests/)):
+
+- **Embeddings**: "Did pgvector store a 768-dim vector?" — not "Are the embeddings semantically meaningful?"
+- **Retrieval**: "Did a query return >0 chunks?" — not "Were they the right chunks?"
+- **Reranking**: "Did the reranker produce output?" — not "Did it improve precision?"
+- **LLM response**: "Did `/query` return a non-empty string?" — not "Was the answer faithful?"
+
+One **canary test** bridges the gap: uploads a document with a unique random marker (`MARKER_<uuid>`), queries for it, and asserts the marker appears in a returned source chunk. This is a write-then-read test that catches content loss during ingestion → embedding → retrieval, without judging quality.
+
+#### test_infrastructure.py — Service Connectivity & Database Schema (8 tests, fast)
+
+Read-only checks that the system is wired correctly. No uploads or mutations.
+
+**What it covers**: `/health` + `/config` + `/models/info` endpoints return expected fields. PostgreSQL has `pgvector`, `pg_search`, `pgmq` extensions. Required tables exist (`documents`, `document_chunks`, `chat_sessions`, `chat_messages`, `job_batches`, `job_tasks`). pgmq `documents` queue exists. HNSW vector index exists. Ollama has required models (`gemma3`, `nomic-embed-text`).
+
+**What it does NOT cover**: Whether these components work together under load, or whether the schema supports all query patterns correctly.
+
+**Why these tests**: Infrastructure checks are the cheapest gate. If PostgreSQL extensions are missing or Ollama lacks models, every downstream test will fail with misleading errors. Running these first provides clear diagnostics.
+
+#### test_pipeline.py — Upload → Index → Query → Delete (9 tests, slow)
+
+Core RAG loop: upload a document, verify it's indexed, query it, delete it.
+
+**What it covers**: Document appears in `/documents` after upload. Document has >0 chunks. `/query` returns non-empty answer with `session_id`. Query with `include_chunks=True` returns source list. Canary test: marker string survives full round-trip. PDF upload and query. Delete removes document from list. Query after delete returns 200 (not 500). Delete nonexistent returns 404.
+
+**What it does NOT cover**: Large document handling, concurrent uploads, chunking quality, or retrieval ranking correctness.
+
+**Why these tests**: The upload → index → query → delete cycle is the core user journey. Every component in the pipeline must work for these to pass: file upload, pgmq queueing, worker processing, Docling parsing, embedding generation, vector storage, BM25 indexing, hybrid retrieval, LLM generation, and document deletion with cascade cleanup.
+
+#### test_chat_sessions.py — Session Lifecycle (5 tests, mixed speed)
+
+Session creation, history growth, clearing, and temporary session behavior.
+
+**What it covers**: Query creates a session with user + assistant messages in history. Second query on same session grows history. Nonexistent session returns empty (not 500). Clear empties history. Temporary sessions don't appear in session list.
+
+**What it does NOT cover**: Session persistence across server restarts, concurrent session access, or session archiving.
+
+**Why these tests**: Conversational RAG relies on session state. A broken session means context loss for multi-turn conversations.
+
+#### test_async_upload.py — Async Processing & Progress (8 tests, slow)
+
+Full async upload workflow via pgmq with progress tracking and edge cases.
+
+**What it covers**: Upload via API → pgmq processes → status shows completed. Progress tracking accuracy for multi-chunk documents. Single and multiple file uploads appear in document list. Large markdown and PDF status progression. Invalid batch ID handling. Concurrent uploads without race conditions.
+
+**What it does NOT cover**: Worker crash recovery, queue poisoning, or network partition scenarios.
+
+**Why these tests**: Async processing is where most silent failures occur. Tasks can hang, progress can desync, and concurrent uploads can trigger race conditions in BM25 index refresh.
 
 ### Pytest Markers
 
 ```python
 @pytest.mark.integration  # Requires --run-integration flag
-@pytest.mark.slow         # Tests taking > 30s
+@pytest.mark.slow         # Tests taking > 30s (skipped by default, use --run-slow)
 @pytest.mark.eval         # Requires --run-eval and ANTHROPIC_API_KEY
 ```
+
+### Future Testing Work
+
+Additional testing improvements (smoke/full tiering, CI integration jobs, resilience tests) are tracked in [ROADMAP.md — Testing & CI Improvements](docs/ROADMAP.md#testing--ci-improvements).
 
 ## CI/CD
 

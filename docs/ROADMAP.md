@@ -5,6 +5,7 @@ This document outlines planned features and enhancements for the RAG system, org
 ## Table of Contents
 
 - [Completed Features](#completed-features)
+- [Testing & CI Improvements](#testing--ci-improvements)
 - [Planned Features](#planned-features)
   - [Centralized Logging Infrastructure](#centralized-logging-infrastructure)
   - [Metrics Visualization](#metrics-visualization)
@@ -62,6 +63,115 @@ This document outlines planned features and enhancements for the RAG system, org
 - Evaluation history and trend tracking
 - Baseline comparison
 - Configuration recommendation API
+
+---
+
+## Testing & CI Improvements
+
+Improvements to the integration test suite and CI pipeline. The current 25 integration tests cover the core RAG loop (infrastructure, pipeline, sessions, async upload). The items below extend coverage to resilience, tiering, and CI automation.
+
+### Fix or Remove Broken test_hybrid_search.py
+
+**Description:** `test_hybrid_search.py` imports `infrastructure.database.chroma`, a dead module from the ChromaDB → PostgreSQL migration. Tests fail at import time.
+
+**Effort Estimate:** Small (1 session)
+
+**Options:**
+1. **Delete** — Hybrid search is already tested via the canary test (BM25 keyword hit) and pipeline tests. Remove the file.
+2. **Rewrite** — Rewrite to use the HTTP API like all other integration tests (POST /query with include_chunks, verify both BM25 and vector results contribute).
+
+### Test Tiering: Smoke vs Full Markers
+
+**Description:** Add `smoke` and `full` markers to separate fast merge-gate tests from deeper reliability tests. Currently only `integration` and `slow` markers exist.
+
+**Effort Estimate:** Small (1 session)
+
+#### Tasks
+
+1. **Define markers** — Add `smoke` and `full` to `pyproject.toml` markers and `conftest.py`
+2. **Assign markers** — Tag `test_infrastructure.py` (all 8) + core pipeline tests (upload, chunks, query, canary, delete) as `smoke`. Tag remaining tests as `full`.
+3. **Add justfile recipes** — `just test-integration-smoke` (`-m "integration and smoke"`) and update `just test-integration-full` to use `-m "integration and full"`
+4. **Execution model** — Smoke lane: 8-12 minutes with warm Ollama cache. Full lane: 20-35 minutes.
+
+### Forgejo CI Integration Jobs
+
+**Description:** Add integration test jobs to `.forgejo/workflows/ci.yml`. Currently CI only runs unit tests and Docker build.
+
+**Effort Estimate:** Medium (2 sessions)
+
+**Reference:** [Forgejo Actions docs](https://forgejo.org/docs/latest/user/actions/overview/), [Docker Compose startup order](https://docs.docker.com/compose/how-tos/startup-order/)
+
+#### Tasks
+
+1. **`integration-smoke` job (required on PR/push)**
+   - Start Docker Compose stack with health check gating
+   - Run `pytest -m "integration and smoke" --run-integration`
+   - Always publish JUnit XML (`--junitxml=report.xml`) and `docker compose logs` as artifacts
+   - Fail fast on unhealthy stack startup
+
+2. **`integration-full` job (scheduled + manual dispatch)**
+   - Trigger: cron schedule + manual dispatch + `[full-integration]` in commit message
+   - Same artifact strategy as smoke
+   - Keep Ollama model cache on runner for speed/stability
+
+3. **Artifact publishing** — JUnit XML for test results, `docker compose logs` for `rag-server`, `pgmq-worker`, `postgres`, `ollama`
+
+### Tier 2 Integration Tests
+
+**Description:** Broader reliability and regression coverage beyond the core RAG loop. These are longer-running tests for the `full` tier.
+
+**Effort Estimate:** Medium-Large (3-4 sessions)
+
+#### Tests to Add
+
+1. **Worker restart recovery** — Upload document, restart pgmq-worker mid-processing, verify task eventually completes or fails cleanly (not stuck in limbo).
+2. **Service restart resilience** — Upload and index documents, restart rag-server, verify documents and sessions persist and queries still work.
+3. **Corrupt file handling** — Upload intentionally corrupt PDF/DOCX, verify graceful task failure status (not 500 or hung task). A `corrupted_pdf` fixture already exists in conftest.py.
+4. **Hybrid retrieval plumbing** — Query with known BM25-friendly content (exact keyword match) and known vector-friendly content (semantic similarity). Verify both retrieval paths contribute results. Not quality scoring — just "did both paths execute?"
+5. **Multi-file upload completion accounting** — Upload N files, verify batch status correctly tracks total/completed/failed counts.
+
+### API Endpoint Coverage: Session CRUD
+
+**Description:** The session management API (`/chat/sessions/*`) has endpoints for explicit creation, listing with archive filtering, deletion, and archiving — none of which have dedicated integration tests. Currently session creation is only tested as a side-effect of `/query`, and deletion only happens in fixture teardown without assertions.
+
+**Priority:** Medium — these are fast tests (no uploads needed) and cover user-facing API contracts. Session bugs are hard to diagnose without explicit coverage.
+
+**Effort Estimate:** Small (1 session)
+
+#### Tests to Add
+
+1. `test_create_session` — `POST /chat/sessions/new` → 200, returns `session_id`
+2. `test_create_session_with_title` — Create with custom title, verify it's stored
+3. `test_list_sessions_excludes_archived` — Archive a session, verify default list excludes it
+4. `test_list_sessions_includes_archived` — `GET /chat/sessions?include_archived=true` includes archived
+5. `test_delete_session` — `DELETE /chat/sessions/{id}` → 200, verify removed from list
+6. `test_archive_session` — `POST /chat/sessions/{id}/archive` → `is_archived=true`
+
+### API Input Validation Tests
+
+**Description:** No tests verify the server rejects bad input correctly. Missing coverage: unsupported file types on upload, empty query body, and sorting parameter behavior.
+
+**Priority:** Low — these are defensive tests. FastAPI/Pydantic handle most validation automatically, so failures here are unlikely but worth catching if the schema changes.
+
+**Effort Estimate:** Small (<1 session)
+
+#### Tests to Add
+
+1. `test_upload_rejects_unsupported_type` — Upload `.xyz` file → 400 with error message
+2. `test_query_requires_query_field` — `POST /query` with empty body → 422
+3. `test_documents_list_sorting` — `GET /documents?sort_by=name&sort_order=asc` → verify order
+
+### Fixture Hardening
+
+**Description:** Reduce CI flake risk from external dependencies in test fixtures.
+
+**Effort Estimate:** Small (1 session)
+
+#### Tasks
+
+1. **Replace internet-downloaded fixtures** — `large_public_markdown` (downloads from GitHub) and `large_public_pdf` (downloads from arXiv) should either use local synthetic files or be restricted to the `full` tier only.
+2. **Pin model names** — Ensure Ollama model tags in fixtures and `check_services` match `config.yml` exactly (currently hardcoded as `gemma3` and `nomic-embed-text`).
+3. **Bounded retries** — Ensure all polling loops (`wait_for_task`, `upload_and_wait`) have transparent retry counts in logs for CI debugging.
 
 ---
 
