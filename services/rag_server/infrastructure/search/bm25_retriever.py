@@ -67,10 +67,7 @@ class PgSearchBM25Retriever(BaseRetriever):
         self, session: AsyncSession, query_str: str
     ) -> list[NodeWithScore]:
         """Execute BM25 search using pg_search."""
-        # Escape single quotes in query
-        safe_query = query_str.replace("'", "''")
-
-        # Use pg_search BM25 index with paradedb.parse for better tokenization
+        # Use match() for raw user text; parse() expects structured query syntax.
         sql = text("""
             SELECT
                 dc.id,
@@ -89,14 +86,14 @@ class PgSearchBM25Retriever(BaseRetriever):
                 paradedb.score(dc.id) as bm25_score
             FROM document_chunks dc
             JOIN documents d ON dc.document_id = d.id
-            WHERE dc.content @@@ paradedb.parse(:query)
+            WHERE dc.id @@@ paradedb.match('content', :query)
             ORDER BY bm25_score DESC
             LIMIT :limit
         """)
 
         try:
             result = await session.execute(
-                sql, {"query": safe_query, "limit": self._similarity_top_k}
+                sql, {"query": query_str, "limit": self._similarity_top_k}
             )
             rows = result.fetchall()
         except Exception as e:

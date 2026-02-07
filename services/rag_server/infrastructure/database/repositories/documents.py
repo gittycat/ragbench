@@ -206,7 +206,7 @@ class DocumentRepository(BaseRepository[Document]):
         sql = text("""
             SELECT dc.*, paradedb.score(dc.id) as bm25_score
             FROM document_chunks dc
-            WHERE dc.content @@@ paradedb.parse(:query)
+            WHERE dc.id @@@ paradedb.match('content', :query)
             ORDER BY bm25_score DESC
             LIMIT :limit
         """)
