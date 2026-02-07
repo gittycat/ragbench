@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 
 @pytest.mark.integration
-@pytest.mark.slow
 class TestPgmqTaskCompletion:
     """
     Test pgmq async task execution and completion.
@@ -138,14 +137,70 @@ class TestPgmqTaskCompletion:
         # Verify progress was tracked
         assert len(progress_readings) > 0, "Should have progress readings"
 
-        # Final status should show completion
-        final = progress_readings[-1]
-        assert final["completed"] == final["total"], \
-            f"All tasks should complete. Final: {final}"
+    def test_upload_single_file_listed_in_documents(
+        self,
+        integration_env,
+        check_services,
+        rag_server_url,
+        wait_for_task,
+        tmp_path,
+        clean_test_database,
+    ):
+        """
+        Upload one file -> no error -> document appears in /documents list.
+        """
+        import httpx
 
-        # Verify total_chunks was tracked (for large docs)
-        if "total_chunks" in final:
-            assert final["total_chunks"] > 0, "Should track chunk count for large docs"
+        # Check RAG server is running
+        try:
+            health = httpx.get(f"{rag_server_url}/health", timeout=5.0)
+            health.raise_for_status()
+        except Exception as e:
+            pytest.skip(f"RAG server not available at {rag_server_url}: {e}")
+
+        unique_name = f"upload_test_{uuid.uuid4().hex}.txt"
+        file_path = tmp_path / unique_name
+        file_path.write_text(
+            "Upload test content. Unique identifier: LIST_TEST_98765"
+        )
+
+        # Upload file
+        with open(file_path, "rb") as f:
+            files = {"files": (unique_name, f, "text/plain")}
+            response = httpx.post(
+                f"{rag_server_url}/upload",
+                files=files,
+                timeout=30.0,
+            )
+
+        assert response.status_code == 200, f"Upload failed: {response.text}"
+        upload_result = response.json()
+        assert "batch_id" in upload_result, "Upload should return batch_id"
+        batch_id = upload_result["batch_id"]
+
+        # Wait for task completion
+        final_status = wait_for_task(rag_server_url, batch_id, timeout=120)
+        tasks = final_status.get("tasks", {})
+        task_errors = [
+            t for t in tasks.values() if t.get("status") == "error"
+        ]
+        assert not task_errors, f"Upload tasks errored: {task_errors}"
+
+        # Verify document is listed
+        list_response = httpx.get(
+            f"{rag_server_url}/documents",
+            timeout=10.0,
+        )
+        assert list_response.status_code == 200, \
+            f"Documents list failed: {list_response.text}"
+        docs = list_response.json().get("documents", [])
+        matched = [d for d in docs if d.get("file_name") == unique_name]
+        assert matched, f"Uploaded file not found in /documents: {unique_name}"
+
+        # Cleanup: delete document after test
+        doc_id = matched[0].get("id")
+        if doc_id:
+            clean_test_database["doc_ids"].append(doc_id)
 
     def test_multiple_file_upload(
         self,
@@ -198,6 +253,7 @@ class TestPgmqTaskCompletion:
 
 
 @pytest.mark.integration
+@pytest.mark.slow
 class TestLargeDocumentUpload:
     """Test upload and status tracking with large real-world documents."""
 

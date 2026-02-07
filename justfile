@@ -85,6 +85,10 @@ test-integration: setup docker-up
     cd services/rag_server && \
     .venv/bin/pytest tests/integration -v --run-integration
 
+test-integration-full: setup docker-up
+    cd services/rag_server && \
+    .venv/bin/pytest tests/integration -v --run-integration --run-slow
+
 test-eval: show-config
     docker compose --profile eval run --rm evals eval --datasets ragbench --samples 5
 
