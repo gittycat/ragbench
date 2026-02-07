@@ -5,7 +5,7 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from sqlalchemy import text
+from sqlalchemy import text, pool
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -28,12 +28,10 @@ def get_engine() -> AsyncEngine:
         database_url = get_database_url()
         _engine = create_async_engine(
             database_url,
-            pool_size=10,
-            max_overflow=20,
-            pool_pre_ping=True,
+            poolclass=pool.NullPool,  # No connection pooling - fixes event loop binding issues
             echo=os.environ.get("LOG_LEVEL", "").upper() == "DEBUG",
         )
-        logger.info("Created async PostgreSQL engine")
+        logger.info("Created async PostgreSQL engine with NullPool")
     return _engine
 
 

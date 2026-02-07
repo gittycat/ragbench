@@ -36,6 +36,9 @@ class Settings(BaseSettings):
 
 SETTINGS: Optional[Settings] = None
 
+# Runtime API key store (takes precedence over file-based keys)
+_runtime_api_keys: dict[str, str] = {}
+
 
 def _sanitize_secret(value: str) -> str:
     # Trim whitespace and remove null bytes commonly present in mounted secret files.
@@ -83,8 +86,20 @@ def get_moonshot_key() -> str | None:
     return value or None
 
 
+def set_runtime_api_key(provider: str, api_key: str) -> None:
+    """Store an API key in runtime memory (takes precedence over file-based keys)."""
+    _runtime_api_keys[provider.lower()] = api_key
+
+
 def get_api_key_for_provider(provider: str) -> str | None:
+    """Get API key for provider. Checks runtime store first, then file-based keys."""
     provider_key = provider.lower()
+
+    # Check runtime store first
+    if provider_key in _runtime_api_keys:
+        return _runtime_api_keys[provider_key]
+
+    # Fall back to file-based keys
     if provider_key == "openai":
         return get_openai_key()
     if provider_key == "anthropic":

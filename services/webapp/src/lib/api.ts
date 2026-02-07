@@ -819,3 +819,59 @@ export async function unarchiveSession(sessionId: string): Promise<void> {
 		throw new Error(`Failed to unarchive session: ${response.statusText}`);
 	}
 }
+
+// ============================================================================
+// Types - API Keys
+// ============================================================================
+
+export interface ApiKeyStatus {
+	provider: string;
+	has_key: boolean;
+	masked_key: string | null;
+}
+
+export interface ApiKeyValidationError {
+	detail: string;
+}
+
+export interface ApiKeySetResponse {
+	provider: string;
+	status: string;
+	masked_key: string;
+}
+
+// ============================================================================
+// API Functions - API Keys
+// ============================================================================
+
+/**
+ * Fetch the status of all API keys (which providers need keys, which have them set).
+ */
+export async function fetchApiKeyStatus(): Promise<ApiKeyStatus[]> {
+	const response = await fetch(`${API_BASE}/api-keys`);
+	if (!response.ok) {
+		throw new Error(`Failed to fetch API key status: ${response.statusText}`);
+	}
+	return response.json();
+}
+
+/**
+ * Set and validate an API key for a provider.
+ * Throws an error with validation message if the key is invalid.
+ */
+export async function setApiKey(provider: string, apiKey: string): Promise<ApiKeySetResponse> {
+	const response = await fetch(`${API_BASE}/api-keys/${provider}`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json'
+		},
+		body: JSON.stringify({ api_key: apiKey })
+	});
+
+	if (!response.ok) {
+		const error: ApiKeyValidationError = await response.json();
+		throw new Error(error.detail || 'Failed to set API key');
+	}
+
+	return response.json();
+}

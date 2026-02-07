@@ -2,16 +2,83 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*validate_default.*")
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from core.logging import configure_logging
 from core.config import initialize_settings
-from app.settings import init_settings
+from app.settings import init_settings, get_api_key_for_provider
+from infrastructure.llm.validation import validate_api_key
 
 # Configure logging
 configure_logging()
 logger = logging.getLogger(__name__)
+
+
+async def _validate_file_loaded_api_keys():
+    """Validate all file-loaded API keys at startup."""
+    from pathlib import Path
+    import yaml
+
+    # Load config to get providers that require API keys
+    config_paths = [
+        Path("/app/config.yml"),
+        Path(__file__).parent.parent / "config.yml",
+    ]
+
+    config = None
+    for config_path in config_paths:
+        if config_path.exists():
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+            break
+
+    if not config:
+        logger.warning("[STARTUP] Could not load config.yml, skipping API key validation")
+        return
+
+    # Get all providers that require API keys
+    providers_to_check = set()
+    for model_type in ["inference", "embedding", "eval"]:
+        if model_type in config.get("models", {}):
+            for model_def in config["models"][model_type].values():
+                if model_def.get("requires_api_key", False):
+                    provider = model_def.get("provider")
+                    if provider:
+                        providers_to_check.add(provider.lower())
+
+    if not providers_to_check:
+        logger.info("[STARTUP] No providers require API key validation")
+        return
+
+    logger.info(f"[STARTUP] Validating API keys for providers: {', '.join(sorted(providers_to_check))}")
+
+    # Validate each provider's key
+    validation_errors = []
+    for provider in sorted(providers_to_check):
+        api_key = get_api_key_for_provider(provider)
+
+        if not api_key or api_key.strip() == "":
+            logger.warning(f"[STARTUP] No API key found for provider: {provider}")
+            continue
+
+        logger.info(f"[STARTUP] Validating API key for {provider}...")
+        valid, error_message = await validate_api_key(provider, api_key)
+
+        if valid:
+            logger.info(f"[STARTUP] ✓ API key valid for {provider}")
+        else:
+            error_msg = f"API key validation failed for {provider}: {error_message}"
+            logger.error(f"[STARTUP] ✗ {error_msg}")
+            validation_errors.append(error_msg)
+
+    # Exit if any validation failed
+    if validation_errors:
+        logger.error("[STARTUP] API key validation failed. Shutting down.")
+        for error in validation_errors:
+            logger.error(f"  - {error}")
+        os._exit(1)
 
 
 @asynccontextmanager
@@ -28,6 +95,9 @@ async def startup():
     """Initialize services and pre-load models on startup."""
     init_settings()
     initialize_settings()
+
+    # Validate file-loaded API keys
+    await _validate_file_loaded_api_keys()
 
     # Initialize PostgreSQL connection pool
     logger.info("[STARTUP] Initializing PostgreSQL connection pool...")
@@ -73,7 +143,7 @@ async def shutdown():
 app = FastAPI(title="RAG Bench", lifespan=lifespan)
 
 # Include routers
-from api.routes import health, query, documents, chat, metrics, sessions
+from api.routes import health, query, documents, chat, metrics, sessions, api_keys
 
 app.include_router(health.router, tags=["health"])
 app.include_router(query.router, tags=["query"])
@@ -81,3 +151,4 @@ app.include_router(documents.router, tags=["documents"])
 app.include_router(chat.router, tags=["chat"])
 app.include_router(sessions.router, tags=["sessions"])
 app.include_router(metrics.router, tags=["metrics"])
+app.include_router(api_keys.router, tags=["api-keys"])
