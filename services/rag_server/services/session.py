@@ -7,14 +7,13 @@ Manages chat session metadata using PostgreSQL:
 - No TTL (persist indefinitely until deleted)
 """
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 from dataclasses import dataclass
 from uuid import UUID
 
-from infrastructure.database.postgres import get_session
+from infrastructure.database.postgres import get_session, run_async_safely
 from infrastructure.database.repositories.sessions import SessionRepository
 
 logger = logging.getLogger(__name__)
@@ -31,31 +30,6 @@ class SessionMetadata:
     is_temporary: bool = False
     llm_model: str | None = None      # e.g., "gemma3:4b"
     search_type: str | None = None    # "vector" | "hybrid"
-
-
-def _run_async(coro):
-    """
-    Run async function from sync context.
-
-    WARNING: This should NOT be called from async contexts (like FastAPI endpoints).
-    Use the *_async() functions directly instead.
-    """
-    try:
-        loop = asyncio.get_running_loop()
-        # If we're in a running loop, we can't use asyncio.run()
-        # This is a programming error - the caller should use await instead
-        logger.error(
-            "[SESSION] _run_async() called from async context. "
-            "Use the async version of this function instead."
-        )
-        # Try to run in a new thread as a fallback
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(asyncio.run, coro)
-            return future.result(timeout=30)
-    except RuntimeError:
-        # No running loop - safe to use asyncio.run()
-        return asyncio.run(coro)
 
 
 def _get_inference_settings() -> tuple[str | None, str | None]:
@@ -96,7 +70,7 @@ def create_session_metadata(
     )
 
     if not is_temporary:
-        _run_async(create_session_async(session_id, title, llm_model, search_type))
+        run_async_safely(create_session_async(session_id, title, llm_model, search_type))
         logger.info(f"[SESSION] Created metadata for session: {session_id}")
     else:
         logger.info(f"[SESSION] Created temporary session: {session_id} (not persisted)")
@@ -163,7 +137,7 @@ async def create_session_async(
 
 def get_session_metadata(session_id: str) -> Optional[SessionMetadata]:
     """Get session metadata from PostgreSQL"""
-    return _run_async(get_session_metadata_async(session_id))
+    return run_async_safely(get_session_metadata_async(session_id))
 
 
 async def get_session_metadata_async(session_id: str) -> Optional[SessionMetadata]:
@@ -195,7 +169,7 @@ async def get_session_metadata_async(session_id: str) -> Optional[SessionMetadat
 
 def update_session_title(session_id: str, title: str) -> None:
     """Update session title (e.g., from first user message)"""
-    _run_async(_update_session_title_async(session_id, title))
+    run_async_safely(_update_session_title_async(session_id, title))
     logger.info(f"[SESSION] Updated title for {session_id}: {title}")
 
 
@@ -227,7 +201,7 @@ def touch_session(session_id: str) -> None:
         create_session_metadata(session_id)
         return
 
-    _run_async(_touch_session_async(session_id))
+    run_async_safely(_touch_session_async(session_id))
 
 
 async def touch_session_async(session_id: str) -> None:
@@ -263,7 +237,7 @@ def list_sessions(
 
     Returns sessions sorted by updated_at (newest first).
     """
-    return _run_async(list_sessions_async(include_archived, limit, offset))
+    return run_async_safely(list_sessions_async(include_archived, limit, offset))
 
 
 async def list_sessions_async(
@@ -293,7 +267,7 @@ async def list_sessions_async(
 
 def archive_session(session_id: str) -> None:
     """Mark session as archived"""
-    _run_async(archive_session_async(session_id))
+    run_async_safely(archive_session_async(session_id))
     logger.info(f"[SESSION] Archived session: {session_id}")
 
 
@@ -312,7 +286,7 @@ async def archive_session_async(session_id: str) -> None:
 
 def unarchive_session(session_id: str) -> None:
     """Restore session from archive"""
-    _run_async(unarchive_session_async(session_id))
+    run_async_safely(unarchive_session_async(session_id))
     logger.info(f"[SESSION] Unarchived session: {session_id}")
 
 
@@ -343,7 +317,7 @@ def delete_session(session_id: str) -> None:
     clear_session_memory(session_id)
 
     # Delete session (CASCADE deletes messages anyway)
-    _run_async(delete_session_async(session_id))
+    run_async_safely(delete_session_async(session_id))
     logger.info(f"[SESSION] Deleted session: {session_id}")
 
 

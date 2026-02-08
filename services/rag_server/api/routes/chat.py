@@ -1,4 +1,6 @@
+import asyncio
 import logging
+from functools import partial
 from fastapi import APIRouter, HTTPException
 
 from schemas.chat import ChatHistoryResponse, ClearSessionRequest, ClearSessionResponse, SessionMetadataResponse
@@ -13,7 +15,8 @@ router = APIRouter()
 async def get_session_history(session_id: str):
     """Get the full chat history for a session, including metadata"""
     try:
-        messages = get_chat_history(session_id)
+        loop = asyncio.get_running_loop()
+        messages = await loop.run_in_executor(None, get_chat_history, session_id)
 
         # Convert ChatMessage objects to dicts
         formatted_messages = []
@@ -52,7 +55,8 @@ async def get_session_history(session_id: str):
 async def clear_chat_session(request: ClearSessionRequest):
     """Clear the chat history for a session"""
     try:
-        clear_session_memory(request.session_id)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, clear_session_memory, request.session_id)
         return ClearSessionResponse(
             status="success",
             message=f"Chat history cleared for session {request.session_id}"

@@ -1,5 +1,6 @@
 """PostgreSQL async connection pool using SQLAlchemy 2.0 + asyncpg."""
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -20,6 +21,36 @@ logger = logging.getLogger(__name__)
 
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
+
+# Main event loop reference for cross-thread async scheduling
+_main_loop: asyncio.AbstractEventLoop | None = None
+
+
+def set_main_event_loop(loop: asyncio.AbstractEventLoop) -> None:
+    """Store the main event loop for cross-thread async scheduling."""
+    global _main_loop
+    _main_loop = loop
+    logger.info("Main event loop stored for async scheduling")
+
+
+def run_async_safely(coro):
+    """
+    Run an async coroutine from sync context on the main event loop.
+
+    Uses run_coroutine_threadsafe to keep all asyncpg connections on the
+    same event loop. Creating new event loops in threads contaminates the
+    connection pool with connections bound to different loops, causing
+    'Future attached to a different loop' errors.
+
+    IMPORTANT: Must be called from a thread OTHER than the main loop's
+    thread. Async route handlers should use run_in_executor for blocking
+    sync calls that go through this bridge.
+    """
+    if _main_loop is not None and _main_loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(coro, _main_loop)
+        return future.result(timeout=60)
+    # Fallback for startup/testing when main loop isn't available
+    return asyncio.run(coro)
 
 
 def get_engine() -> AsyncEngine:

@@ -93,6 +93,10 @@ async def lifespan(app: FastAPI):
 
 async def startup():
     """Initialize services and pre-load models on startup."""
+    import asyncio
+    from infrastructure.database.postgres import set_main_event_loop
+    set_main_event_loop(asyncio.get_running_loop())
+
     init_settings()
     initialize_settings()
 

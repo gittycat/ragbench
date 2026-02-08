@@ -1,10 +1,7 @@
 """Session repository and PostgreSQL-backed chat store."""
 
-import asyncio
 import logging
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
-from typing import Any, List, Optional, Sequence
+from typing import Any, List, Optional
 from uuid import UUID
 
 from llama_index.core.llms import ChatMessage, MessageRole
@@ -13,53 +10,10 @@ from sqlalchemy import select, delete, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import ChatSession, ChatMessage as ChatMessageModel
-from infrastructure.database.postgres import get_session
+from infrastructure.database.postgres import get_session, run_async_safely
 from infrastructure.database.repositories.base import BaseRepository
 
 logger = logging.getLogger(__name__)
-
-# Runs async coroutines from sync context, even inside a running event loop
-# (e.g. when LlamaIndex sync API is called from FastAPI's async context).
-_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="chat_store")
-
-
-def _run_async_in_thread(async_func, *args, **kwargs):
-    """
-    Run async function in a separate thread with its own event loop.
-
-    This approach works even when called from within an async context (FastAPI)
-    by creating a completely isolated event loop in a thread pool worker.
-
-    The database engine connection pool is thread-safe and works across
-    event loops since SQLAlchemy manages this properly.
-    """
-    def _run_in_new_loop():
-        # Create fresh event loop in this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(async_func(*args, **kwargs))
-        finally:
-            # Cleanup
-            try:
-                # Cancel all pending tasks
-                pending = asyncio.all_tasks(loop)
-                for task in pending:
-                    task.cancel()
-                # Give cancelled tasks a chance to finish
-                if pending:
-                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-            finally:
-                loop.close()
-
-    try:
-        asyncio.get_running_loop()
-        # Inside an async context — run in thread pool
-        future = _executor.submit(_run_in_new_loop)
-        return future.result()
-    except RuntimeError:
-        # No running loop — run directly
-        return asyncio.run(async_func(*args, **kwargs))
 
 
 class SessionRepository(BaseRepository[ChatSession]):
@@ -209,31 +163,31 @@ class PostgresChatStore(BaseChatStore):
 
     def set_messages(self, key: str, messages: List[ChatMessage]) -> None:
         """Set messages for a key (overwrites existing)."""
-        _run_async_in_thread(self._async_set_messages, key, messages)
+        run_async_safely(self._async_set_messages(key, messages))
 
     def get_messages(self, key: str) -> List[ChatMessage]:
         """Get messages for a key."""
-        return _run_async_in_thread(self._async_get_messages, key)
+        return run_async_safely(self._async_get_messages(key))
 
     def add_message(self, key: str, message: ChatMessage) -> None:
         """Add a message for a key."""
-        _run_async_in_thread(self._async_add_message, key, message)
+        run_async_safely(self._async_add_message(key, message))
 
     def delete_messages(self, key: str) -> Optional[List[ChatMessage]]:
         """Delete messages for a key. Returns deleted messages."""
-        return _run_async_in_thread(self._async_delete_messages, key)
+        return run_async_safely(self._async_delete_messages(key))
 
     def delete_message(self, key: str, idx: int) -> Optional[ChatMessage]:
         """Delete a specific message by index."""
-        return _run_async_in_thread(self._async_delete_message, key, idx)
+        return run_async_safely(self._async_delete_message(key, idx))
 
     def delete_last_message(self, key: str) -> Optional[ChatMessage]:
         """Delete the last message for a key."""
-        return _run_async_in_thread(self._async_delete_last_message, key)
+        return run_async_safely(self._async_delete_last_message(key))
 
     def get_keys(self) -> List[str]:
         """Get all keys (session IDs)."""
-        return _run_async_in_thread(self._async_get_keys)
+        return run_async_safely(self._async_get_keys())
 
     # Async implementations
     # These methods can be called directly from async contexts to avoid

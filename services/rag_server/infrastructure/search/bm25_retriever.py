@@ -29,24 +29,9 @@ class PgSearchBM25Retriever(BaseRetriever):
         self._similarity_top_k = similarity_top_k
 
     def _retrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
-        """Synchronous retrieve - calls async version."""
-        import asyncio
-
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            # We're in an async context, use nest_asyncio or run in executor
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(
-                    asyncio.run, self._aretrieve(query_bundle)
-                )
-                return future.result()
-        else:
-            return asyncio.run(self._aretrieve(query_bundle))
+        """Synchronous retrieve - schedules async version on the main event loop."""
+        from infrastructure.database.postgres import run_async_safely
+        return run_async_safely(self._aretrieve(query_bundle))
 
     async def _aretrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
         """

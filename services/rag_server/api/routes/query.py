@@ -1,5 +1,7 @@
+import asyncio
 import uuid
 import logging
+from functools import partial
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
@@ -24,13 +26,19 @@ async def query(request: QueryRequest):
             if not metadata:
                 await create_session_metadata_async(session_id, is_temporary=False)
 
-        result = query_rag(
-            request.query,
-            session_id=session_id,
-            is_temporary=request.is_temporary,
-            include_chunks=request.include_chunks,
-            ensure_metadata=False,
-            update_session_metadata=False,
+        # Run in executor to keep the main event loop free for async DB operations
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            partial(
+                query_rag,
+                request.query,
+                session_id=session_id,
+                is_temporary=request.is_temporary,
+                include_chunks=request.include_chunks,
+                ensure_metadata=False,
+                update_session_metadata=False,
+            ),
         )
 
         # Update session metadata after query (non-temporary sessions only)

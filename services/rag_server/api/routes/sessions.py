@@ -10,6 +10,7 @@ Endpoints:
 - POST /chat/sessions/{session_id}/unarchive - Unarchive session
 """
 
+import asyncio
 import uuid
 import logging
 from fastapi import APIRouter, HTTPException, Query
@@ -172,7 +173,8 @@ async def delete_chat_session(session_id: str):
         if not metadata:
             raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
 
-        delete_session(session_id)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, delete_session, session_id)
 
         return DeleteSessionResponse(
             status="success",
