@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func, literal_column, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -72,14 +72,15 @@ class DocumentRepository(BaseRepository[Document]):
         List all documents with chunk counts.
         Returns list of dicts with document info.
         """
-        # Get documents with chunk counts
+        # Count chunks from LlamaIndex's data_document_chunks table
+        # (PGVectorStore uses "data_" prefix: table_name → data_{table_name})
         subquery = (
             select(
-                DocumentChunk.document_id.label("doc_id"),
-                func.count(DocumentChunk.id).label("chunk_count"),
+                literal_column("(metadata_->>'document_id')::uuid").label("doc_id"),
+                func.count().label("chunk_count"),
             )
-            .select_from(DocumentChunk)
-            .group_by(DocumentChunk.document_id)
+            .select_from(text("public.data_document_chunks"))
+            .group_by(literal_column("(metadata_->>'document_id')::uuid"))
             .subquery()
         )
 
@@ -120,9 +121,8 @@ class DocumentRepository(BaseRepository[Document]):
             return None
 
         chunk_count = await self.session.execute(
-            select(func.count(DocumentChunk.id)).where(
-                DocumentChunk.document_id == document_id
-            )
+            text("SELECT COUNT(*) FROM public.data_document_chunks WHERE (metadata_->>'document_id')::uuid = :doc_id"),
+            {"doc_id": str(document_id)},
         )
         chunks = chunk_count.scalar() or 0
 
