@@ -175,7 +175,7 @@
     {#if $sidebarOpen}
       <a href="/" class="flex items-center gap-2 hover:opacity-80 transition-opacity">
         <img src="/binchicken.png" alt="RAG Bench" class="h-7 w-7" />
-        <span class="text-lg font-semibold text-base-content">RAG Lab</span>
+        <span class="text-lg font-semibold text-base-content">RAG Bench</span>
       </a>
     {/if}
     <button

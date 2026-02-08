@@ -113,7 +113,7 @@ ollama serve &
 # This significantly speeds up the rag-server container startup.
 just init
 
-# Start RAG Lab
+# Start RAG Bench
 docker compose up -d
 ```
 
