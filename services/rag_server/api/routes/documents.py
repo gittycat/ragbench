@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Persistent document storage path
-DOCUMENT_STORAGE_PATH = Path("/data/documents")
+DOCUMENT_STORAGE_PATH = Path("/app/documents")
 
 
 @router.get("/documents", response_model=DocumentListResponse)

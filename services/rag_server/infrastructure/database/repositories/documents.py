@@ -5,6 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select, func, text
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import Document, DocumentChunk
@@ -47,8 +48,9 @@ class DocumentRepository(BaseRepository[Document]):
         file_size_bytes: int | None = None,
         file_hash: str | None = None,
         metadata: dict[str, Any] | None = None,
+        document_id: UUID | None = None,
     ) -> Document:
-        """Create a new document record."""
+        """Create a new document record with optional custom ID."""
         doc = Document(
             file_name=file_name,
             file_type=file_type,
@@ -57,6 +59,8 @@ class DocumentRepository(BaseRepository[Document]):
             file_hash=file_hash,
             metadata_=metadata or {},
         )
+        if document_id:
+            doc.id = document_id
         return await self.add(doc)
 
     async def list_documents(
@@ -71,9 +75,10 @@ class DocumentRepository(BaseRepository[Document]):
         # Get documents with chunk counts
         subquery = (
             select(
-                DocumentChunk.document_id,
+                DocumentChunk.document_id.label("doc_id"),
                 func.count(DocumentChunk.id).label("chunk_count"),
             )
+            .select_from(DocumentChunk)
             .group_by(DocumentChunk.document_id)
             .subquery()
         )
@@ -81,7 +86,7 @@ class DocumentRepository(BaseRepository[Document]):
         query = select(
             Document,
             func.coalesce(subquery.c.chunk_count, 0).label("chunks"),
-        ).outerjoin(subquery, Document.id == subquery.c.document_id)
+        ).outerjoin(subquery, Document.id == subquery.c.doc_id)
 
         # Apply sorting
         sort_column = getattr(Document, sort_by, Document.uploaded_at)

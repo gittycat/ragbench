@@ -14,13 +14,14 @@ import time
 from pathlib import Path
 from uuid import UUID
 
-from pipelines.ingestion import ingest_document
+from pipelines.ingestion import ingest_document, extract_file_metadata
 from infrastructure.search.vector_store import get_vector_index
 from infrastructure.database.postgres import get_session
 from infrastructure.database.repositories.jobs import JobRepository
+from infrastructure.database.repositories.documents import DocumentRepository
 
 # Persistent document storage path
-DOCUMENT_STORAGE_PATH = Path("/data/documents")
+DOCUMENT_STORAGE_PATH = Path("/app/documents")
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,26 @@ async def process_document_async(file_path: str, filename: str, batch_id: str, t
                     asyncio.run(_set_task_total_chunks(task_id, total))
                 asyncio.run(_increment_task_chunk_progress(task_id))
 
-        # Run ingestion pipeline
+        # Extract file metadata for Document record
+        metadata = extract_file_metadata(file_path)
+
+        # Create Document record in database BEFORE ingestion
+        # (chunks have foreign key constraint to documents table)
+        logger.info(f"[TASK {task_id}] Creating document record in database...")
+        async with get_session() as session:
+            doc_repo = DocumentRepository(session)
+            await doc_repo.create_document(
+                file_name=filename,
+                file_type=metadata.get("file_type", ""),
+                file_path=str(DOCUMENT_STORAGE_PATH / doc_id / filename),
+                file_size_bytes=metadata.get("file_size", 0),
+                file_hash=metadata.get("file_hash"),
+                metadata=metadata,
+                document_id=UUID(doc_id)
+            )
+        logger.info(f"[TASK {task_id}] Document record created successfully")
+
+        # Run ingestion pipeline (creates chunks with document_id foreign key)
         logger.info(f"[TASK {task_id}] Running ingestion pipeline...")
         result = ingest_document(
             file_path=file_path,

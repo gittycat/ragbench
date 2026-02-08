@@ -58,7 +58,6 @@ services:
       - ./data/indexed_documents:/app/documents
       - docs_repo:/tmp/shared
       - ./.hf_cache:/home/appuser/.cache/huggingface
-      - documents_data:/data/documents
 
   # PostgreSQL with pgvector + pg_search (ParadeDB) + pgmq
   postgres:
@@ -79,6 +78,7 @@ services:
       - ./services/postgres/00-roles.sh:/docker-entrypoint-initdb.d/00-roles.sh:ro
       - ./services/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
       - ./services/postgres/02-grants.sh:/docker-entrypoint-initdb.d/02-grants.sh:ro
+    command: postgres -c max_connections=200
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $(cat /run/secrets/POSTGRES_SUPERUSER) -d ragbench"]
       interval: 5s
@@ -123,7 +123,6 @@ services:
       - ./data/indexed_documents:/app/documents
       - docs_repo:/tmp/shared
       - ./.hf_cache:/home/appuser/.cache/huggingface
-      - documents_data:/data/documents
 
   # Evals Service - CLI-based evaluation (profile-gated)
   evals:
@@ -157,8 +156,6 @@ volumes:
   postgres_data:
     driver: local
   docs_repo:
-    driver: local
-  documents_data:
     driver: local
 
 secrets:

@@ -263,7 +263,7 @@
 								onclick={() => handleSort('uploaded_at')}
 								title="Sort by upload time"
 							>
-								Uploaded
+								Added
 								<span class="text-xs opacity-60">{getSortIcon('uploaded_at')}</span>
 							</button>
 						</th>

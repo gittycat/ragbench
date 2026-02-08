@@ -134,6 +134,48 @@ The system is composed of multiple services running in a Docker Compose managed 
 3. LLM generates answer with context
 4. Response with sources returned (streaming optional)
 
+### Connection Pooling
+
+PostgreSQL connections are managed through multiple independent pools. All pool settings are configured in `config.yml` under the `database:` section and applied uniformly across pools on startup.
+
+**Connection Paths:**
+
+| # | Pool | Driver | Used By | Config Source |
+|---|------|--------|---------|---------------|
+| 1 | Main async engine (`postgres.py`) | asyncpg (SQLAlchemy) | All repository operations: documents, jobs, sessions, BM25 retriever | `config.yml` |
+| 2 | PGVectorStore sync engine | psycopg2 (SQLAlchemy) | Vector insert/query (sync LlamaIndex path) | `config.yml` via `create_engine_kwargs` |
+| 3 | PGVectorStore async engine | asyncpg (SQLAlchemy) | Vector insert/query (async LlamaIndex path) | `config.yml` via `create_engine_kwargs` |
+| 4 | PGMQueue | psycopg2 (single connection) | Queue enqueue/read/delete | N/A (single connection) |
+
+**Connection Budget (per service, with defaults):**
+
+| Pool | pool_size | max_overflow | Max Connections |
+|------|-----------|--------------|-----------------|
+| Main engine | 10 | 20 | 30 |
+| PGVectorStore (sync) | 10 | 20 | 30 |
+| PGVectorStore (async) | 10 | 20 | 30 |
+| PGMQueue | — | — | 1 |
+| **Total per service** | | | **91** |
+
+With 2 services (rag-server + pgmq-worker), worst case = ~182 connections. PostgreSQL `max_connections` is set to 200 (via `docker-compose.yml` command) to accommodate this plus PostgreSQL's internal connections (autovacuum, WAL writer, etc.).
+
+**Configuration (`config.yml`):**
+
+```yaml
+database:
+  max_connections: 200   # PostgreSQL server-side limit
+  pool_size: 10          # Persistent connections per pool
+  max_overflow: 20       # Burst connections per pool
+  pool_pre_ping: true    # Validate connections before use
+  pool_recycle: 3600     # Recycle after 1 hour
+```
+
+**Key Files:**
+- `infrastructure/database/postgres.py` — Main async engine pool
+- `infrastructure/search/vector_store.py` — PGVectorStore pool (passes `create_engine_kwargs`)
+- `infrastructure/tasks/pgmq_queue.py` — Single PGMQueue connection
+- `infrastructure/database/migrations/env.py` — Alembic (uses NullPool, short-lived)
+
 ## Technology Stack
 
 ### Backend Services

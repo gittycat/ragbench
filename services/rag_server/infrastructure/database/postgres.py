@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.settings import get_database_url
+from infrastructure.config.models_config import get_database_config
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +27,20 @@ def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         database_url = get_database_url()
+        db_config = get_database_config()
         _engine = create_async_engine(
             database_url,
-            poolclass=pool.NullPool,  # No connection pooling - fixes event loop binding issues
+            pool_size=db_config.pool_size,
+            max_overflow=db_config.max_overflow,
+            pool_pre_ping=db_config.pool_pre_ping,
+            pool_recycle=db_config.pool_recycle,
             echo=os.environ.get("LOG_LEVEL", "").upper() == "DEBUG",
         )
-        logger.info("Created async PostgreSQL engine with NullPool")
+        logger.info(
+            f"Created async PostgreSQL engine "
+            f"(pool_size={db_config.pool_size}, max_overflow={db_config.max_overflow}, "
+            f"pre_ping={db_config.pool_pre_ping}, recycle={db_config.pool_recycle}s)"
+        )
     return _engine
 
 

@@ -161,6 +161,16 @@ class RerankerConfig(BaseModel):
     top_n: int = 5
 
 
+class DatabaseConfig(BaseModel):
+    """Connection pool configuration for PostgreSQL."""
+
+    max_connections: int = 200
+    pool_size: int = 10
+    max_overflow: int = 20
+    pool_pre_ping: bool = True
+    pool_recycle: int = 3600
+
+
 class RetrievalConfig(BaseModel):
     """Configuration for retrieval settings."""
 
@@ -238,6 +248,7 @@ class ModelsConfig(BaseModel):
     eval: EvalConfig
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     prompts: PromptConfig = Field(default_factory=PromptConfig)
 
     @classmethod
@@ -377,6 +388,10 @@ class ModelsConfig(BaseModel):
         if "retrieval" in data:
             resolved["retrieval"] = data["retrieval"]
 
+        # Copy database pool settings unchanged
+        if "database" in data:
+            resolved["database"] = data["database"]
+
         # Copy prompts unchanged
         if "prompts" in data:
             resolved["prompts"] = data["prompts"]
@@ -440,6 +455,11 @@ def get_models_config(config_path: str | Path | None = None) -> ModelsConfig:
     if _default_manager._config is None and config_path is not None:
         _default_manager._config_path = config_path
     return _default_manager.get_config()
+
+
+def get_database_config() -> DatabaseConfig:
+    """Get database pool configuration from config.yml."""
+    return get_models_config().database
 
 
 def reset_models_config() -> None:

@@ -6,6 +6,7 @@ from llama_index.core import VectorStoreIndex
 from llama_index.vector_stores.postgres import PGVectorStore
 
 from app.settings import get_database_params
+from infrastructure.config.models_config import get_database_config
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,17 @@ def get_vector_store() -> PGVectorStore:
     global _vector_store
     if _vector_store is None:
         params = get_database_params()
+        db_config = get_database_config()
+
+        # PGVectorStore creates its own SQLAlchemy engines (sync + async).
+        # Pass pool settings to match the main engine's configuration.
+        engine_kwargs = {
+            "pool_size": db_config.pool_size,
+            "max_overflow": db_config.max_overflow,
+            "pool_pre_ping": db_config.pool_pre_ping,
+            "pool_recycle": db_config.pool_recycle,
+        }
+
         _vector_store = PGVectorStore.from_params(
             database=params["database"],
             host=params["host"],
@@ -33,8 +45,12 @@ def get_vector_store() -> PGVectorStore:
                 "hnsw_ef_search": 100,
                 "hnsw_dist_method": "vector_cosine_ops",
             },
+            create_engine_kwargs=engine_kwargs,
         )
-        logger.info("Created PGVectorStore connection")
+        logger.info(
+            f"Created PGVectorStore connection "
+            f"(pool_size={db_config.pool_size}, max_overflow={db_config.max_overflow})"
+        )
     return _vector_store
 
 

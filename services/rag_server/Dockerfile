@@ -30,7 +30,9 @@ RUN useradd -m -u 1000 appuser && \
     mkdir -p /tmp/shared && \
     chown -R appuser:appuser /tmp/shared && \
     mkdir -p /home/appuser/.cache/huggingface && \
-    chown -R appuser:appuser /home/appuser/.cache
+    chown -R appuser:appuser /home/appuser/.cache && \
+    mkdir -p /data/documents && \
+    chown -R appuser:appuser /data/documents
 
 # Switch to non-root user for dependency installation
 USER appuser
