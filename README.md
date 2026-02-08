@@ -68,7 +68,7 @@ ollama pull gemma3:4b
 ollama pull nomic-embed-text
 ```
 
-### 2. Download and Configure
+### 2. Download ragbench source
 
 ```bash
 # Clone the repository
@@ -78,7 +78,7 @@ cd ragbench
 
 ### 3. Configure
 
-**Model Selection** (`config.yml`):
+**Select the LLM Models to use** (`config.yml`):
 
 The `config.yml` file defines available models and RAG settings. The `active` section controls which models are used:
 
@@ -109,6 +109,10 @@ Database access also uses secrets per service. Create the required files under `
 # Start Ollama (if not already running)
 ollama serve &
 
+# Pre-fetch the re-ranking model
+# This significantly speeds up the rag-server container startup.
+just init
+
 # Start RAG Lab
 docker compose up -d
 ```
@@ -121,38 +125,17 @@ Open **http://localhost:8000** in your browser.
 docker compose down
 ```
 
-## Usage
-
-### Upload Documents
-
-1. Go to **Documents** page
-2. Click **Upload** and select files
-3. Wait for processing (progress bar shows status)
-
-**Supported formats**: PDF, DOCX, PPTX, XLSX, TXT, Markdown, HTML, AsciiDoc
-
-### Ask Questions
-
-1. Go to **Chat** page
-2. Type your question
-3. Get AI-powered answers with source citations
-
-### Manage Documents
-
-- View all uploaded documents in **Documents** page
-- Delete documents you no longer need
-- Start new chat sessions anytime
-
-### Reset Everything
+### Delete all persistent stores (database, document storage)
 
 ```bash
 docker compose down -v
-docker compose up -d
 ```
 
 ## Development
 
 For development setup, testing, and technical documentation, see [DEVELOPMENT.md](DEVELOPMENT.md).
+This tech doc is more of a dumping ground for notes as I hit them during development.
+It is focused on giving an AI the background knowledge on the architecture and implementation details on a per need basis.
 
 ## License
 
