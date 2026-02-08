@@ -332,7 +332,12 @@ export async function deleteDocument(documentId: string): Promise<void> {
 export async function uploadFiles(files: FileList | File[]): Promise<BatchUploadResponse> {
 	const formData = new FormData();
 	for (const file of files) {
-		formData.append('files', file);
+		// Preserve relative path for directory uploads
+		// The third parameter sets the filename that gets sent to the server
+		const filename = ('webkitRelativePath' in file && file.webkitRelativePath)
+			? file.webkitRelativePath
+			: file.name;
+		formData.append('files', file, filename);
 	}
 
 	const response = await fetch(`${API_BASE}/upload`, {

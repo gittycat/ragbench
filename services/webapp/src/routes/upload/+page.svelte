@@ -25,6 +25,21 @@
 		batchId?: string;
 	}
 
+	// Weight constants for combined progress
+	const UPLOAD_WEIGHT = 0.1; // 10% for upload
+	const PROCESSING_WEIGHT = 0.9; // 90% for processing
+
+	function calculateOverallProgress(item: UploadItem): number {
+		if (item.status === 'skipped') return 0;
+		if (item.status === 'done') return 100;
+
+		// Upload contributes 10%, processing contributes 90%
+		const uploadContribution = item.uploadProgress * UPLOAD_WEIGHT;
+		const processingContribution = item.processingProgress * PROCESSING_WEIGHT;
+
+		return Math.round(uploadContribution + processingContribution);
+	}
+
 	let uploads = $state<UploadItem[]>([]);
 	let fileInput: HTMLInputElement;
 	let dirInput: HTMLInputElement;
@@ -174,11 +189,27 @@
 			clearInterval(uploadProgressInterval);
 
 			// Mark upload as complete, update with task IDs, start processing
+			// Track matched tasks to avoid duplicate assignments
+			const matchedTaskIds = new Set<string>();
+
 			uploads = uploads.map((item) => {
+				if (!newItems.some((n) => n.id === item.id)) {
+					return item;
+				}
+
+				if (skippedFiles.has(item.filename)) {
+					return item;
+				}
+
+				// Try exact match first, then fallback to suffix match
 				const matchingTask = response.tasks.find(
-					(t) => t.filename === item.filename || item.filename.endsWith(t.filename)
+					(t) => !matchedTaskIds.has(t.task_id) && (
+						t.filename === item.filename || item.filename.endsWith(t.filename)
+					)
 				);
-				if (newItems.some((n) => n.id === item.id) && matchingTask) {
+
+				if (matchingTask) {
+					matchedTaskIds.add(matchingTask.task_id);
 					return {
 						...item,
 						uploadProgress: 100,
@@ -186,10 +217,16 @@
 						taskId: matchingTask.task_id,
 						batchId: response.batch_id
 					};
-				} else if (newItems.some((n) => n.id === item.id) && !skippedFiles.has(item.filename)) {
-					return { ...item, uploadProgress: 100, status: 'processing' as const };
+				} else {
+					// No matching task found - this shouldn't happen but handle gracefully
+					console.warn(`No matching task found for file: ${item.filename}`);
+					return {
+						...item,
+						uploadProgress: 100,
+						status: 'error' as const,
+						error: 'Failed to match upload task'
+					};
 				}
-				return item;
 			});
 
 			// Start polling for this batch
@@ -322,8 +359,7 @@
 				<tr class="bg-base-200">
 					<th>Document</th>
 					<th class="w-24 text-right">Size</th>
-					<th class="w-40">Upload</th>
-					<th class="w-40">Processing</th>
+					<th class="w-48">Progress</th>
 					<th class="w-24">Status</th>
 				</tr>
 			</thead>
@@ -335,30 +371,20 @@
 						</td>
 						<td class="text-right text-xs">{formatSize(upload.size)}</td>
 						<td>
-							<div class="flex items-center gap-2">
-								<progress
-									class="progress progress-info w-24"
-									value={upload.uploadProgress}
-									max="100"
-								></progress>
-								<span class="text-xs text-base-content/60">{upload.uploadProgress}%</span>
-							</div>
-						</td>
-						<td>
-							{#if upload.status === 'uploading'}
-								<span class="text-xs text-base-content/40">Waiting...</span>
-							{:else if upload.status === 'skipped'}
+							{#if upload.status === 'skipped'}
 								<span class="text-xs text-base-content/40">—</span>
-							{:else if upload.status === 'error' && upload.uploadProgress < 100}
-								<span class="text-xs text-error">—</span>
+							{:else if upload.status === 'error'}
+								<span class="text-xs text-error">Failed</span>
 							{:else}
+								{@const overallProgress = calculateOverallProgress(upload)}
+								{@const progressClass = upload.status === 'done' ? 'progress-success' : overallProgress < 10 ? 'progress-info' : 'progress-warning'}
 								<div class="flex items-center gap-2">
 									<progress
-										class="progress progress-warning w-24"
-										value={upload.processingProgress}
+										class="progress {progressClass} w-32"
+										value={overallProgress}
 										max="100"
 									></progress>
-									<span class="text-xs text-base-content/60">{upload.processingProgress}%</span>
+									<span class="text-xs text-base-content/60">{overallProgress}%</span>
 								</div>
 							{/if}
 						</td>
@@ -392,7 +418,7 @@
 					</tr>
 				{:else}
 					<tr>
-						<td colspan="5" class="text-center py-8 text-base-content/50">
+						<td colspan="4" class="text-center py-8 text-base-content/50">
 							No uploads in progress. Use the buttons above to upload documents.
 						</td>
 					</tr>
