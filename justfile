@@ -75,7 +75,7 @@ deploy-down ENV="local":
 
 setup:
     cd services/rag_server && \
-    uv sync --group dev
+    uv sync --group dev --python 3.13
 
 test-unit: setup
     cd services/rag_server && \
@@ -135,7 +135,7 @@ init MODEL="cross-encoder/ms-marco-MiniLM-L-6-v2":
 # Setup benchmark dependencies
 bench-setup:
     cd services/rag_server && \
-    uv sync --group dev --group eval --group bench
+    uv sync --group dev --group eval --group bench --python 3.13
 
 # Start ephemeral benchmark environment
 bench-up:
