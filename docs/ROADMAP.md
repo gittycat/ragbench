@@ -537,3 +537,17 @@ Concurrent user support, horizontal scaling, caching strategies, SLA targets (P9
 
 ### Enterprise Authentication & Authorization
 LDAP/IAM/SSO integration, role-based access control, audit logging, group management.
+
+### Native macOS deployment
+Avoid Electron. It includes a bloated Chromiun 150MB+. Electron growth is slowing too.
+
+**Option A** - Compile services natively (no VM)
+Look into (Tauri v2)[https://v2.tauri.app/]. Its sidecar system was designed exactly for docker compose deployment — you declare binaries in tauri.conf.json, it bundles and manages their lifecycle. 
+Steps:
+- Compile each Docker service to a standalone binary (Go services trivially, Python via PyInstaller/Nuitka)
+- Declare them as Tauri sidecars
+- Manage inter-process comms via localhost ports (same as Docker Compose networking, just 127.0.0.1)
+- Ship as a signed .dmg
+
+**Option B** - Stay with containers.
+Look at embedding Virtualization.framework directly — Apple's Swift API lets you boot a lightweight Linux VM (~100ms on Apple Silicon), mount a shared directory, and run your Docker Compose inside it. OrbStack proves this architecture works well. You'd wrap it in a SwiftUI or Tauri shell.

@@ -54,31 +54,35 @@ async def _validate_file_loaded_api_keys():
 
     logger.info(f"[STARTUP] Validating API keys for providers: {', '.join(sorted(providers_to_check))}")
 
-    # Validate each provider's key
-    validation_errors = []
+    # Collect providers that have keys
+    import asyncio
+    providers_with_keys = []
     for provider in sorted(providers_to_check):
         api_key = get_api_key_for_provider(provider)
-
         if not api_key or api_key.strip() == "":
             logger.warning(f"[STARTUP] No API key found for provider: {provider}")
             continue
+        providers_with_keys.append((provider, api_key))
 
-        logger.info(f"[STARTUP] Validating API key for {provider}...")
-        valid, error_message = await validate_api_key(provider, api_key)
+    # Validate all keys concurrently
+    if providers_with_keys:
+        results = await asyncio.gather(
+            *(validate_api_key(p, k) for p, k in providers_with_keys)
+        )
+        validation_errors = []
+        for (provider, _), (valid, error_message) in zip(providers_with_keys, results):
+            if valid:
+                logger.info(f"[STARTUP] API key valid for {provider}")
+            else:
+                error_msg = f"API key validation failed for {provider}: {error_message}"
+                logger.error(f"[STARTUP] {error_msg}")
+                validation_errors.append(error_msg)
 
-        if valid:
-            logger.info(f"[STARTUP] ✓ API key valid for {provider}")
-        else:
-            error_msg = f"API key validation failed for {provider}: {error_message}"
-            logger.error(f"[STARTUP] ✗ {error_msg}")
-            validation_errors.append(error_msg)
-
-    # Exit if any validation failed
-    if validation_errors:
-        logger.error("[STARTUP] API key validation failed. Shutting down.")
-        for error in validation_errors:
-            logger.error(f"  - {error}")
-        os._exit(1)
+        if validation_errors:
+            logger.error("[STARTUP] API key validation failed. Shutting down.")
+            for error in validation_errors:
+                logger.error(f"  - {error}")
+            os._exit(1)
 
 
 @asynccontextmanager
@@ -96,6 +100,10 @@ async def startup():
     import asyncio
     from infrastructure.database.postgres import set_main_event_loop
     set_main_event_loop(asyncio.get_running_loop())
+
+    # Skip HuggingFace network calls when reranker model is pre-cached (via `just init`)
+    if os.environ.get("USE_CACHED_RERANKER", "").lower() in ("1", "true", "yes"):
+        os.environ["HF_HUB_OFFLINE"] = "1"
 
     init_settings()
     initialize_settings()

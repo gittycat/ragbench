@@ -39,6 +39,7 @@ services:
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80
       - SHARED_UPLOAD_DIR=/tmp/shared
+      - USE_CACHED_RERANKER=true
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -108,6 +109,7 @@ services:
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80
       - SHARED_UPLOAD_DIR=/tmp/shared
+      - USE_CACHED_RERANKER=true
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
