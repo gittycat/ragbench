@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from infrastructure.database.postgres import get_session, run_async_safely
-from infrastructure.database.repositories.sessions import SessionRepository
+from infrastructure.database import sessions as db_sessions
 
 logger = logging.getLogger(__name__)
 
@@ -120,13 +120,13 @@ async def create_session_async(
 ) -> None:
     """Create session in PostgreSQL."""
     async with get_session() as session:
-        repo = SessionRepository(session)
         try:
             uuid_id = UUID(session_id)
         except ValueError:
             logger.error(f"[SESSION] Invalid session_id format: {session_id}")
             return
-        await repo.create_session(
+        await db_sessions.create_session(
+            session,
             session_id=uuid_id,
             title=title,
             llm_model=llm_model,
@@ -148,8 +148,7 @@ async def get_session_metadata_async(session_id: str) -> Optional[SessionMetadat
         return None
 
     async with get_session() as session:
-        repo = SessionRepository(session)
-        data = await repo.get_session_metadata(uuid_id)
+        data = await db_sessions.get_session_metadata(session, uuid_id)
 
         if not data:
             logger.debug(f"[SESSION] Metadata not found: {session_id}")
@@ -180,7 +179,6 @@ async def update_session_title_async(session_id: str, title: str) -> None:
 
 
 async def _update_session_title_async(session_id: str, title: str) -> None:
-    """Update session title in PostgreSQL."""
     try:
         uuid_id = UUID(session_id)
     except ValueError:
@@ -188,8 +186,7 @@ async def _update_session_title_async(session_id: str, title: str) -> None:
         return
 
     async with get_session() as session:
-        repo = SessionRepository(session)
-        await repo.update_title(uuid_id, title)
+        await db_sessions.update_title(session, uuid_id, title)
 
 
 def touch_session(session_id: str) -> None:
@@ -216,15 +213,13 @@ async def touch_session_async(session_id: str) -> None:
 
 
 async def _touch_session_async(session_id: str) -> None:
-    """Touch session in PostgreSQL."""
     try:
         uuid_id = UUID(session_id)
     except ValueError:
         return
 
     async with get_session() as session:
-        repo = SessionRepository(session)
-        await repo.touch(uuid_id)
+        await db_sessions.touch(session, uuid_id)
 
 
 def list_sessions(
@@ -247,8 +242,7 @@ async def list_sessions_async(
 ) -> List[SessionMetadata]:
     """List sessions from PostgreSQL."""
     async with get_session() as session:
-        repo = SessionRepository(session)
-        sessions_data = await repo.list_sessions(include_archived, limit, offset)
+        sessions_data = await db_sessions.list_sessions(session, include_archived, limit, offset)
 
         return [
             SessionMetadata(
@@ -280,8 +274,7 @@ async def archive_session_async(session_id: str) -> None:
         return
 
     async with get_session() as session:
-        repo = SessionRepository(session)
-        await repo.archive(uuid_id)
+        await db_sessions.archive(session, uuid_id)
 
 
 def unarchive_session(session_id: str) -> None:
@@ -299,8 +292,7 @@ async def unarchive_session_async(session_id: str) -> None:
         return
 
     async with get_session() as session:
-        repo = SessionRepository(session)
-        await repo.unarchive(uuid_id)
+        await db_sessions.unarchive(session, uuid_id)
 
 
 def delete_session(session_id: str) -> None:
@@ -330,5 +322,4 @@ async def delete_session_async(session_id: str) -> None:
         return
 
     async with get_session() as session:
-        repo = SessionRepository(session)
-        await repo.delete_by_id(uuid_id)
+        await db_sessions.delete_session(session, uuid_id)

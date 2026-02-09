@@ -21,8 +21,9 @@ from schemas.document import (
 )
 from pipelines.ingestion import SUPPORTED_EXTENSIONS, compute_file_hash
 from infrastructure.database.postgres import get_session
-from infrastructure.database.repositories.documents import DocumentRepository
-from infrastructure.database.repositories.jobs import JobRepository
+from infrastructure.database import documents as db_docs
+from infrastructure.database.documents import SORT_COLUMNS
+from infrastructure.database import jobs as db_jobs
 from infrastructure.tasks.pgmq_queue import enqueue_document_task
 from app.settings import get_shared_upload_dir
 
@@ -49,8 +50,8 @@ async def get_documents(
         DocumentListResponse with sorted documents list
     """
     try:
-        # Validate sort parameters
-        valid_sort_fields = ['file_name', 'chunks', 'uploaded_at']
+        # Validate sort parameters (derived from SORT_COLUMNS for single source of truth)
+        valid_sort_fields = set(SORT_COLUMNS.keys()) | {"chunks"}
         # Map 'name' to 'file_name' for backward compatibility
         if sort_by == 'name':
             sort_by = 'file_name'
@@ -60,8 +61,7 @@ async def get_documents(
             sort_order = 'desc'
 
         async with get_session() as session:
-            repo = DocumentRepository(session)
-            documents = await repo.list_documents(sort_by=sort_by, sort_order=sort_order)
+            documents = await db_docs.list_documents(session, sort_by=sort_by, sort_order=sort_order)
 
         # Convert to response format
         formatted_docs = []
@@ -100,8 +100,7 @@ async def check_duplicate_documents(request: FileCheckRequest):
         hashes_to_check = [f.hash for f in request.files if f.hash]
 
         async with get_session() as session:
-            repo = DocumentRepository(session)
-            existing = await repo.check_duplicates(hashes_to_check)
+            existing = await db_docs.check_duplicates(session, hashes_to_check)
 
         # Build results
         formatted_results = {}
@@ -194,10 +193,9 @@ async def upload_documents(files: List[UploadFile] = File(...)):
 
     # Create batch and tasks in PostgreSQL
     async with get_session() as session:
-        repo = JobRepository(session)
-        await repo.create_batch(uuid.UUID(batch_id), len(task_infos))
+        await db_jobs.create_batch(session, uuid.UUID(batch_id), len(task_infos))
         for ti in task_infos:
-            await repo.create_task(uuid.UUID(ti.task_id), uuid.UUID(batch_id), ti.filename)
+            await db_jobs.create_task(session, uuid.UUID(ti.task_id), uuid.UUID(batch_id), ti.filename)
 
     logger.info(f"[UPLOAD] Created batch {batch_id} with {len(task_infos)} tasks")
     return BatchUploadResponse(
@@ -211,8 +209,7 @@ async def upload_documents(files: List[UploadFile] = File(...)):
 async def get_batch_status(batch_id: str):
     try:
         async with get_session() as session:
-            repo = JobRepository(session)
-            progress = await repo.get_batch_progress(uuid.UUID(batch_id))
+            progress = await db_jobs.get_batch_progress(session, uuid.UUID(batch_id))
 
         if not progress:
             raise HTTPException(status_code=404, detail=f"Batch {batch_id} not found")
@@ -235,8 +232,7 @@ async def get_batch_status(batch_id: str):
 async def delete_document_by_id(document_id: str):
     try:
         async with get_session() as session:
-            repo = DocumentRepository(session)
-            deleted = await repo.delete_document_with_chunks(uuid.UUID(document_id))
+            deleted = await db_docs.delete_document(session, uuid.UUID(document_id))
 
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
@@ -275,8 +271,7 @@ async def download_document(document_id: str):
         if not doc_storage_dir.exists():
             # Try to get document metadata from PostgreSQL for error message
             async with get_session() as session:
-                repo = DocumentRepository(session)
-                doc_info = await repo.get_document_info(uuid.UUID(document_id))
+                doc_info = await db_docs.get_document_info(session, uuid.UUID(document_id))
 
             if doc_info:
                 raise HTTPException(

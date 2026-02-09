@@ -17,8 +17,8 @@ from uuid import UUID
 from pipelines.ingestion import ingest_document, extract_file_metadata
 from infrastructure.search.vector_store import get_vector_index
 from infrastructure.database.postgres import get_session
-from infrastructure.database.repositories.jobs import JobRepository
-from infrastructure.database.repositories.documents import DocumentRepository
+from infrastructure.database import jobs as db_jobs
+from infrastructure.database import documents as db_docs
 
 # Persistent document storage path
 DOCUMENT_STORAGE_PATH = Path("/app/documents")
@@ -85,8 +85,8 @@ async def process_document_async(file_path: str, filename: str, batch_id: str, t
         # (chunks have foreign key constraint to documents table)
         logger.info(f"[TASK {task_id}] Creating document record in database...")
         async with get_session() as session:
-            doc_repo = DocumentRepository(session)
-            await doc_repo.create_document(
+            await db_docs.create_document(
+                session,
                 file_name=filename,
                 file_type=metadata.get("file_type", ""),
                 file_path=str(DOCUMENT_STORAGE_PATH / doc_id / filename),
@@ -158,38 +158,28 @@ def process_document(file_path: str, filename: str, batch_id: str, task_id: str)
 
 
 async def _update_task_status(task_id: str, status: str) -> None:
-    """Update task status in PostgreSQL."""
     async with get_session() as session:
-        repo = JobRepository(session)
-        await repo.update_task_status(UUID(task_id), status)
+        await db_jobs.update_task_status(session, UUID(task_id), status)
 
 
 async def _set_task_total_chunks(task_id: str, total: int) -> None:
-    """Set total chunks for task."""
     async with get_session() as session:
-        repo = JobRepository(session)
-        await repo.set_task_total_chunks(UUID(task_id), total)
+        await db_jobs.set_task_total_chunks(session, UUID(task_id), total)
 
 
 async def _increment_task_chunk_progress(task_id: str) -> None:
-    """Increment chunk progress for task."""
     async with get_session() as session:
-        repo = JobRepository(session)
-        await repo.increment_task_chunk_progress(UUID(task_id))
+        await db_jobs.increment_task_chunk_progress(session, UUID(task_id))
 
 
 async def _complete_task(task_id: str) -> None:
-    """Mark task as completed."""
     async with get_session() as session:
-        repo = JobRepository(session)
-        await repo.complete_task(UUID(task_id))
+        await db_jobs.complete_task(session, UUID(task_id))
 
 
 async def _fail_task(task_id: str, error_message: str) -> None:
-    """Mark task as failed."""
     async with get_session() as session:
-        repo = JobRepository(session)
-        await repo.fail_task(UUID(task_id), error_message)
+        await db_jobs.fail_task(session, UUID(task_id), error_message)
 
 
 def _cleanup_temp_file(file_path: str, task_id: str):

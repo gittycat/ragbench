@@ -320,15 +320,14 @@ def get_retrieval_config() -> RetrievalConfig:
 async def get_system_metrics() -> SystemMetrics:
     """Get complete system metrics overview."""
     from infrastructure.database.postgres import get_session
-    from infrastructure.database.repositories.documents import DocumentRepository
+    from infrastructure.database import documents as db_docs
 
     models = await get_models_config()
     retrieval = get_retrieval_config()
 
     try:
         async with get_session() as session:
-            repo = DocumentRepository(session)
-            documents = await repo.list_documents()
+            documents = await db_docs.list_documents(session)
         doc_count = len(documents)
         chunk_count = sum(d.get("chunks", 0) for d in documents)
     except Exception as e:

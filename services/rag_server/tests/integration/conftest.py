@@ -158,7 +158,7 @@ def clean_test_database(integration_env, check_services):
     """
     import asyncio
     from infrastructure.database.postgres import get_session
-    from infrastructure.database.repositories.documents import DocumentRepository
+    from infrastructure.database import documents as db_docs
 
     # Track created documents for cleanup
     created_doc_ids = []
@@ -170,10 +170,9 @@ def clean_test_database(integration_env, check_services):
     # Cleanup: delete test documents
     async def cleanup():
         async with get_session() as session:
-            repo = DocumentRepository(session)
             for doc_id in created_doc_ids:
                 try:
-                    await repo.delete_document_with_chunks(uuid.UUID(doc_id))
+                    await db_docs.delete_document(session, uuid.UUID(doc_id))
                 except Exception:
                     pass
 

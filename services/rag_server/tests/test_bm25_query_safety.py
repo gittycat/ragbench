@@ -30,9 +30,9 @@ async def test_pgsearch_retriever_uses_match_for_raw_user_queries():
 
 
 @pytest.mark.asyncio
-async def test_document_repository_bm25_search_uses_match():
-    """Repository BM25 search should route user text through match()."""
-    from infrastructure.database.repositories.documents import DocumentRepository
+async def test_document_bm25_search_uses_match():
+    """BM25 search should route user text through match()."""
+    from infrastructure.database.documents import search_chunks_bm25
 
     query = "what's an LLM"
 
@@ -42,8 +42,7 @@ async def test_document_repository_bm25_search_uses_match():
     session = AsyncMock()
     session.execute.return_value = result_proxy
 
-    repo = DocumentRepository(session)
-    results = await repo.search_chunks_by_content(query=query, limit=5)
+    results = await search_chunks_bm25(session, query=query, limit=5)
 
     assert results == []
     sql, params = session.execute.await_args.args

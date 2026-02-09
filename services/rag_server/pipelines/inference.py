@@ -95,7 +95,7 @@ def _get_chat_store():
     """Get or initialize PostgreSQL chat store (lazy initialization)"""
     global _chat_store
     if _chat_store is None:
-        from infrastructure.database.repositories.sessions import PostgresChatStore
+        from infrastructure.database.sessions import PostgresChatStore
         _chat_store = PostgresChatStore()
         logger.info("[CHAT] Initialized PostgresChatStore (persistent)")
     return _chat_store
