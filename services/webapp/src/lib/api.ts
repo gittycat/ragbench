@@ -826,6 +826,42 @@ export async function unarchiveSession(sessionId: string): Promise<void> {
 }
 
 // ============================================================================
+// Types - Settings
+// ============================================================================
+
+export interface Settings {
+	contextual_retrieval_enabled: boolean;
+}
+
+export interface SettingsUpdate {
+	contextual_retrieval_enabled?: boolean;
+}
+
+// ============================================================================
+// API Functions - Settings
+// ============================================================================
+
+export async function fetchSettings(): Promise<Settings> {
+	const response = await fetch(`${API_BASE}/settings`);
+	if (!response.ok) {
+		throw new Error(`Failed to fetch settings: ${response.statusText}`);
+	}
+	return response.json();
+}
+
+export async function updateSettings(update: SettingsUpdate): Promise<Settings> {
+	const response = await fetch(`${API_BASE}/settings`, {
+		method: 'PATCH',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(update)
+	});
+	if (!response.ok) {
+		throw new Error(`Failed to update settings: ${response.statusText}`);
+	}
+	return response.json();
+}
+
+// ============================================================================
 // Types - API Keys
 // ============================================================================
 

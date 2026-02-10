@@ -155,7 +155,7 @@ async def shutdown():
 app = FastAPI(title="RAG Bench", lifespan=lifespan)
 
 # Include routers
-from api.routes import health, query, documents, chat, metrics, sessions, api_keys
+from api.routes import health, query, documents, chat, metrics, sessions, api_keys, settings
 
 app.include_router(health.router, tags=["health"])
 app.include_router(query.router, tags=["query"])
@@ -164,3 +164,4 @@ app.include_router(chat.router, tags=["chat"])
 app.include_router(sessions.router, tags=["sessions"])
 app.include_router(metrics.router, tags=["metrics"])
 app.include_router(api_keys.router, tags=["api-keys"])
+app.include_router(settings.router, tags=["settings"])

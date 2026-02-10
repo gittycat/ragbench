@@ -55,7 +55,7 @@ services:
       - private
       - public
     volumes:
-      - ./config.yml:/app/config.yml:ro       # Model configuration (read-only)
+      - ./config.yml:/app/config.yml             # Model configuration (read-write for settings)
       - ./data/indexed_documents:/app/documents
       - docs_repo:/tmp/shared
       - ./.hf_cache:/home/appuser/.cache/huggingface
@@ -121,7 +121,7 @@ services:
       - private
       - public
     volumes:
-      - ./config.yml:/app/config.yml:ro       # Model configuration (read-only)
+      - ./config.yml:/app/config.yml             # Model configuration (read-write for settings)
       - ./data/indexed_documents:/app/documents
       - docs_repo:/tmp/shared
       - ./.hf_cache:/home/appuser/.cache/huggingface

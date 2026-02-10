@@ -1,5 +1,7 @@
 """Model configuration management using Pydantic for type safety and validation."""
 
+import logging
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -177,7 +179,7 @@ class RetrievalConfig(BaseModel):
     top_k: int = 10
     enable_hybrid_search: bool = True
     rrf_k: int = 60
-    enable_contextual_retrieval: bool = False
+    enable_contextual_retrieval: bool = True
 
 
 class CitationInstructions(BaseModel):
@@ -243,6 +245,8 @@ class ModelDefinitions(BaseModel):
 class ModelsConfig(BaseModel):
     """Root configuration for all models and retrieval settings."""
 
+    model_config = {"arbitrary_types_allowed": True}
+
     llm: LLMConfig
     embedding: EmbeddingConfig
     eval: EvalConfig
@@ -250,6 +254,7 @@ class ModelsConfig(BaseModel):
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     prompts: PromptConfig = Field(default_factory=PromptConfig)
+    _source_path: Path | None = None
 
     @classmethod
     def load(cls, config_path: str | Path | None = None) -> "ModelsConfig":
@@ -306,6 +311,7 @@ class ModelsConfig(BaseModel):
 
         # Create and validate config
         config = cls(**resolved_data)
+        config._source_path = Path(config_path)
 
         # Run provider-specific validations
         config.llm.validate_provider_requirements()
@@ -399,39 +405,41 @@ class ModelsConfig(BaseModel):
         return resolved
 
 
-class ModelsConfigManager:
-    """
-    Manages ModelsConfig lifecycle with lazy initialization.
+_logger = logging.getLogger(__name__)
 
-    Supports dependency injection for testing and reconfiguration.
-    """
+
+class ModelsConfigManager:
+    """Manages ModelsConfig lifecycle with lazy initialization and file mtime tracking."""
 
     def __init__(self, config_path: str | Path | None = None):
-        """
-        Initialize models config manager.
-
-        Args:
-            config_path: Optional path to config file. If None, searches standard locations.
-        """
         self._config_path = config_path
         self._config: ModelsConfig | None = None
+        self._resolved_path: Path | None = None
+        self._last_mtime: float = 0.0
 
     def get_config(self) -> ModelsConfig:
-        """
-        Get or load ModelsConfig.
+        """Get config, auto-reloading if the file changed on disk."""
+        if self._config is not None and self._resolved_path is not None:
+            try:
+                current_mtime = self._resolved_path.stat().st_mtime
+                if current_mtime != self._last_mtime:
+                    _logger.info("[CONFIG] config.yml changed on disk, reloading")
+                    self._config = None
+            except OSError:
+                pass
 
-        Lazy initialization - config is loaded on first access.
-
-        Returns:
-            ModelsConfig instance
-        """
         if self._config is None:
             self._config = ModelsConfig.load(self._config_path)
+            self._resolved_path = self._config._source_path  # type: ignore[attr-defined]
+            if self._resolved_path:
+                self._last_mtime = self._resolved_path.stat().st_mtime
+
         return self._config
 
     def reset(self) -> None:
         """Reset the config instance. Useful for testing."""
         self._config = None
+        self._last_mtime = 0.0
 
 
 # Global instance for backward compatibility
@@ -465,3 +473,31 @@ def get_database_config() -> DatabaseConfig:
 def reset_models_config() -> None:
     """Reset the default models config. Useful for testing."""
     _default_manager.reset()
+
+
+def update_config_file(key: str, value: Any) -> None:
+    """Update a single YAML key in config.yml using line replacement (preserves comments).
+
+    Supports dotted keys like 'retrieval.enable_contextual_retrieval'.
+    After writing, resets the cached config so next access reloads from disk.
+    """
+    config = get_models_config()
+    config_path = config._source_path
+    if config_path is None:
+        raise RuntimeError("Config source path unknown; cannot update file")
+
+    # Get the leaf key name for the regex match
+    leaf_key = key.split(".")[-1]
+    pattern = re.compile(rf"^(\s*{re.escape(leaf_key)}\s*:\s*)(.+)$", re.MULTILINE)
+
+    text = config_path.read_text()
+    # Convert Python bool to YAML bool
+    yaml_value = str(value).lower() if isinstance(value, bool) else str(value)
+
+    new_text, count = pattern.subn(rf"\g<1>{yaml_value}", text, count=1)
+    if count == 0:
+        raise ValueError(f"Key '{leaf_key}' not found in {config_path}")
+
+    config_path.write_text(new_text)
+    _default_manager.reset()
+    _logger.info(f"[CONFIG] Updated {key}={value} in {config_path}")

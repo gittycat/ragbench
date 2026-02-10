@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { showTooltips } from '$lib/stores/ui';
-	import { fetchApiKeyStatus, setApiKey, type ApiKeyStatus } from '$lib/api';
+	import {
+		fetchApiKeyStatus,
+		setApiKey,
+		fetchSettings,
+		updateSettings,
+		type ApiKeyStatus
+	} from '$lib/api';
 
 	let apiKeyStatuses: ApiKeyStatus[] = [];
 	let loading = true;
@@ -10,19 +16,42 @@
 	let validationErrors: Record<string, string> = {};
 	let validationSuccess: Record<string, boolean> = {};
 
+	let contextualRetrievalEnabled = true;
+	let settingsLoading = true;
+
 	onMount(async () => {
 		try {
-			apiKeyStatuses = await fetchApiKeyStatus();
-			// Initialize inputs with masked values
+			const [keyStatuses, settings] = await Promise.all([
+				fetchApiKeyStatus(),
+				fetchSettings()
+			]);
+
+			apiKeyStatuses = keyStatuses;
 			apiKeyStatuses.forEach((status) => {
 				apiKeyInputs[status.provider] = status.masked_key || '';
 			});
+
+			contextualRetrievalEnabled = settings.contextual_retrieval_enabled;
 		} catch (error) {
-			console.error('Failed to load API key status:', error);
+			console.error('Failed to load settings:', error);
 		} finally {
 			loading = false;
+			settingsLoading = false;
 		}
 	});
+
+	async function handleContextualRetrievalToggle() {
+		try {
+			const result = await updateSettings({
+				contextual_retrieval_enabled: contextualRetrievalEnabled
+			});
+			contextualRetrievalEnabled = result.contextual_retrieval_enabled;
+		} catch (error) {
+			// Revert on failure
+			contextualRetrievalEnabled = !contextualRetrievalEnabled;
+			console.error('Failed to update contextual retrieval setting:', error);
+		}
+	}
 
 	async function handleApiKeySubmit(provider: string) {
 		const apiKey = apiKeyInputs[provider];
@@ -93,6 +122,25 @@
 			/>
 			<span>Show help tooltips</span>
 		</label>
+	</div>
+
+	<!-- RAG Pipeline Section -->
+	<div class="bg-base-200 rounded p-2">
+		<div class="text-xs font-semibold mb-1 text-base-content/70">RAG Pipeline</div>
+		{#if settingsLoading}
+			<div class="text-xs text-base-content/60">Loading...</div>
+		{:else}
+			<label class="flex items-center gap-2 text-xs cursor-pointer">
+				<input
+					type="checkbox"
+					class="checkbox checkbox-xs rounded-none"
+					bind:checked={contextualRetrievalEnabled}
+					on:change={handleContextualRetrievalToggle}
+				/>
+				<span>Contextual retrieval</span>
+				<span class="text-base-content/50">(LLM-generated context per chunk during ingestion)</span>
+			</label>
+		{/if}
 	</div>
 
 	<!-- API Keys Section -->
