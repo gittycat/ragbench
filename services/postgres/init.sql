@@ -1,9 +1,8 @@
 -- PostgreSQL initialization script for RAG system
 -- Run by docker-entrypoint-initdb.d on first container start
 
--- Enable extensions (ParadeDB image includes pgvector and pg_search)
-CREATE EXTENSION IF NOT EXISTS vector;
-CREATE EXTENSION IF NOT EXISTS pg_search;
+-- Extensions: pg_textsearch for BM25 search, pgmq for message queue
+CREATE EXTENSION IF NOT EXISTS pg_textsearch;
 CREATE EXTENSION IF NOT EXISTS pgmq;
 
 -- Documents table (source files)
@@ -18,28 +17,21 @@ CREATE TABLE IF NOT EXISTS documents (
     metadata JSONB DEFAULT '{}'
 );
 
--- Document chunks with vectors
+-- Document chunks (text content for BM25 search; vectors stored in ChromaDB)
 CREATE TABLE IF NOT EXISTS document_chunks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     chunk_index INTEGER NOT NULL,
     content TEXT NOT NULL,
     content_with_context TEXT,
-    embedding vector(768),  -- nomic-embed-text dimension
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(document_id, chunk_index)
 );
 
--- HNSW index for vector similarity search (cosine)
-CREATE INDEX IF NOT EXISTS idx_chunks_embedding ON document_chunks
-USING hnsw (embedding vector_cosine_ops) WITH (m = 16, ef_construction = 64);
-
--- BM25 index via pg_search (ParadeDB v2 API)
--- Uses English stemmer for better search relevance
+-- BM25 index via pg_textsearch (Timescale) for ranked full-text search
 CREATE INDEX idx_chunks_bm25 ON document_chunks
-USING bm25 (id, content)
-WITH (key_field='id');
+USING bm25 (content) WITH (text_config='english');
 
 -- Chat sessions
 CREATE TABLE IF NOT EXISTS chat_sessions (

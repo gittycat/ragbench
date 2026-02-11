@@ -1,4 +1,4 @@
-"""BM25 retriever using pg_search (ParadeDB) for PostgreSQL full-text search."""
+"""BM25 retriever using pg_textsearch (Timescale) for PostgreSQL full-text search."""
 
 import logging
 from typing import Any
@@ -15,12 +15,12 @@ logger = logging.getLogger(__name__)
 
 class PgSearchBM25Retriever(BaseRetriever):
     """
-    BM25 retriever using pg_search (ParadeDB) for true BM25 full-text search.
+    BM25 retriever using pg_textsearch (Timescale) for true BM25 full-text search.
 
-    Unlike in-memory BM25, this uses PostgreSQL's pg_search extension which:
+    Unlike in-memory BM25, this uses PostgreSQL's pg_textsearch extension which:
     - Scales to millions of documents
     - Persists across restarts
-    - Uses optimized inverted indexes
+    - Uses optimized inverted indexes with BM25 ranking
     - Supports stemming and tokenization
     """
 
@@ -35,9 +35,9 @@ class PgSearchBM25Retriever(BaseRetriever):
 
     async def _aretrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
         """
-        Retrieve documents using pg_search BM25.
+        Retrieve documents using pg_textsearch BM25.
 
-        Uses ParadeDB's BM25 index on document_chunks.content field.
+        Uses pg_textsearch BM25 index on document_chunks.content field.
         """
         query_str = query_bundle.query_str
         if not query_str.strip():
@@ -51,8 +51,8 @@ class PgSearchBM25Retriever(BaseRetriever):
     async def _search_bm25(
         self, session: AsyncSession, query_str: str
     ) -> list[NodeWithScore]:
-        """Execute BM25 search using pg_search."""
-        # Use match() for raw user text; parse() expects structured query syntax.
+        """Execute BM25 search using pg_textsearch."""
+        # pg_textsearch uses tsquery for full-text search with BM25 ranking
         sql = text("""
             SELECT
                 dc.id,
@@ -68,10 +68,11 @@ class PgSearchBM25Retriever(BaseRetriever):
                 d.file_size_bytes,
                 d.file_hash,
                 d.uploaded_at,
-                paradedb.score(dc.id) as bm25_score
+                bm25_search.score as bm25_score
             FROM document_chunks dc
-            JOIN documents d ON dc.document_id = d.id
-            WHERE dc.id @@@ paradedb.match('content', :query)
+            JOIN documents d ON dc.document_id = d.id,
+            LATERAL bm25_search('idx_chunks_bm25', websearch_to_tsquery('english', :query)) bm25_search
+            WHERE dc.id = bm25_search.id
             ORDER BY bm25_score DESC
             LIMIT :limit
         """)

@@ -175,6 +175,12 @@ retrieval:
   enable_contextual_retrieval: true   # Anthropic contextual retrieval (slower)
 
 # ============================================================================
+# ChromaDB Vector Store
+# ============================================================================
+chromadb:
+  collection: document_chunks    # ChromaDB collection name for embeddings
+
+# ============================================================================
 # Database Connection Pooling
 # ============================================================================
 database:

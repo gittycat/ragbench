@@ -5,8 +5,8 @@ Complete flow for processing documents from upload to indexing:
 1. Validate file format and extract metadata
 2. Chunk document using Docling (complex) or SentenceSplitter (text)
 3. Optionally add contextual prefixes via LLM (Anthropic method)
-4. Generate embeddings and index in PostgreSQL (pgvector)
-5. BM25 index is automatic via pg_search
+4. Generate embeddings and index in ChromaDB
+5. BM25 index is automatic via pg_textsearch
 """
 
 from pathlib import Path
@@ -370,12 +370,12 @@ def embed_and_index_chunks(
     progress_callback: Optional[Callable[[int, int], None]] = None
 ) -> None:
     """
-    Generate embeddings and index chunks in PostgreSQL (pgvector).
+    Generate embeddings and index chunks in ChromaDB.
 
     Flow:
     - For each chunk:
       - Generate embedding via Ollama (or configured provider)
-      - Insert into PostgreSQL vector store
+      - Insert into ChromaDB vector store
       - Call progress callback for tracking
     - Includes retry logic for Ollama connection errors
 
@@ -449,17 +449,17 @@ def _insert_node_with_retry(index: VectorStoreIndex, node: TextNode, max_retries
 
 
 # ============================================================================
-# STEP 5: HYBRID SEARCH INDEX REFRESH (NO-OP for pg_search)
+# STEP 5: HYBRID SEARCH INDEX REFRESH (NO-OP for pg_textsearch)
 # ============================================================================
 
 def refresh_hybrid_search_index(index: VectorStoreIndex) -> None:
     """
-    No-op for pg_search. BM25 index refreshes automatically with inserts.
+    No-op for pg_textsearch. BM25 index refreshes automatically with inserts.
 
-    pg_search maintains the BM25 index automatically when rows are
+    pg_textsearch maintains the BM25 index automatically when rows are
     inserted/updated/deleted, so no manual refresh is needed.
     """
-    logger.debug("[HYBRID] pg_search BM25 index refreshes automatically - no manual refresh needed")
+    logger.debug("[HYBRID] pg_textsearch BM25 index refreshes automatically - no manual refresh needed")
 
 
 # ============================================================================
@@ -481,12 +481,12 @@ def ingest_document(
     2. Chunk document (Docling or SentenceSplitter)
     3. Add contextual prefixes (optional, LLM-based)
     4. Add document metadata to chunks
-    5. Generate embeddings and index in PostgreSQL (pgvector)
-    6. BM25 index auto-refreshes via pg_search
+    5. Generate embeddings and index in ChromaDB
+    6. BM25 index auto-refreshes via pg_textsearch
 
     Args:
         file_path: Path to document file
-        index: VectorStoreIndex for PostgreSQL
+        index: VectorStoreIndex for ChromaDB
         document_id: Unique document identifier
         filename: Display name for document
         progress_callback: Optional callback for progress tracking (current, total)
@@ -529,14 +529,14 @@ def ingest_document(
     logger.info(f"[INGESTION] Step 4 complete")
 
     # STEP 5: Embed and index
-    logger.info(f"[INGESTION] Step 5: Generating embeddings and indexing in PostgreSQL...")
+    logger.info(f"[INGESTION] Step 5: Generating embeddings and indexing in ChromaDB...")
     embed_start = time.time()
     embed_and_index_chunks(index, nodes, progress_callback)
     embed_duration = time.time() - embed_start
     logger.info(f"[INGESTION] Step 5 complete ({embed_duration:.2f}s)")
 
     # STEP 6: BM25 index auto-refreshes (no-op)
-    logger.info(f"[INGESTION] Step 6: BM25 index auto-refreshes via pg_search")
+    logger.info(f"[INGESTION] Step 6: BM25 index auto-refreshes via pg_textsearch")
     refresh_hybrid_search_index(index)
     logger.info(f"[INGESTION] Step 6 complete")
 

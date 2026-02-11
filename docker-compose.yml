@@ -36,6 +36,8 @@ services:
       - DATABASE_HOST=postgres
       - DATABASE_PORT=5432
       - DATABASE_NAME=ragbench
+      - CHROMADB_HOST=chromadb
+      - CHROMADB_PORT=8000
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80
       - SHARED_UPLOAD_DIR=/tmp/shared
@@ -45,6 +47,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      chromadb:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=2)"]
       interval: 2s
@@ -60,7 +64,7 @@ services:
       - docs_repo:/tmp/shared
       - ./.hf_cache:/home/appuser/.cache/huggingface
 
-  # PostgreSQL with pgvector + pg_search (ParadeDB) + pgmq
+  # PostgreSQL 17 with pg_textsearch (BM25) + pgmq
   postgres:
     build:
       context: ./services/postgres
@@ -89,6 +93,17 @@ services:
       - private
     restart: unless-stopped
 
+  # ChromaDB - Vector database for embeddings
+  chromadb:
+    image: chromadb/chroma:latest
+    environment:
+      - ANONYMIZED_TELEMETRY=False
+    volumes:
+      - chroma_data:/data
+    networks:
+      - private
+    restart: unless-stopped
+
   # PGMQ Worker - Async document processing via PostgreSQL queue
   pgmq-worker:
     build:
@@ -106,6 +121,8 @@ services:
       - DATABASE_HOST=postgres
       - DATABASE_PORT=5432
       - DATABASE_NAME=ragbench
+      - CHROMADB_HOST=chromadb
+      - CHROMADB_PORT=8000
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80
       - SHARED_UPLOAD_DIR=/tmp/shared
@@ -115,6 +132,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      chromadb:
+        condition: service_started
       rag-server:
         condition: service_healthy
     networks:
@@ -156,6 +175,8 @@ networks:
 # Persistent volumes
 volumes:
   postgres_data:
+    driver: local
+  chroma_data:
     driver: local
   docs_repo:
     driver: local

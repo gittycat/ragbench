@@ -30,23 +30,24 @@ def do_thing(x): return x * 2
 
 ## Project Overview
 
-Local RAG system: FastAPI + Docling + LlamaIndex + PostgreSQL (pgvector + pg_search BM25) + Ollama. Implements Hybrid Search (BM25 + vector + RRF) and Contextual Retrieval.
+Local RAG system: FastAPI + Docling + LlamaIndex + PostgreSQL (pg_textsearch BM25) + ChromaDB + Ollama. Implements Hybrid Search (BM25 + vector + RRF) and Contextual Retrieval.
 
 ## Architecture
 
 - `rag-server` (port 8001): RAG API — `public` network, exposed to host
 - `pgmq-worker`: Async document processing worker — `private` network
-- `postgres`: PostgreSQL 18 with pgvector, pg_search (ParadeDB), pgmq — `private` network
+- `postgres`: PostgreSQL 17 with pg_textsearch (BM25), pgmq — `private` network
+- `chromadb`: Vector database for embeddings — `private` network
 - Ollama: runs on host at `http://host.docker.internal:11434`
 
 ### Document Processing
 
-**Upload:** POST /upload → files saved to `/tmp/shared` → pgmq tasks queued → worker processes: DoclingReader → contextual prefix → DoclingNodeParser → embeddings → PGVectorStore + pg_search BM25
+**Upload:** POST /upload → files saved to `/tmp/shared` → pgmq tasks queued → worker processes: DoclingReader → contextual prefix → DoclingNodeParser → embeddings → ChromaDB (vectors) + PostgreSQL (text + pg_textsearch BM25)
 
-**Query:** hybrid retrieval (BM25 + pgvector + RRF, top-k=10) → SentenceTransformerRerank (top 5-10) → LLM answer → chat history saved to PostgreSQL
+**Query:** hybrid retrieval (BM25 + ChromaDB vectors + RRF, top-k=10) → SentenceTransformerRerank (top 5-10) → LLM answer → chat history saved to PostgreSQL
 
 ### Key Patterns
-- **Hybrid Search**: pg_search BM25 + pgvector with RRF fusion (k=60), auto-indexes
+- **Hybrid Search**: pg_textsearch BM25 + ChromaDB vectors with RRF fusion (k=60), auto-indexes
 - **Contextual Retrieval**: LLM-generated context prepended to chunks before embedding (toggle: `ENABLE_CONTEXTUAL_RETRIEVAL`)
 - **Async Processing**: pgmq + PostgreSQL job_batches/job_tasks for progress tracking
 - **Conversational RAG**: `condense_plus_context` mode, `ChatMemoryBuffer` + `PostgresChatStore`
@@ -89,7 +90,7 @@ ANTHROPIC_API_KEY=sk-ant-... uv run python -m evaluation.cli eval --samples 5
 ## Critical Implementation Details
 
 ### Hybrid Search & Contextual Retrieval
-- `PgSearchBM25Retriever` + `PGVectorStore` combined via `HybridRRFRetriever` (k=60)
+- `pg_textsearch BM25Retriever` + `ChromaVectorStore` combined via `HybridRRFRetriever` (k=60)
 - BM25 index auto-refreshes on insert/update/delete
 - Falls back to vector-only if `ENABLE_HYBRID_SEARCH=false`
 - Contextual retrieval: `add_contextual_prefix_to_chunk()` in `pipelines/ingestion.py`
@@ -107,14 +108,15 @@ ANTHROPIC_API_KEY=sk-ant-... uv run python -m evaluation.cli eval --samples 5
 ```sql
 -- services/postgres/init.sql
 documents, document_chunks, chat_sessions, chat_messages, job_batches, job_tasks
--- Extensions: pgvector, pg_search, pgmq
+-- Extensions: pg_textsearch, pgmq
+-- Note: embedding vectors stored in ChromaDB, not PostgreSQL
 ```
 
 ### Configuration
 - `config.yml`: all model settings, prompt templates, provider config
 - API keys stored as files under `secrets/` (filename = key name)
 - Supported providers: ollama (local), openai/anthropic/google/deepseek (cloud, require API keys)
-- Env vars (docker-compose.yml): `DATABASE_URL`, `MAX_UPLOAD_SIZE=80`, `LOG_LEVEL=WARNING`
+- Env vars (docker-compose.yml): `DATABASE_HOST`, `DATABASE_PORT`, `CHROMADB_HOST`, `CHROMADB_PORT`, `MAX_UPLOAD_SIZE=80`, `LOG_LEVEL=WARNING`
 
 ## Key Files
 

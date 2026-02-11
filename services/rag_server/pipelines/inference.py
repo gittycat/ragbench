@@ -3,7 +3,7 @@ RAG Inference Pipeline
 
 Complete flow for query processing and answer generation:
 1. Initialize chat memory (session-based, PostgreSQL-backed)
-2. Build hybrid retriever (pg_search BM25 + pgvector with RRF fusion)
+2. Build hybrid retriever (pg_textsearch BM25 + ChromaDB with RRF fusion)
 3. Create reranker postprocessor (optional)
 4. Build chat engine (condense_plus_context mode)
 5. Query processing (retrieval → reranking → LLM generation)
@@ -223,12 +223,12 @@ def get_chat_history(session_id: str) -> List:
 
 
 # ============================================================================
-# STEP 2: HYBRID RETRIEVAL (pg_search BM25 + pgvector + RRF)
+# STEP 2: HYBRID RETRIEVAL (pg_textsearch BM25 + ChromaDB + RRF)
 # ============================================================================
 
 def create_hybrid_retriever(index: VectorStoreIndex, similarity_top_k: int = 10):
     """
-    Create hybrid retriever combining pg_search BM25 + pgvector with RRF fusion.
+    Create hybrid retriever combining pg_textsearch BM25 + ChromaDB with RRF fusion.
 
     Research (Pinecone benchmark):
     - 48% improvement in retrieval quality vs vector-only
@@ -254,7 +254,7 @@ def create_hybrid_retriever(index: VectorStoreIndex, similarity_top_k: int = 10)
         rrf_k=config['rrf_k'],
     )
 
-    logger.info("[HYBRID] Hybrid retriever created (pg_search BM25 + pgvector + RRF)")
+    logger.info("[HYBRID] Hybrid retriever created (pg_textsearch BM25 + ChromaDB + RRF)")
     return retriever
 
 
@@ -387,7 +387,7 @@ def create_chat_engine(
 
     # Create chat engine
     if retriever is not None:
-        logger.info("[CHAT_ENGINE] Using hybrid retriever (pg_search BM25 + pgvector + RRF)")
+        logger.info("[CHAT_ENGINE] Using hybrid retriever (pg_textsearch BM25 + ChromaDB + RRF)")
         chat_engine = CondensePlusContextChatEngine.from_defaults(
             retriever=retriever,
             memory=memory,
@@ -528,7 +528,7 @@ def query_rag(
     Execute RAG query pipeline (synchronous, non-streaming).
 
     Flow:
-    1. Get VectorStoreIndex from PostgreSQL (pgvector)
+    1. Get VectorStoreIndex from ChromaDB
     2. Get inference configuration
     3. Create chat engine (with hybrid search, reranking, memory)
     4. Execute query (retrieval → reranking → LLM generation)
@@ -736,14 +736,14 @@ def query_rag_stream(
 # ============================================================================
 
 def refresh_bm25_retriever(index: VectorStoreIndex = None) -> None:
-    """No-op for backward compatibility. pg_search BM25 index refreshes automatically."""
-    logger.debug("[HYBRID] refresh_bm25_retriever called - pg_search handles this automatically")
+    """No-op for backward compatibility. pg_textsearch BM25 index refreshes automatically."""
+    logger.debug("[HYBRID] refresh_bm25_retriever called - pg_textsearch handles this automatically")
     pass
 
 
 def initialize_bm25_retriever(index: VectorStoreIndex = None, similarity_top_k: int = 10):
-    """No-op for backward compatibility. pg_search BM25 is used instead."""
-    logger.debug("[HYBRID] initialize_bm25_retriever called - pg_search handles this automatically")
+    """No-op for backward compatibility. pg_textsearch BM25 is used instead."""
+    logger.debug("[HYBRID] initialize_bm25_retriever called - pg_textsearch handles this automatically")
     return None
 
 

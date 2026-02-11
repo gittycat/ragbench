@@ -143,6 +143,7 @@ async def add_chunks(
     document_id: UUID,
     chunks: list[dict[str, Any]],
 ) -> list[DocumentChunk]:
+    """Add document chunks to PostgreSQL (embeddings stored in ChromaDB separately)."""
     chunk_models = []
     for chunk in chunks:
         chunk_model = DocumentChunk(
@@ -150,7 +151,6 @@ async def add_chunks(
             chunk_index=chunk["chunk_index"],
             content=chunk["content"],
             content_with_context=chunk.get("content_with_context"),
-            embedding=chunk.get("embedding"),
             metadata_=chunk.get("metadata", {}),
         )
         chunk_models.append(chunk_model)
@@ -158,17 +158,6 @@ async def add_chunks(
     session.add_all(chunk_models)
     await session.flush()
     return chunk_models
-
-
-async def update_chunk_embedding(
-    session: AsyncSession,
-    chunk_id: UUID,
-    embedding: list[float],
-) -> None:
-    chunk = await session.get(DocumentChunk, chunk_id)
-    if chunk:
-        chunk.embedding = embedding
-        await session.flush()
 
 
 async def get_all_chunks(session: AsyncSession) -> list[DocumentChunk]:
@@ -201,11 +190,12 @@ async def delete_document(session: AsyncSession, document_id: UUID) -> bool:
 async def search_chunks_bm25(
     session: AsyncSession, query: str, limit: int = 10
 ) -> list[tuple[DocumentChunk, float]]:
-    """BM25 full-text search using pg_search. Returns (chunk, score) tuples."""
+    """BM25 full-text search using pg_textsearch. Returns (chunk, score) tuples."""
     sql = text("""
-        SELECT dc.*, paradedb.score(dc.id) as bm25_score
-        FROM document_chunks dc
-        WHERE dc.id @@@ paradedb.match('content', :query)
+        SELECT dc.*, bm25_search.score as bm25_score
+        FROM document_chunks dc,
+        LATERAL bm25_search('idx_chunks_bm25', websearch_to_tsquery('english', :query)) bm25_search
+        WHERE dc.id = bm25_search.id
         ORDER BY bm25_score DESC
         LIMIT :limit
     """)
@@ -220,7 +210,6 @@ async def search_chunks_bm25(
             chunk_index=row.chunk_index,
             content=row.content,
             content_with_context=row.content_with_context,
-            embedding=row.embedding,
             metadata_=row.metadata,
             created_at=row.created_at,
         )

@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     Boolean,
@@ -54,7 +53,7 @@ class Document(Base):
 
 
 class DocumentChunk(Base):
-    """Document chunks with vector embeddings."""
+    """Document chunks (embeddings stored in ChromaDB)."""
     __tablename__ = "document_chunks"
 
     id: Mapped[UUID] = mapped_column(
@@ -68,7 +67,6 @@ class DocumentChunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     content_with_context: Mapped[str | None] = mapped_column(Text)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(768))  # nomic-embed-text
     metadata_: Mapped[dict[str, Any]] = mapped_column(
         "metadata", JSONB, default=dict, server_default="{}"
     )
@@ -86,7 +84,7 @@ class DocumentChunk(Base):
             "chunk_index",
             unique=True,
         ),
-        # HNSW index created separately via init.sql (requires vector extension)
+        # BM25 index created via init.sql (pg_textsearch extension)
     )
 
     def __repr__(self) -> str:

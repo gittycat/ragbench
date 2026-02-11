@@ -1,56 +1,46 @@
-"""PGVectorStore wrapper for LlamaIndex integration."""
+"""ChromaDB vector store wrapper for LlamaIndex integration."""
 
 import logging
+import os
+from typing import Optional
 
 from llama_index.core import VectorStoreIndex
-from llama_index.vector_stores.postgres import PGVectorStore
+from llama_index.vector_stores.chroma import ChromaVectorStore
+import chromadb
 
-from app.settings import get_database_params
-from infrastructure.config.models_config import get_database_config
+from infrastructure.config.models_config import get_models_config
 
 logger = logging.getLogger(__name__)
 
-_vector_store: PGVectorStore | None = None
-_vector_index: VectorStoreIndex | None = None
+_chroma_client: Optional[chromadb.HttpClient] = None
+_vector_store: Optional[ChromaVectorStore] = None
+_vector_index: Optional[VectorStoreIndex] = None
 
 
-def get_vector_store() -> PGVectorStore:
-    """Get or create the PGVectorStore singleton."""
+def get_chroma_client() -> chromadb.HttpClient:
+    """Get or create the ChromaDB HTTP client singleton."""
+    global _chroma_client
+    if _chroma_client is None:
+        host = os.getenv("CHROMADB_HOST", "localhost")
+        port = int(os.getenv("CHROMADB_PORT", "8000"))
+
+        _chroma_client = chromadb.HttpClient(host=host, port=port)
+        logger.info(f"Created ChromaDB client connection (host={host}, port={port})")
+    return _chroma_client
+
+
+def get_vector_store() -> ChromaVectorStore:
+    """Get or create the ChromaVectorStore singleton."""
     global _vector_store
     if _vector_store is None:
-        params = get_database_params()
-        db_config = get_database_config()
+        config = get_models_config()
+        collection_name = config.chromadb.collection_name
 
-        # PGVectorStore creates its own SQLAlchemy engines (sync + async).
-        # Pass pool settings to match the main engine's configuration.
-        engine_kwargs = {
-            "pool_size": db_config.pool_size,
-            "max_overflow": db_config.max_overflow,
-            "pool_pre_ping": db_config.pool_pre_ping,
-            "pool_recycle": db_config.pool_recycle,
-        }
+        chroma_client = get_chroma_client()
+        chroma_collection = chroma_client.get_or_create_collection(collection_name)
 
-        _vector_store = PGVectorStore.from_params(
-            database=params["database"],
-            host=params["host"],
-            port=params["port"],
-            user=params["user"],
-            password=params["password"],
-            table_name="document_chunks",
-            embed_dim=768,  # nomic-embed-text dimension
-            hybrid_search=False,  # We use pg_search for BM25 separately
-            hnsw_kwargs={
-                "hnsw_m": 16,
-                "hnsw_ef_construction": 64,
-                "hnsw_ef_search": 100,
-                "hnsw_dist_method": "vector_cosine_ops",
-            },
-            create_engine_kwargs=engine_kwargs,
-        )
-        logger.info(
-            f"Created PGVectorStore connection "
-            f"(pool_size={db_config.pool_size}, max_overflow={db_config.max_overflow})"
-        )
+        _vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+        logger.info(f"Created ChromaVectorStore (collection={collection_name})")
     return _vector_store
 
 

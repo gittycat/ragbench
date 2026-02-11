@@ -116,7 +116,7 @@ def create_hybrid_retriever(
     rrf_k: int = 60,
 ) -> HybridRRFRetriever:
     """
-    Create a hybrid retriever combining BM25 (pg_search) and vector search.
+    Create a hybrid retriever combining BM25 (pg_textsearch) and vector search (ChromaDB).
 
     Args:
         vector_index: VectorStoreIndex for vector similarity search
@@ -128,10 +128,10 @@ def create_hybrid_retriever(
     """
     from infrastructure.search.bm25_retriever import PgSearchBM25Retriever
 
-    # Create BM25 retriever using pg_search
+    # Create BM25 retriever using pg_textsearch
     bm25_retriever = PgSearchBM25Retriever(similarity_top_k=similarity_top_k)
 
-    # Create vector retriever from index
+    # Create vector retriever from ChromaDB index
     vector_retriever = vector_index.as_retriever(similarity_top_k=similarity_top_k)
 
     return HybridRRFRetriever(
