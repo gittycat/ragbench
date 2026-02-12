@@ -1,6 +1,5 @@
-"""Task queue exports for pgmq-based document processing."""
+"""Task processing for async document ingestion via SKIP LOCKED."""
 
-from infrastructure.tasks.pgmq_queue import enqueue_document_task, get_queue_metrics
-from infrastructure.tasks.worker import process_document
+from infrastructure.tasks.worker import process_document_async
 
-__all__ = ["enqueue_document_task", "get_queue_metrics", "process_document"]
+__all__ = ["process_document_async"]

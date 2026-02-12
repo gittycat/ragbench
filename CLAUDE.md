@@ -35,21 +35,21 @@ Local RAG system: FastAPI + Docling + LlamaIndex + PostgreSQL (pg_textsearch BM2
 ## Architecture
 
 - `rag-server` (port 8001): RAG API — `public` network, exposed to host
-- `pgmq-worker`: Async document processing worker — `private` network
-- `postgres`: PostgreSQL 17 with pg_textsearch (BM25), pgmq — `private` network
+- `task-worker`: Async document processing worker via SKIP LOCKED — `private` network
+- `postgres`: PostgreSQL 17 with pg_textsearch (BM25) — `private` network
 - `chromadb`: Vector database for embeddings — `private` network
 - Ollama: runs on host at `http://host.docker.internal:11434`
 
 ### Document Processing
 
-**Upload:** POST /upload → files saved to `/tmp/shared` → pgmq tasks queued → worker processes: DoclingReader → contextual prefix → DoclingNodeParser → embeddings → ChromaDB (vectors) + PostgreSQL (text + pg_textsearch BM25)
+**Upload:** POST /upload → files saved to `/tmp/shared` → tasks created in job_tasks table → worker claims via SKIP LOCKED → DoclingReader → contextual prefix → DoclingNodeParser → embeddings → ChromaDB (vectors) + PostgreSQL (text + pg_textsearch BM25)
 
 **Query:** hybrid retrieval (BM25 + ChromaDB vectors + RRF, top-k=10) → SentenceTransformerRerank (top 5-10) → LLM answer → chat history saved to PostgreSQL
 
 ### Key Patterns
 - **Hybrid Search**: pg_textsearch BM25 + ChromaDB vectors with RRF fusion (k=60), auto-indexes
 - **Contextual Retrieval**: LLM-generated context prepended to chunks before embedding (toggle: `ENABLE_CONTEXTUAL_RETRIEVAL`)
-- **Async Processing**: pgmq + PostgreSQL job_batches/job_tasks for progress tracking
+- **Async Processing**: SKIP LOCKED on job_tasks table for work queue + PostgreSQL job_batches for progress tracking
 - **Conversational RAG**: `condense_plus_context` mode, `ChatMemoryBuffer` + `PostgresChatStore`
 - **Document IDs**: `{doc_id}-chunk-{i}`
 
@@ -108,7 +108,8 @@ ANTHROPIC_API_KEY=sk-ant-... uv run python -m evaluation.cli eval --samples 5
 ```sql
 -- services/postgres/init.sql
 documents, document_chunks, chat_sessions, chat_messages, job_batches, job_tasks
--- Extensions: pg_textsearch, pgmq
+-- Extensions: pg_textsearch
+-- job_tasks serves as work queue via SKIP LOCKED (idx_tasks_claimable partial index)
 -- Note: embedding vectors stored in ChromaDB, not PostgreSQL
 ```
 
@@ -127,14 +128,14 @@ All under `services/rag_server/`:
 - `infrastructure/database/postgres.py` — async connection pool (asyncpg + SQLAlchemy 2.0)
 - `infrastructure/database/repositories/` — document, session, job repos
 - `infrastructure/llm/factory.py` — multi-provider LLM client factory
-- `infrastructure/tasks/` — `pgmq_queue.py`, `pgmq_worker.py`, `worker.py`
+- `infrastructure/tasks/` — `task_worker.py`, `worker.py`
 - `evaluation/` — DeepEval framework, `evals/data/golden_qa.json` (10 Q&A pairs)
 
 ## Common Issues
 
 - **Docker build fails:** ensure `--index-strategy unsafe-best-match` in Dockerfile
 - **Reranker slow on first query:** downloads model (~80MB), adds ~100-300ms
-- **pgmq-worker issues:** `docker compose logs pgmq-worker` — auto-restarts, tasks timeout after 1 hour
+- **task-worker issues:** `docker compose logs task-worker` — auto-restarts, stuck tasks reset after 1 hour
 - **Slow processing:** contextual retrieval takes ~85% of time (LLM calls per chunk)
 
 ## Testing

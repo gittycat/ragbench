@@ -32,7 +32,7 @@ The differentiating features of this RAG are:
 ### a) Data Privacy & Deployment Flexibility
 
 **Fully On-Premises Option**:
-- Complete open-source stack: Ollama (LLM + embeddings), PostgreSQL (pgvector + pg_search + pgmq)
+- Complete open-source stack: Ollama (LLM + embeddings), PostgreSQL (pg_textsearch for BM25)
 - No external network calls required - runs entirely within your infrastructure
 - Ideal for sensitive documents requiring air-gapped deployment
 
@@ -96,8 +96,9 @@ The system is composed of multiple services running in a Docker Compose managed 
   - Contextual Retrieval (optional)
 
 **Support Services**:
-- **postgres** (PostgreSQL 18 + pgvector + pg_search + pgmq): Vector storage, BM25 search, message queue, and persistence
-- **pgmq-worker** (Python 3.13): Background task processor for async document ingestion
+- **postgres** (PostgreSQL 17 + pg_textsearch): BM25 search and persistence
+- **chromadb**: Vector database for embeddings
+- **task-worker** (Python 3.13): Background task processor for async document ingestion via SKIP LOCKED
   - Shares codebase with rag_server (same Docker image, different entrypoint)
 
 **Frontend Service**:
@@ -116,15 +117,15 @@ The system is composed of multiple services running in a Docker Compose managed 
 ### Network Isolation
 
 - **Public network**: webapp, rag-server (accessible from host)
-- **Private network**: postgres, pgmq-worker (internal only)
+- **Private network**: postgres, chromadb, task-worker (internal only)
 - **Shared volumes**: Document staging (`/tmp/shared`), PostgreSQL data, model cache
 
 ### Data Flow
 
 **Document Upload:**
 1. Client uploads files → Webapp proxies to RAG Server
-2. RAG Server saves to shared volume, enqueues PGMQ task
-3. PGMQ Worker: Docling parsing → chunking → embeddings → PostgreSQL (pgvector)
+2. RAG Server saves to shared volume, creates task in job_tasks table
+3. Task Worker claims via SKIP LOCKED: Docling parsing → chunking → embeddings → ChromaDB (vectors) + PostgreSQL (text + BM25)
 4. BM25 index refreshes automatically
 5. Client polls progress via batch_id
 
@@ -142,22 +143,18 @@ PostgreSQL connections are managed through multiple independent pools. All pool 
 
 | # | Pool | Driver | Used By | Config Source |
 |---|------|--------|---------|---------------|
-| 1 | Main async engine (`postgres.py`) | asyncpg (SQLAlchemy) | All repository operations: documents, jobs, sessions, BM25 retriever | `config.yml` |
-| 2 | PGVectorStore sync engine | psycopg2 (SQLAlchemy) | Vector insert/query (sync LlamaIndex path) | `config.yml` via `create_engine_kwargs` |
-| 3 | PGVectorStore async engine | asyncpg (SQLAlchemy) | Vector insert/query (async LlamaIndex path) | `config.yml` via `create_engine_kwargs` |
-| 4 | PGMQueue | psycopg2 (single connection) | Queue enqueue/read/delete | N/A (single connection) |
+| 1 | Main async engine (`postgres.py`) | asyncpg (SQLAlchemy) | All repository operations: documents, jobs, sessions, BM25 retriever, task queue | `config.yml` |
 
 **Connection Budget (per service, with defaults):**
 
 | Pool | pool_size | max_overflow | Max Connections |
 |------|-----------|--------------|-----------------|
 | Main engine | 10 | 20 | 30 |
-| PGVectorStore (sync) | 10 | 20 | 30 |
-| PGVectorStore (async) | 10 | 20 | 30 |
-| PGMQueue | — | — | 1 |
-| **Total per service** | | | **91** |
+| **Total per service** | | | **30** |
 
-With 2 services (rag-server + pgmq-worker), worst case = ~182 connections. PostgreSQL `max_connections` is set to 200 (via `docker-compose.yml` command) to accommodate this plus PostgreSQL's internal connections (autovacuum, WAL writer, etc.).
+With 2 services (rag-server + task-worker), worst case = ~60 connections. PostgreSQL `max_connections` is set to 200 (via `docker-compose.yml` command) to accommodate this plus PostgreSQL's internal connections (autovacuum, WAL writer, etc.).
+
+**Note:** Vector embeddings are now stored in ChromaDB, not PostgreSQL, which significantly reduces the connection count.
 
 **Configuration (`config.yml`):**
 
@@ -172,8 +169,7 @@ database:
 
 **Key Files:**
 - `infrastructure/database/postgres.py` — Main async engine pool
-- `infrastructure/search/vector_store.py` — PGVectorStore pool (passes `create_engine_kwargs`)
-- `infrastructure/tasks/pgmq_queue.py` — Single PGMQueue connection
+- `infrastructure/search/vector_store.py` — ChromaDB vector store (no PostgreSQL connections)
 - `infrastructure/database/migrations/env.py` — Alembic (uses NullPool, short-lived)
 
 ### Database Access Pattern
@@ -230,9 +226,10 @@ infrastructure/database/
 | API Framework | FastAPI | 0.118+ |
 | Python | Python | 3.13+ |
 | Package Manager | uv | Latest |
-| Vector Database | PostgreSQL (pgvector) | 18+ |
-| Full-text Search | pg_search (ParadeDB) | 0.10+ |
-| Task Queue | pgmq (PostgreSQL) | 1.0+ |
+| Vector Database | ChromaDB | Latest |
+| Full-text Search | pg_textsearch (Timescale) | 0.5+ |
+| Database | PostgreSQL | 17+ |
+| Task Queue | PostgreSQL SKIP LOCKED | — |
 | Document Parser | Docling | 2.53+ |
 | RAG Framework | LlamaIndex | 0.14+ |
 | Reranker | SentenceTransformers | 5.1+ |
@@ -291,8 +288,9 @@ services/rag_server/
 - `pipelines/ingestion.py`: Document processing (parsing, chunking, embedding, indexing)
 - `pipelines/inference.py`: Query processing (retrieval, reranking, generation)
 - `infrastructure/llm/`: Multi-provider LLM client factory
-- `infrastructure/database/`: PostgreSQL + pgvector + pg_search
-- `infrastructure/tasks/`: PGMQ queue and worker
+- `infrastructure/database/`: PostgreSQL + pg_textsearch (BM25)
+- `infrastructure/search/`: ChromaDB vector store + BM25 retriever + hybrid RRF
+- `infrastructure/tasks/`: Task worker (SKIP LOCKED)
 - `infrastructure/config/`: YAML configuration loading
 
 ### PGMQ Worker
@@ -329,7 +327,7 @@ Shares codebase with RAG Server (same Docker image, different entrypoint).
 3. Chunking (500 tokens, 50 overlap)
 4. Optional contextual enhancement (LLM-generated chunk context)
 5. Embedding generation
-6. Indexing (PostgreSQL pgvector + pg_search BM25)
+6. Indexing (ChromaDB vectors + PostgreSQL pg_textsearch BM25)
 
 ### Retrieval Strategy
 
@@ -374,7 +372,7 @@ Primary configuration file for models and retrieval settings.
 
 Main points:
 - API keys are provided via Docker Compose secrets mounted as files under `/run/secrets`.
-- Each service reads secrets independently at startup (for example `rag-server`, `pgmq-worker`, and `evals`).
+- Each service reads secrets independently at startup (for example `rag-server`, `task-worker`, and `evals`).
 - Secret files contain only the raw value (no `KEY=VALUE` format).
 - Secrets are loaded via Pydantic Settings (file-based secrets) and kept in memory; do not log secret values.
 - Avoid environment variables for API keys; use the mounted secret files instead.
@@ -671,7 +669,7 @@ tests/
 │   ├── test_infrastructure.py        # Service connectivity + database schema (8 tests)
 │   ├── test_pipeline.py              # Upload → index → query → delete round-trips (9 tests)
 │   ├── test_chat_sessions.py         # Session lifecycle via HTTP API (5 tests)
-│   ├── test_async_upload.py          # Async pgmq upload workflow + progress tracking (8 tests)
+│   ├── test_async_upload.py          # Async task upload workflow + progress tracking (8 tests)
 │   ├── test_api_documents.py         # Document management endpoints (1 test)
 │   └── test_hybrid_search.py         # BROKEN: imports dead ChromaDB module (see Roadmap)
 └── evaluation/                       # Evaluation tests (DeepEval + Claude judge)
@@ -683,7 +681,7 @@ Integration tests verify **execution, connectivity, and structure** — not answ
 
 This separation follows industry consensus for RAG testing (Meta's [2024 RAG systems paper](https://arxiv.org/abs/2312.10997), Anthropic's [contextual retrieval guide](https://www.anthropic.com/news/contextual-retrieval), and Docker's [testing best practices](https://docs.docker.com/build/tests/)):
 
-- **Embeddings**: "Did pgvector store a 768-dim vector?" — not "Are the embeddings semantically meaningful?"
+- **Embeddings**: "Did ChromaDB store a 768-dim vector?" — not "Are the embeddings semantically meaningful?"
 - **Retrieval**: "Did a query return >0 chunks?" — not "Were they the right chunks?"
 - **Reranking**: "Did the reranker produce output?" — not "Did it improve precision?"
 - **LLM response**: "Did `/query` return a non-empty string?" — not "Was the answer faithful?"
@@ -694,7 +692,7 @@ One **canary test** bridges the gap: uploads a document with a unique random mar
 
 Read-only checks that the system is wired correctly. No uploads or mutations.
 
-**What it covers**: `/health` + `/config` + `/models/info` endpoints return expected fields. PostgreSQL has `pgvector`, `pg_search`, `pgmq` extensions. Required tables exist (`documents`, `document_chunks`, `chat_sessions`, `chat_messages`, `job_batches`, `job_tasks`). pgmq `documents` queue exists. HNSW vector index exists. Ollama has required models (`gemma3`, `nomic-embed-text`).
+**What it covers**: `/health` + `/config` + `/models/info` endpoints return expected fields. PostgreSQL has `pg_textsearch` extension. Required tables exist (`documents`, `document_chunks`, `chat_sessions`, `chat_messages`, `job_batches`, `job_tasks`). `idx_tasks_claimable` partial index exists for SKIP LOCKED. Ollama has required models (`gemma3`, `nomic-embed-text`).
 
 **What it does NOT cover**: Whether these components work together under load, or whether the schema supports all query patterns correctly.
 
@@ -708,7 +706,7 @@ Core RAG loop: upload a document, verify it's indexed, query it, delete it.
 
 **What it does NOT cover**: Large document handling, concurrent uploads, chunking quality, or retrieval ranking correctness.
 
-**Why these tests**: The upload → index → query → delete cycle is the core user journey. Every component in the pipeline must work for these to pass: file upload, pgmq queueing, worker processing, Docling parsing, embedding generation, vector storage, BM25 indexing, hybrid retrieval, LLM generation, and document deletion with cascade cleanup.
+**Why these tests**: The upload → index → query → delete cycle is the core user journey. Every component in the pipeline must work for these to pass: file upload, task creation, worker processing via SKIP LOCKED, Docling parsing, embedding generation, vector storage, BM25 indexing, hybrid retrieval, LLM generation, and document deletion with cascade cleanup.
 
 #### test_chat_sessions.py — Session Lifecycle (5 tests, mixed speed)
 
@@ -722,9 +720,9 @@ Session creation, history growth, clearing, and temporary session behavior.
 
 #### test_async_upload.py — Async Processing & Progress (8 tests, slow)
 
-Full async upload workflow via pgmq with progress tracking and edge cases.
+Full async upload workflow via SKIP LOCKED task queue with progress tracking and edge cases.
 
-**What it covers**: Upload via API → pgmq processes → status shows completed. Progress tracking accuracy for multi-chunk documents. Single and multiple file uploads appear in document list. Large markdown and PDF status progression. Invalid batch ID handling. Concurrent uploads without race conditions.
+**What it covers**: Upload via API → task-worker processes via SKIP LOCKED → status shows completed. Progress tracking accuracy for multi-chunk documents. Single and multiple file uploads appear in document list. Large markdown and PDF status progression. Invalid batch ID handling. Concurrent uploads without race conditions.
 
 **What it does NOT cover**: Worker crash recovery, queue poisoning, or network partition scenarios.
 
@@ -871,7 +869,7 @@ docker compose logs -f
 
 # Specific service
 docker compose logs -f rag-server
-docker compose logs -f pgmq-worker
+docker compose logs -f task-worker
 docker compose logs -f postgres
 ```
 

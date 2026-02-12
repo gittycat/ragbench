@@ -37,7 +37,7 @@ class TestServiceConnectivity:
         assert data.get("embedding_model"), "embedding_model should be non-empty"
 
     def test_postgres_extensions(self, integration_env, check_services):
-        """Verify pgvector, pg_search, and pgmq extensions are installed."""
+        """Verify pg_textsearch extension is installed."""
         import asyncio
         from sqlalchemy import text
         from infrastructure.database.postgres import get_session
@@ -51,7 +51,7 @@ class TestServiceConnectivity:
                 return extensions
 
         extensions = asyncio.run(_check())
-        for ext in ["vector", "pg_search", "pgmq"]:
+        for ext in ["pg_textsearch"]:
             assert ext in extensions, (
                 f"Extension '{ext}' not found. Installed: {extensions}"
             )
@@ -105,7 +105,8 @@ class TestDatabaseSchema:
                 f"Table '{table}' not found. Existing: {tables}"
             )
 
-    def test_pgmq_queue_exists(self, integration_env, check_services):
+    def test_claimable_tasks_index_exists(self, integration_env, check_services):
+        """Verify partial index for SKIP LOCKED task claiming exists."""
         import asyncio
         from sqlalchemy import text
         from infrastructure.database.postgres import get_session
@@ -113,13 +114,17 @@ class TestDatabaseSchema:
         async def _check():
             async with get_session() as session:
                 result = await session.execute(
-                    text("SELECT queue_name FROM pgmq.meta")
+                    text(
+                        "SELECT indexname FROM pg_indexes "
+                        "WHERE tablename = 'job_tasks' "
+                        "AND indexname = 'idx_tasks_claimable'"
+                    )
                 )
                 return [row[0] for row in result.fetchall()]
 
-        queues = asyncio.run(_check())
-        assert "documents" in queues, (
-            f"pgmq queue 'documents' not found. Existing: {queues}"
+        indexes = asyncio.run(_check())
+        assert "idx_tasks_claimable" in indexes, (
+            f"Partial index 'idx_tasks_claimable' not found on job_tasks"
         )
 
     def test_vector_index_exists(self, integration_env, check_services):

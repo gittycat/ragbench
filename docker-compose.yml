@@ -64,7 +64,7 @@ services:
       - docs_repo:/tmp/shared
       - ./.hf_cache:/home/appuser/.cache/huggingface
 
-  # PostgreSQL 17 with pg_textsearch (BM25) + pgmq
+  # PostgreSQL 17 with pg_textsearch (BM25)
   postgres:
     build:
       context: ./services/postgres
@@ -104,12 +104,12 @@ services:
       - private
     restart: unless-stopped
 
-  # PGMQ Worker - Async document processing via PostgreSQL queue
-  pgmq-worker:
+  # Task Worker - Async document processing via SKIP LOCKED
+  task-worker:
     build:
       context: .
       dockerfile: ./services/rag_server/Dockerfile
-    command: [".venv/bin/python", "-m", "infrastructure.tasks.pgmq_worker"]
+    command: [".venv/bin/python", "-m", "infrastructure.tasks.task_worker"]
     user: "1000:1000"
     restart: unless-stopped
     secrets:

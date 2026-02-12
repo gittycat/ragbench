@@ -73,12 +73,12 @@ services:
       - ./.hf_cache:/home/appuser/.cache/huggingface
       - documents_data_bench:/data/documents
 
-  # PGMQ Worker for benchmark
-  pgmq-worker-bench:
+  # Task Worker for benchmark
+  task-worker-bench:
     build:
       context: .
       dockerfile: ./services/rag_server/Dockerfile
-    command: [".venv/bin/python", "-m", "infrastructure.tasks.pgmq_worker"]
+    command: [".venv/bin/python", "-m", "infrastructure.tasks.task_worker"]
     user: "1000:1000"
     environment:
       - DATABASE_HOST=postgres-bench

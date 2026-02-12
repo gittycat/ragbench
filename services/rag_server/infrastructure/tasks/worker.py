@@ -1,5 +1,5 @@
 """
-Document processing job for pgmq worker.
+Document processing job for task worker.
 
 Handles async document processing: chunking, embedding, indexing.
 Progress tracking via PostgreSQL job_batches/job_tasks tables.
@@ -55,9 +55,6 @@ async def process_document_async(file_path: str, filename: str, batch_id: str, t
         # Generate document ID (use task_id for consistency)
         doc_id = task_id
         logger.info(f"[TASK {task_id}] Using document ID: {doc_id}")
-
-        # Update progress: processing
-        await _update_task_status(task_id, "processing")
 
         # Get vector index
         index = get_vector_index()
@@ -135,29 +132,13 @@ async def process_document_async(file_path: str, filename: str, batch_id: str, t
         logger.error(f"[TASK {task_id}] Error processing {filename}: {str(e)}")
         logger.error(f"[TASK {task_id}] Traceback:\n{error_trace}")
 
-        # Create user-friendly error message
-        user_friendly_error = str(e).replace(file_path, filename)
-
-        # Update error status
-        await _fail_task(task_id, user_friendly_error)
-
         # Clean up temp file on failure
         _cleanup_temp_file(file_path, task_id)
 
         raise
 
 
-def process_document(file_path: str, filename: str, batch_id: str, task_id: str) -> dict:
-    """
-    Sync wrapper for process_document_async. Used by pgmq worker.
-
-    Note: Uses asyncio.run() which may produce event loop warnings when mixing
-    with sync pgmq library, but these are generally harmless.
-    """
-    return asyncio.run(process_document_async(file_path, filename, batch_id, task_id))
-
-
-async def _update_task_status(task_id: str, status: str) -> None:
+async def _set_task_total_chunks(task_id: str, total: int) -> None:
     async with get_session() as session:
         await db_jobs.update_task_status(session, UUID(task_id), status)
 
@@ -191,7 +172,3 @@ def _cleanup_temp_file(file_path: str, task_id: str):
             logger.info(f"[TASK {task_id}] Cleaned up temporary file: {file_path}")
     except Exception as e:
         logger.warning(f"[TASK {task_id}] Could not delete temp file {file_path}: {e}")
-
-
-# Backward compatibility alias
-process_document_task = process_document

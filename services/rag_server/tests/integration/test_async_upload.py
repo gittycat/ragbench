@@ -1,10 +1,10 @@
 """
-Integration tests for async document upload via pgmq.
+Integration tests for async document upload.
 
-Tests the full async workflow: API upload -> pgmq task -> Progress tracking -> Completion
+Tests the full async workflow: API upload -> task processing -> Progress tracking -> Completion
 
 Run with: pytest tests/integration/test_async_upload.py -v --run-integration
-Requires: docker compose up -d (all services including pgmq-worker)
+Requires: docker compose up -d (all services including task-worker)
 """
 import pytest
 import os
@@ -18,14 +18,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 
 @pytest.mark.integration
-class TestPgmqTaskCompletion:
+class TestTaskCompletion:
     """
-    Test pgmq async task execution and completion.
+    Test async task execution and completion.
 
     These tests require the full stack running:
     - rag-server (API)
-    - pgmq-worker (task processing)
-    - postgres (database, vectors, queue, progress)
+    - task-worker (task processing via SKIP LOCKED)
+    - postgres (database, vectors, progress)
     - ollama (embeddings)
     """
 

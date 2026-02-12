@@ -187,7 +187,7 @@ database:
   # PostgreSQL server-side max_connections (applied via docker-compose command)
   max_connections: 200
 
-  # Application-side connection pool (per service: rag-server, pgmq-worker)
+  # Application-side connection pool (per service: rag-server, task-worker)
   # Total connections per service = pool_size + max_overflow
   pool_size: 10         # Persistent connections kept open
   max_overflow: 20      # Additional connections allowed under burst load

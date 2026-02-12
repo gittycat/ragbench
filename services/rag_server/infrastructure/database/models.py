@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -167,7 +168,7 @@ class JobBatch(Base):
 
 
 class JobTask(Base):
-    """Individual tasks within a job batch."""
+    """Individual tasks within a job batch. Also serves as the work queue via SKIP LOCKED."""
     __tablename__ = "job_tasks"
 
     id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
@@ -177,15 +178,28 @@ class JobTask(Base):
         nullable=False,
     )
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), default="pending")
+    file_path: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    attempt: Mapped[int] = mapped_column(Integer, default=0)
     total_chunks: Mapped[int] = mapped_column(Integer, default=0)
     completed_chunks: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relationships
     batch: Mapped["JobBatch"] = relationship(back_populates="tasks")
 
-    __table_args__ = (Index("idx_tasks_batch", "batch_id"),)
+    __table_args__ = (
+        Index("idx_tasks_batch", "batch_id"),
+        Index(
+            "idx_tasks_claimable",
+            "created_at",
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
 
     def __repr__(self) -> str:
         return f"<JobTask {self.filename} ({self.status})>"

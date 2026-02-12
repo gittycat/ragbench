@@ -3,7 +3,7 @@
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infrastructure.database.models import JobBatch, JobTask
@@ -30,11 +30,13 @@ async def create_task(
     task_id: UUID,
     batch_id: UUID,
     filename: str,
+    file_path: str,
 ) -> JobTask:
     task = JobTask(
         id=task_id,
         batch_id=batch_id,
         filename=filename,
+        file_path=file_path,
         status="pending",
         total_chunks=0,
         completed_chunks=0,
@@ -46,6 +48,95 @@ async def create_task(
 
 async def get_task(session: AsyncSession, task_id: UUID) -> JobTask | None:
     return await session.get(JobTask, task_id)
+
+
+async def claim_next_task(session: AsyncSession) -> dict | None:
+    """Atomically claim the next pending task using SKIP LOCKED.
+
+    Returns a dict with task data, or None if no tasks available.
+    Uses a CTE to SELECT + UPDATE in a single round-trip.
+    """
+    result = await session.execute(
+        text("""
+            WITH next_task AS (
+                SELECT id FROM job_tasks
+                WHERE status = 'pending'
+                ORDER BY created_at
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE job_tasks
+            SET status = 'processing',
+                started_at = NOW(),
+                attempt = attempt + 1
+            FROM next_task
+            WHERE job_tasks.id = next_task.id
+            RETURNING job_tasks.id, job_tasks.batch_id, job_tasks.filename,
+                      job_tasks.file_path, job_tasks.attempt
+        """)
+    )
+    row = result.fetchone()
+    if row is None:
+        return None
+
+    return {
+        "id": str(row.id),
+        "batch_id": str(row.batch_id),
+        "filename": row.filename,
+        "file_path": row.file_path,
+        "attempt": row.attempt,
+    }
+
+
+async def reset_task_for_retry(session: AsyncSession, task_id: UUID) -> None:
+    """Reset a failed task back to pending for retry.
+
+    The attempt counter is NOT reset — it was already incremented by claim_next_task.
+    """
+    await session.execute(
+        update(JobTask)
+        .where(JobTask.id == task_id)
+        .values(status="pending", started_at=None, error_message=None)
+    )
+    await session.flush()
+
+
+async def reset_stuck_tasks(
+    session: AsyncSession,
+    timeout_seconds: int = 3600,
+    max_attempts: int = 3,
+) -> int:
+    """Reset tasks stuck in 'processing' back to pending, or mark as error if exhausted.
+
+    Called periodically by the worker to recover from crashed workers.
+    Returns the number of tasks reset to pending.
+    """
+    # Mark exhausted tasks as error
+    await session.execute(
+        text("""
+            UPDATE job_tasks
+            SET status = 'error',
+                error_message = 'Task exceeded maximum retry attempts (stuck worker)'
+            WHERE status = 'processing'
+              AND started_at < NOW() - make_interval(secs => :timeout)
+              AND attempt >= :max_attempts
+        """),
+        {"timeout": timeout_seconds, "max_attempts": max_attempts},
+    )
+
+    # Reset retryable tasks to pending
+    result = await session.execute(
+        text("""
+            UPDATE job_tasks
+            SET status = 'pending', started_at = NULL
+            WHERE status = 'processing'
+              AND started_at < NOW() - make_interval(secs => :timeout)
+              AND attempt < :max_attempts
+        """),
+        {"timeout": timeout_seconds, "max_attempts": max_attempts},
+    )
+    await session.flush()
+    return result.rowcount
 
 
 async def update_task_status(

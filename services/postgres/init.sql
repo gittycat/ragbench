@@ -1,9 +1,8 @@
 -- PostgreSQL initialization script for RAG system
 -- Run by docker-entrypoint-initdb.d on first container start
 
--- Extensions: pg_textsearch for BM25 search, pgmq for message queue
+-- Extensions: pg_textsearch for BM25 search
 CREATE EXTENSION IF NOT EXISTS pg_textsearch;
-CREATE EXTENSION IF NOT EXISTS pgmq;
 
 -- Documents table (source files)
 CREATE TABLE IF NOT EXISTS documents (
@@ -66,20 +65,23 @@ CREATE TABLE IF NOT EXISTS job_batches (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Job tasks
+-- Job tasks (also serves as the work queue via SKIP LOCKED)
 CREATE TABLE IF NOT EXISTS job_tasks (
     id UUID PRIMARY KEY,
     batch_id UUID NOT NULL REFERENCES job_batches(id) ON DELETE CASCADE,
     filename VARCHAR(255) NOT NULL,
+    file_path TEXT NOT NULL,
     status VARCHAR(30) DEFAULT 'pending',
+    attempt INTEGER DEFAULT 0,
     total_chunks INTEGER DEFAULT 0,
     completed_chunks INTEGER DEFAULT 0,
-    error_message TEXT
+    error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    started_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_batch ON job_tasks(batch_id);
-
--- Create pgmq queue for document processing
-SELECT pgmq.create('documents');
+-- Partial index: only pending tasks for fast SKIP LOCKED claims
+CREATE INDEX IF NOT EXISTS idx_tasks_claimable ON job_tasks(created_at) WHERE status = 'pending';
 
 -- Grants are handled in 02-grants.sh using secrets-backed roles.

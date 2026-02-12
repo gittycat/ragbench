@@ -24,7 +24,6 @@ from infrastructure.database.postgres import get_session
 from infrastructure.database import documents as db_docs
 from infrastructure.database.documents import SORT_COLUMNS
 from infrastructure.database import jobs as db_jobs
-from infrastructure.tasks.pgmq_queue import enqueue_document_task
 from app.settings import get_shared_upload_dir
 
 logger = logging.getLogger(__name__)
@@ -144,6 +143,7 @@ async def upload_documents(files: List[UploadFile] = File(...)):
     batch_id = str(uuid.uuid4())
     task_infos = []
     errors = []
+    saved_files = []  # List of (task_id, filename, tmp_path) for DB insertion
 
     for file in files:
         try:
@@ -165,24 +165,15 @@ async def upload_documents(files: List[UploadFile] = File(...)):
                 tmp_path = tmp.name
             logger.info(f"[UPLOAD] Saved to: {tmp_path}")
 
-            # Generate task ID
             task_id = str(uuid.uuid4())
-
-            # Enqueue via pgmq
-            enqueue_document_task(
-                file_path=tmp_path,
-                filename=file.filename,
-                batch_id=batch_id,
-                task_id=task_id,
-            )
-
+            saved_files.append((task_id, file.filename, tmp_path))
             task_infos.append(TaskInfo(task_id=task_id, filename=file.filename))
-            logger.info(f"[UPLOAD] Queued task {task_id} for {file.filename}")
+            logger.info(f"[UPLOAD] Prepared task {task_id} for {file.filename}")
 
         except Exception as e:
             import traceback
             error_trace = traceback.format_exc()
-            logger.error(f"[UPLOAD] Error queueing {file.filename}: {str(e)}")
+            logger.error(f"[UPLOAD] Error saving {file.filename}: {str(e)}")
             logger.error(f"[UPLOAD] Traceback:\n{error_trace}")
             errors.append(f"{file.filename}: {str(e)}")
 
@@ -191,11 +182,15 @@ async def upload_documents(files: List[UploadFile] = File(...)):
         logger.error(f"[UPLOAD] Upload failed: {error_msg}")
         raise HTTPException(status_code=400, detail=error_msg)
 
-    # Create batch and tasks in PostgreSQL
+    # Create batch and tasks in a single transaction.
+    # Tasks are immediately claimable by the worker via SKIP LOCKED.
     async with get_session() as session:
         await db_jobs.create_batch(session, uuid.UUID(batch_id), len(task_infos))
-        for ti in task_infos:
-            await db_jobs.create_task(session, uuid.UUID(ti.task_id), uuid.UUID(batch_id), ti.filename)
+        for task_id, filename, tmp_path in saved_files:
+            await db_jobs.create_task(
+                session, uuid.UUID(task_id), uuid.UUID(batch_id), filename,
+                file_path=tmp_path,
+            )
 
     logger.info(f"[UPLOAD] Created batch {batch_id} with {len(task_infos)} tasks")
     return BatchUploadResponse(

@@ -31,7 +31,7 @@ services:
     extra_hosts:
       - "host.docker.internal:${OLLAMA_HOST:-host-gateway}"
 
-  celery-worker:
+  task-worker:
     # image: ${REGISTRY:-ghcr.io/youruser/ragbench}/rag-server:${VERSION:-latest}
     image: rag-server:${VERSION:-latest}
     build: !reset null
