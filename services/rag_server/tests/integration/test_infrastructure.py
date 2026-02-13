@@ -40,7 +40,7 @@ class TestServiceConnectivity:
         """Verify pg_textsearch extension is installed."""
         import asyncio
         from sqlalchemy import text
-        from infrastructure.database.postgres import get_session
+        from infrastructure.database.postgres import get_session, close_db
 
         async def _check():
             async with get_session() as session:
@@ -51,6 +51,8 @@ class TestServiceConnectivity:
                 return extensions
 
         extensions = asyncio.run(_check())
+        asyncio.run(close_db())  # Clean up pool for next test
+
         for ext in ["pg_textsearch"]:
             assert ext in extensions, (
                 f"Extension '{ext}' not found. Installed: {extensions}"
@@ -78,7 +80,7 @@ class TestDatabaseSchema:
     def test_required_tables_exist(self, integration_env, check_services):
         import asyncio
         from sqlalchemy import text
-        from infrastructure.database.postgres import get_session
+        from infrastructure.database.postgres import get_session, close_db
 
         required_tables = [
             "documents",
@@ -100,6 +102,8 @@ class TestDatabaseSchema:
                 return [row[0] for row in result.fetchall()]
 
         tables = asyncio.run(_check())
+        asyncio.run(close_db())  # Clean up pool for next test
+
         for table in required_tables:
             assert table in tables, (
                 f"Table '{table}' not found. Existing: {tables}"
@@ -109,7 +113,7 @@ class TestDatabaseSchema:
         """Verify partial index for SKIP LOCKED task claiming exists."""
         import asyncio
         from sqlalchemy import text
-        from infrastructure.database.postgres import get_session
+        from infrastructure.database.postgres import get_session, close_db
 
         async def _check():
             async with get_session() as session:
@@ -123,31 +127,35 @@ class TestDatabaseSchema:
                 return [row[0] for row in result.fetchall()]
 
         indexes = asyncio.run(_check())
+        asyncio.run(close_db())  # Clean up pool for next test
+
         assert "idx_tasks_claimable" in indexes, (
             f"Partial index 'idx_tasks_claimable' not found on job_tasks"
         )
 
-    def test_vector_index_exists(self, integration_env, check_services):
-        """Verify HNSW index exists on document_chunks."""
+    def test_bm25_index_exists(self, integration_env, check_services):
+        """Verify BM25 index exists on document_chunks (vectors in ChromaDB)."""
         import asyncio
         from sqlalchemy import text
-        from infrastructure.database.postgres import get_session
+        from infrastructure.database.postgres import get_session, close_db
 
         async def _check():
             async with get_session() as session:
                 result = await session.execute(
                     text(
                         "SELECT indexname, indexdef FROM pg_indexes "
-                        "WHERE tablename = 'data_document_chunks'"
+                        "WHERE tablename = 'document_chunks'"
                     )
                 )
                 return result.fetchall()
 
         indexes = asyncio.run(_check())
-        hnsw_indexes = [
-            idx for idx in indexes if "hnsw" in (idx[1] or "").lower()
+        asyncio.run(close_db())  # Clean up pool for next test
+
+        bm25_indexes = [
+            idx for idx in indexes if "bm25" in (idx[1] or "").lower()
         ]
-        assert hnsw_indexes, (
-            f"No HNSW index found on document_chunks. Indexes: "
+        assert bm25_indexes, (
+            f"No BM25 index found on document_chunks. Indexes: "
             f"{[(i[0], i[1][:80]) for i in indexes]}"
         )
