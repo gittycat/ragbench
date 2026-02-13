@@ -172,7 +172,7 @@ retrieval:
   top_k: 10
   enable_hybrid_search: true    # BM25 + Vector search with RRF fusion
   rrf_k: 60                      # Reciprocal Rank Fusion parameter
-  enable_contextual_retrieval: true   # Anthropic contextual retrieval (slower)
+  enable_contextual_retrieval: false   # Anthropic contextual retrieval (much slower doc processing)
 
 # ============================================================================
 # ChromaDB Vector Store
