@@ -11,6 +11,7 @@ import uuid
 import time
 import httpx
 from pathlib import Path
+from sqlalchemy import text
 
 
 @pytest.fixture(scope="module")
@@ -31,11 +32,25 @@ def check_services(integration_env):
     Verify required services are running before tests.
     Fails hard if services are unavailable.
     """
+    # Initialize settings from secrets if running in Docker
+    if Path("/run/secrets").exists():
+        from app import settings as app_settings
+        # Force reload from secrets by resetting global
+        app_settings.SETTINGS = None
+        from app.settings import init_settings
+        init_settings()
+
     # Check PostgreSQL
     try:
         import asyncio
-        from infrastructure.database.postgres import init_db, close_db
-        asyncio.run(init_db())
+        from infrastructure.database.postgres import get_session, close_db
+
+        async def check_db():
+            async with get_session() as session:
+                await session.execute(text("SELECT 1"))
+
+        asyncio.run(check_db())
+        # Close DB pool to avoid event loop conflicts in tests
         asyncio.run(close_db())
     except Exception as e:
         pytest.fail(f"PostgreSQL not available: {e}")

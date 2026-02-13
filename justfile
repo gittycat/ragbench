@@ -81,13 +81,19 @@ test-unit: setup
     cd services/rag_server && \
     .venv/bin/pytest tests/ --ignore=tests/integration --ignore=tests/evaluation --ignore=tests/test_rag_eval.py -v
 
-test-integration: setup docker-up
-    cd services/rag_server && \
-    .venv/bin/pytest tests/integration -v --run-integration
+# Integration tests (CI/reproducible - fresh container, clean state)
+test-integration: docker-up
+    docker compose run --rm -e RAG_SERVER_URL=http://rag-server:8001 rag-server \
+      .venv/bin/pytest tests/integration -v --run-integration
 
-test-integration-full: setup docker-up
-    cd services/rag_server && \
-    .venv/bin/pytest tests/integration -v --run-integration --run-slow
+test-integration-full: docker-up
+    docker compose run --rm -e RAG_SERVER_URL=http://rag-server:8001 rag-server \
+      .venv/bin/pytest tests/integration -v --run-integration --run-slow
+
+# Integration tests (local - fast, reuses running container)
+test-integration-local: docker-up
+    docker compose exec -T rag-server \
+      .venv/bin/pytest tests/integration -v --run-integration
 
 test-eval: show-config
     docker compose --profile eval run --rm evals eval --datasets ragbench --samples 5

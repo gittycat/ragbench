@@ -38,6 +38,7 @@ services:
       - DATABASE_NAME=ragbench
       - CHROMADB_HOST=chromadb
       - CHROMADB_PORT=8000
+      - OLLAMA_URL=http://host.docker.internal:11434
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80
       - SHARED_UPLOAD_DIR=/tmp/shared
@@ -123,6 +124,7 @@ services:
       - DATABASE_NAME=ragbench
       - CHROMADB_HOST=chromadb
       - CHROMADB_PORT=8000
+      - OLLAMA_URL=http://host.docker.internal:11434
       - LOG_LEVEL=WARNING
       - MAX_UPLOAD_SIZE=80
       - SHARED_UPLOAD_DIR=/tmp/shared

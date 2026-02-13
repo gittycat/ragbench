@@ -141,3 +141,9 @@ All under `services/rag_server/`:
 ## Testing
 
 Tests in `services/rag_server/tests/`. Unit tests use `@patch` mocks. Integration tests require `--run-integration` flag. Eval tests require `--run-eval` flag + `ANTHROPIC_API_KEY`.
+
+### Integration Test Strategy
+- **No separate test-runner service** — tests reuse the `rag-server` service definition to avoid config drift (env, secrets, volumes, networks)
+- **Local/debug:** `docker compose exec -T rag-server .venv/bin/pytest tests/integration -v --run-integration` — fast, reuses running container
+- **CI:** `docker compose run --rm rag-server .venv/bin/pytest tests/integration -v --run-integration` — fresh container, no state leakage
+- `exec` uses `RAG_SERVER_URL=http://localhost:8001` (same container); `run` uses `http://rag-server:8001` (sibling container)

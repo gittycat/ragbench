@@ -41,6 +41,11 @@ for key, value in _DEFAULT_ENV.items():
 def _test_secrets():
     from app import settings as app_settings
 
+    # Skip mock credentials if running in Docker with real secrets
+    if Path("/run/secrets").exists():
+        yield
+        return
+
     app_settings.SETTINGS = _TestSettings()
     yield
     app_settings.SETTINGS = None
