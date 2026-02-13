@@ -34,7 +34,7 @@ def get_vector_store() -> ChromaVectorStore:
     global _vector_store
     if _vector_store is None:
         config = get_models_config()
-        collection_name = config.chromadb.collection_name
+        collection_name = config.chromadb.collection
 
         chroma_client = get_chroma_client()
         chroma_collection = chroma_client.get_or_create_collection(collection_name)
@@ -50,7 +50,7 @@ def get_vector_index() -> VectorStoreIndex:
     if _vector_index is None:
         vector_store = get_vector_store()
         _vector_index = VectorStoreIndex.from_vector_store(vector_store=vector_store)
-        logger.info("Created VectorStoreIndex from PGVectorStore")
+        logger.info("Created VectorStoreIndex from ChromaVectorStore")
     return _vector_index
 
 

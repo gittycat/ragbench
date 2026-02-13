@@ -528,6 +528,13 @@ def ingest_document(
     nodes = add_document_metadata_to_chunks(nodes, document_id, metadata)
     logger.info(f"[INGESTION] Step 4 complete")
 
+    # Sanitize metadata for ChromaDB (only scalar values allowed)
+    for node in nodes:
+        node.metadata = {
+            k: v for k, v in node.metadata.items()
+            if isinstance(v, (str, int, float, bool)) or v is None
+        }
+
     # STEP 5: Embed and index
     logger.info(f"[INGESTION] Step 5: Generating embeddings and indexing in ChromaDB...")
     embed_start = time.time()
@@ -549,10 +556,21 @@ def ingest_document(
     logger.info(f"[INGESTION]   - Embedding: {embed_duration:.2f}s ({embed_duration/pipeline_duration*100:.1f}%)")
     logger.info(f"[INGESTION]   - Total: {pipeline_duration:.2f}s")
 
+    # Build chunk data for PostgreSQL storage
+    chunks_data = []
+    for i, node in enumerate(nodes):
+        chunks_data.append({
+            "chunk_index": i,
+            "content": node.get_content(),
+            "content_with_context": node.metadata.get("contextual_prefix", ""),
+            "metadata": {k: v for k, v in node.metadata.items() if k != "contextual_prefix"},
+        })
+
     return {
         'document_id': document_id,
         'filename': filename,
         'chunks': len(nodes),
+        'chunks_data': chunks_data,
         'status': 'success'
     }
 

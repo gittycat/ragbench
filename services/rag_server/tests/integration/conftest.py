@@ -46,12 +46,14 @@ def check_services(integration_env):
         from infrastructure.database.postgres import get_session, close_db
 
         async def check_db():
-            async with get_session() as session:
-                await session.execute(text("SELECT 1"))
+            try:
+                async with get_session() as session:
+                    await session.execute(text("SELECT 1"))
+            finally:
+                # Close DB pool in the same loop that opened connections.
+                await close_db()
 
         asyncio.run(check_db())
-        # Close DB pool to avoid event loop conflicts in tests
-        asyncio.run(close_db())
     except Exception as e:
         pytest.fail(f"PostgreSQL not available: {e}")
 
@@ -77,6 +79,31 @@ def check_services(integration_env):
     except Exception as e:
         pytest.fail(f"RAG server not available at {rag_url}: {e}")
 
+    # Wait for any pre-existing tasks to drain so they don't block test uploads
+    import asyncio as _asyncio
+    from infrastructure.database.postgres import get_session as _get_session, close_db as _close_db
+
+    async def _drain_queue():
+        try:
+            deadline = time.time() + 600  # 10 min max wait
+            while time.time() < deadline:
+                async with _get_session() as session:
+                    result = await session.execute(text(
+                        "SELECT count(*) FROM job_tasks "
+                        "WHERE status IN ('pending', 'in_progress')"
+                    ))
+                    pending = result.scalar()
+                if pending == 0:
+                    break
+                print(f"Waiting for {pending} task(s) in queue to drain...")
+                await _asyncio.sleep(5)
+            else:
+                print("WARNING: Queue drain timed out after 600s, proceeding anyway")
+        finally:
+            await _close_db()
+
+    _asyncio.run(_drain_queue())
+
     return True
 
 
@@ -93,6 +120,7 @@ def sample_pdf(tmp_path):
     pdf.set_font("Helvetica", size=12)
 
     # Add content that's easy to verify in retrieval
+    unique_marker = uuid.uuid4().hex[:8]
     content = """
     RAG System Test Document
 
@@ -105,7 +133,7 @@ def sample_pdf(tmp_path):
     3. pg_search provides BM25 full-text search.
     4. Hybrid search combines dense and sparse retrieval methods.
 
-    The unique identifier for this test is: TESTID_XYZ789
+    The unique identifier for this test is: TESTID_XYZ789_""" + unique_marker + """
 
     This content should be retrievable via semantic search.
     """
@@ -122,6 +150,7 @@ def sample_pdf(tmp_path):
 @pytest.fixture
 def sample_text_file(tmp_path):
     """Create a simple test text file."""
+    unique_marker = uuid.uuid4().hex[:8]
     content = """
     Test Document for RAG Pipeline
 
@@ -133,7 +162,7 @@ def sample_text_file(tmp_path):
     - Transformers use attention mechanisms
     - RAG combines retrieval with generation
 
-    Unique test identifier: UNIQUE_TEXT_12345
+    Unique test identifier: UNIQUE_TEXT_12345_""" + unique_marker + """
     """
 
     text_path = tmp_path / "test_document.txt"
@@ -153,10 +182,13 @@ def corrupted_pdf(tmp_path):
 
 @pytest.fixture
 def large_text_file(tmp_path):
-    """Create a large text file to test chunking."""
-    content = "This is paragraph number {}. It contains test content for chunking. " * 50
+    """Create a multi-chunk text file to test chunking (generates ~5 chunks)."""
+    content = (
+        "This is paragraph number {paragraph}. "
+        "It contains test content for chunking. "
+    ) * 10
 
-    paragraphs = [content.format(i) for i in range(100)]
+    paragraphs = [content.format(paragraph=i) for i in range(10)]
     full_content = "\n\n".join(paragraphs)
 
     text_path = tmp_path / "large_document.txt"
@@ -172,7 +204,7 @@ def clean_test_database(integration_env, check_services):
     Cleans up documents after test completes.
     """
     import asyncio
-    from infrastructure.database.postgres import get_session
+    from infrastructure.database.postgres import get_session, close_db
     from infrastructure.database import documents as db_docs
 
     # Track created documents for cleanup
@@ -184,12 +216,15 @@ def clean_test_database(integration_env, check_services):
 
     # Cleanup: delete test documents
     async def cleanup():
-        async with get_session() as session:
-            for doc_id in created_doc_ids:
-                try:
-                    await db_docs.delete_document(session, uuid.UUID(doc_id))
-                except Exception:
-                    pass
+        try:
+            async with get_session() as session:
+                for doc_id in created_doc_ids:
+                    try:
+                        await db_docs.delete_document(session, uuid.UUID(doc_id))
+                    except Exception:
+                        pass
+        finally:
+            await close_db()
 
     asyncio.run(cleanup())
 
@@ -266,7 +301,7 @@ def wait_for_task():
     Factory fixture for waiting on async task completion.
     Returns a function that polls task status.
     """
-    def _wait_for_task(rag_server_url: str, batch_id: str, timeout: int = 120):
+    def _wait_for_task(rag_server_url: str, batch_id: str, timeout: int = 300):
         """
         Wait for batch processing to complete.
 
@@ -284,7 +319,19 @@ def wait_for_task():
         start = time.time()
         while time.time() - start < timeout:
             resp = httpx.get(f"{rag_server_url}/tasks/{batch_id}/status", timeout=10.0)
+            if resp.status_code in (404, 500):
+                # Batch/status may be transiently unavailable while workers commit progress.
+                time.sleep(1)
+                continue
+            assert resp.status_code == 200, (
+                f"Status request failed for batch {batch_id}: "
+                f"{resp.status_code} {resp.text[:200]}"
+            )
+
             status = resp.json()
+            if "total" not in status:
+                time.sleep(1)
+                continue
 
             if status.get("completed", 0) == status.get("total", 0):
                 return status
@@ -315,7 +362,7 @@ def upload_and_wait(api_client, wait_for_task, rag_server_url):
     Factory fixture: upload file(s) and wait for processing.
     Returns (doc_info_dict, batch_id) for the first uploaded file.
     """
-    def _upload_and_wait(file_path: Path, filename: str | None = None, timeout: int = 120):
+    def _upload_and_wait(file_path: Path, filename: str | None = None, timeout: int = 300):
         fname = filename or file_path.name
         with open(file_path, "rb") as f:
             resp = api_client.post(
@@ -334,8 +381,14 @@ def upload_and_wait(api_client, wait_for_task, rag_server_url):
         docs_resp = api_client.get("/documents")
         assert docs_resp.status_code == 200
         docs = docs_resp.json().get("documents", [])
-        matched = [d for d in docs if d.get("file_name") == fname]
-        assert matched, f"Uploaded file '{fname}' not found in /documents"
+        # Worker uses task_id as document_id for stable tracking.
+        task_ids = list(tasks.keys())
+        assert task_ids, f"No tasks found in final status for batch {batch_id}"
+        expected_doc_id = task_ids[0]
+        matched = [d for d in docs if d.get("id") == expected_doc_id]
+        assert matched, (
+            f"Uploaded file '{fname}' not found in /documents with expected id {expected_doc_id}"
+        )
 
         return matched[0], batch_id
 

@@ -182,6 +182,12 @@ class RetrievalConfig(BaseModel):
     enable_contextual_retrieval: bool = True
 
 
+class ChromaDBConfig(BaseModel):
+    """Configuration for ChromaDB vector store."""
+
+    collection: str = "document_chunks"
+
+
 class CitationInstructions(BaseModel):
     """Citation instruction templates by format."""
 
@@ -252,6 +258,7 @@ class ModelsConfig(BaseModel):
     eval: EvalConfig
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    chromadb: ChromaDBConfig = Field(default_factory=ChromaDBConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     prompts: PromptConfig = Field(default_factory=PromptConfig)
     _source_path: Path | None = None
@@ -393,6 +400,10 @@ class ModelsConfig(BaseModel):
         # Copy retrieval settings unchanged
         if "retrieval" in data:
             resolved["retrieval"] = data["retrieval"]
+
+        # Copy ChromaDB settings unchanged
+        if "chromadb" in data:
+            resolved["chromadb"] = data["chromadb"]
 
         # Copy database pool settings unchanged
         if "database" in data:

@@ -43,15 +43,17 @@ class TestServiceConnectivity:
         from infrastructure.database.postgres import get_session, close_db
 
         async def _check():
-            async with get_session() as session:
-                result = await session.execute(
-                    text("SELECT extname FROM pg_extension")
-                )
-                extensions = [row[0] for row in result.fetchall()]
-                return extensions
+            try:
+                async with get_session() as session:
+                    result = await session.execute(
+                        text("SELECT extname FROM pg_extension")
+                    )
+                    extensions = [row[0] for row in result.fetchall()]
+                    return extensions
+            finally:
+                await close_db()
 
         extensions = asyncio.run(_check())
-        asyncio.run(close_db())  # Clean up pool for next test
 
         for ext in ["pg_textsearch"]:
             assert ext in extensions, (
@@ -92,17 +94,19 @@ class TestDatabaseSchema:
         ]
 
         async def _check():
-            async with get_session() as session:
-                result = await session.execute(
-                    text(
-                        "SELECT table_name FROM information_schema.tables "
-                        "WHERE table_schema = 'public'"
+            try:
+                async with get_session() as session:
+                    result = await session.execute(
+                        text(
+                            "SELECT table_name FROM information_schema.tables "
+                            "WHERE table_schema = 'public'"
+                        )
                     )
-                )
-                return [row[0] for row in result.fetchall()]
+                    return [row[0] for row in result.fetchall()]
+            finally:
+                await close_db()
 
         tables = asyncio.run(_check())
-        asyncio.run(close_db())  # Clean up pool for next test
 
         for table in required_tables:
             assert table in tables, (
@@ -116,18 +120,20 @@ class TestDatabaseSchema:
         from infrastructure.database.postgres import get_session, close_db
 
         async def _check():
-            async with get_session() as session:
-                result = await session.execute(
-                    text(
-                        "SELECT indexname FROM pg_indexes "
-                        "WHERE tablename = 'job_tasks' "
-                        "AND indexname = 'idx_tasks_claimable'"
+            try:
+                async with get_session() as session:
+                    result = await session.execute(
+                        text(
+                            "SELECT indexname FROM pg_indexes "
+                            "WHERE tablename = 'job_tasks' "
+                            "AND indexname = 'idx_tasks_claimable'"
+                        )
                     )
-                )
-                return [row[0] for row in result.fetchall()]
+                    return [row[0] for row in result.fetchall()]
+            finally:
+                await close_db()
 
         indexes = asyncio.run(_check())
-        asyncio.run(close_db())  # Clean up pool for next test
 
         assert "idx_tasks_claimable" in indexes, (
             f"Partial index 'idx_tasks_claimable' not found on job_tasks"
@@ -140,17 +146,19 @@ class TestDatabaseSchema:
         from infrastructure.database.postgres import get_session, close_db
 
         async def _check():
-            async with get_session() as session:
-                result = await session.execute(
-                    text(
-                        "SELECT indexname, indexdef FROM pg_indexes "
-                        "WHERE tablename = 'document_chunks'"
+            try:
+                async with get_session() as session:
+                    result = await session.execute(
+                        text(
+                            "SELECT indexname, indexdef FROM pg_indexes "
+                            "WHERE tablename = 'document_chunks'"
+                        )
                     )
-                )
-                return result.fetchall()
+                    return result.fetchall()
+            finally:
+                await close_db()
 
         indexes = asyncio.run(_check())
-        asyncio.run(close_db())  # Clean up pool for next test
 
         bm25_indexes = [
             idx for idx in indexes if "bm25" in (idx[1] or "").lower()
@@ -159,3 +167,27 @@ class TestDatabaseSchema:
             f"No BM25 index found on document_chunks. Indexes: "
             f"{[(i[0], i[1][:80]) for i in indexes]}"
         )
+
+    def test_bm25_index_aware_scoring_query_executes(self, integration_env, check_services):
+        """Regression: index-aware BM25 query should not raise no-index errors."""
+        import asyncio
+        from sqlalchemy import text
+        from infrastructure.database.postgres import get_session, close_db
+
+        async def _check():
+            try:
+                async with get_session() as session:
+                    result = await session.execute(
+                        text(
+                            "SELECT content <@> to_bm25query('test', 'idx_chunks_bm25') AS score "
+                            "FROM document_chunks "
+                            "ORDER BY content <@> to_bm25query('test', 'idx_chunks_bm25') DESC "
+                            "LIMIT 1"
+                        )
+                    )
+                    return result.fetchall()
+            finally:
+                await close_db()
+
+        rows = asyncio.run(_check())
+        assert isinstance(rows, list)

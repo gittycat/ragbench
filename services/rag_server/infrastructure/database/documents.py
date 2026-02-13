@@ -68,14 +68,14 @@ async def list_documents(
     sort_order: str = "desc",
 ) -> list[dict[str, Any]]:
     """List all documents with chunk counts."""
-    # Count chunks from LlamaIndex's data_document_chunks table
+    # Count chunks from document_chunks table
     subquery = (
         select(
-            literal_column("(metadata_->>'document_id')::uuid").label("doc_id"),
+            literal_column("document_id").label("doc_id"),
             func.count().label("chunk_count"),
         )
-        .select_from(text("public.data_document_chunks"))
-        .group_by(literal_column("(metadata_->>'document_id')::uuid"))
+        .select_from(text("public.document_chunks"))
+        .group_by(literal_column("document_id"))
         .subquery()
     )
 
@@ -120,7 +120,7 @@ async def get_document_info(session: AsyncSession, document_id: UUID) -> dict[st
         return None
 
     chunk_count = await session.execute(
-        text("SELECT COUNT(*) FROM public.data_document_chunks WHERE (metadata_->>'document_id')::uuid = :doc_id"),
+        text("SELECT COUNT(*) FROM public.document_chunks WHERE document_id = :doc_id"),
         {"doc_id": str(document_id)},
     )
     chunks = chunk_count.scalar() or 0

@@ -78,21 +78,21 @@ async def process_document_async(file_path: str, filename: str, batch_id: str, t
         # Extract file metadata for Document record
         metadata = extract_file_metadata(file_path)
 
-        # Create Document record in database BEFORE ingestion
-        # (chunks have foreign key constraint to documents table)
-        logger.info(f"[TASK {task_id}] Creating document record in database...")
+        # Reset any partial state from a previous failed retry attempt
+        logger.info(f"[TASK {task_id}] Preparing document record in database...")
         async with get_session() as session:
+            await db_docs.delete_document(session, UUID(doc_id))
             await db_docs.create_document(
                 session,
                 file_name=filename,
                 file_type=metadata.get("file_type", ""),
                 file_path=str(DOCUMENT_STORAGE_PATH / doc_id / filename),
-                file_size_bytes=metadata.get("file_size", 0),
+                file_size_bytes=metadata.get("file_size_bytes", 0),
                 file_hash=metadata.get("file_hash"),
                 metadata=metadata,
                 document_id=UUID(doc_id)
             )
-        logger.info(f"[TASK {task_id}] Document record created successfully")
+        logger.info(f"[TASK {task_id}] Document record prepared successfully")
 
         # Run ingestion pipeline (creates chunks with document_id foreign key)
         logger.info(f"[TASK {task_id}] Running ingestion pipeline...")
@@ -103,6 +103,13 @@ async def process_document_async(file_path: str, filename: str, batch_id: str, t
             filename=filename,
             progress_callback=embedding_progress
         )
+
+        # Persist chunk text/metadata in PostgreSQL for BM25 and document introspection
+        chunks_data = result.get("chunks_data", [])
+        if chunks_data:
+            logger.info(f"[TASK {task_id}] Storing {len(chunks_data)} chunks in PostgreSQL...")
+            async with get_session() as session:
+                await db_docs.add_chunks(session, UUID(doc_id), chunks_data)
 
         # Store original document for download functionality
         logger.info(f"[TASK {task_id}] Storing original document for downloads...")
@@ -132,15 +139,8 @@ async def process_document_async(file_path: str, filename: str, batch_id: str, t
         logger.error(f"[TASK {task_id}] Error processing {filename}: {str(e)}")
         logger.error(f"[TASK {task_id}] Traceback:\n{error_trace}")
 
-        # Clean up temp file on failure
-        _cleanup_temp_file(file_path, task_id)
-
+        # Don't clean up temp file on failure — the task may be retried
         raise
-
-
-async def _set_task_total_chunks(task_id: str, total: int) -> None:
-    async with get_session() as session:
-        await db_jobs.update_task_status(session, UUID(task_id), status)
 
 
 async def _set_task_total_chunks(task_id: str, total: int) -> None:

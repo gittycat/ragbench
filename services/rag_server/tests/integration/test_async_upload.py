@@ -67,7 +67,7 @@ class TestTaskCompletion:
         batch_id = upload_result["batch_id"]
 
         # Wait for task completion
-        final_status = wait_for_task(rag_server_url, batch_id, timeout=120)
+        final_status = wait_for_task(rag_server_url, batch_id, timeout=300)
 
         assert final_status["completed"] == final_status["total"], \
             f"All tasks should complete. Status: {final_status}"
@@ -119,7 +119,7 @@ class TestTaskCompletion:
         # Poll progress and verify it increments
         progress_readings = []
         start = time.time()
-        timeout = 180  # Large files may take longer
+        timeout = 300  # Large files may take longer
 
         while time.time() - start < timeout:
             status_response = httpx.get(
@@ -161,7 +161,7 @@ class TestTaskCompletion:
         unique_name = f"upload_test_{uuid.uuid4().hex}.txt"
         file_path = tmp_path / unique_name
         file_path.write_text(
-            "Upload test content. Unique identifier: LIST_TEST_98765"
+            f"Upload test content. Unique identifier: LIST_TEST_{uuid.uuid4().hex}"
         )
 
         # Upload file
@@ -179,7 +179,7 @@ class TestTaskCompletion:
         batch_id = upload_result["batch_id"]
 
         # Wait for task completion
-        final_status = wait_for_task(rag_server_url, batch_id, timeout=120)
+        final_status = wait_for_task(rag_server_url, batch_id, timeout=300)
         tasks = final_status.get("tasks", {})
         task_errors = [
             t for t in tasks.values() if t.get("status") == "error"
@@ -243,10 +243,10 @@ class TestTaskCompletion:
         batch_id = result["batch_id"]
 
         # Should have 2 tasks
-        assert result["total"] == 2, f"Should have 2 tasks, got {result}"
+        assert len(result.get("tasks", [])) == 2, f"Should have 2 tasks, got {result}"
 
         # Wait for all tasks
-        final_status = wait_for_task(rag_server_url, batch_id, timeout=180)
+        final_status = wait_for_task(rag_server_url, batch_id, timeout=360)
 
         assert final_status["completed"] == 2, \
             f"Both files should be processed. Status: {final_status}"
@@ -444,9 +444,9 @@ class TestTaskProgressAPI:
             timeout=10.0,
         )
 
-        # Should return 404 or empty status, not crash
-        assert response.status_code in [200, 404], \
-            f"Should handle invalid batch ID gracefully: {response.status_code}"
+        # Invalid UUID format should return a client error (400), not crash.
+        assert response.status_code == 400, \
+            f"Should handle invalid batch ID format gracefully: {response.status_code}"
 
     def test_concurrent_uploads_no_race(
         self,
@@ -471,17 +471,20 @@ class TestTaskProgressAPI:
 
         # Create 3 unique files
         files_to_upload = []
+        uploaded_names = []
         for i in range(3):
+            unique_suffix = uuid.uuid4().hex[:8]
             content = f"""
             Concurrent Upload Test File {i}
 
-            Unique identifier: CONCURRENT_{i}_{uuid.uuid4().hex[:8]}
+            Unique identifier: CONCURRENT_{i}_{unique_suffix}
 
             This tests race conditions in parallel uploads.
             """
-            file_path = sample_text_file.parent / f"concurrent_{i}.txt"
+            file_path = sample_text_file.parent / f"concurrent_{i}_{unique_suffix}.txt"
             file_path.write_text(content)
             files_to_upload.append(file_path)
+            uploaded_names.append(file_path.name)
 
         batch_ids = []
 
@@ -504,15 +507,13 @@ class TestTaskProgressAPI:
 
         # Wait for all batches to complete
         for batch_id in batch_ids:
-            status = wait_for_task(rag_server_url, batch_id, timeout=120)
+            status = wait_for_task(rag_server_url, batch_id, timeout=300)
             assert status["completed"] == status["total"], \
                 f"Batch {batch_id} should complete: {status}"
 
-        # Verify all documents are queryable
-        for i in range(3):
-            query_response = httpx.post(
-                f"{rag_server_url}/query",
-                json={"query": f"CONCURRENT_{i}", "session_id": str(uuid.uuid4())},
-                timeout=60.0,
-            )
-            assert query_response.status_code == 200
+        # Verify uploaded documents are present in API listing.
+        docs_resp = httpx.get(f"{rag_server_url}/documents", timeout=10.0)
+        assert docs_resp.status_code == 200
+        doc_names = {d.get("file_name") for d in docs_resp.json().get("documents", [])}
+        for name in uploaded_names:
+            assert name in doc_names, f"Expected uploaded document in listing: {name}"

@@ -24,7 +24,7 @@ initialize_settings()
 
 from infrastructure.database.postgres import get_session
 from infrastructure.database import jobs as db_jobs
-from infrastructure.tasks.worker import process_document_async
+from infrastructure.tasks.worker import process_document_async, _cleanup_temp_file
 
 # Worker configuration
 POLL_INTERVAL = 1.0        # Seconds between queue checks when idle
@@ -80,8 +80,9 @@ async def claim_and_process() -> bool:
         logger.error(f"[WORKER] Task {task_id} failed (attempt {attempt}): {e}")
 
         if attempt >= MAX_ATTEMPTS:
-            # Exhausted all retries
+            # Exhausted all retries — clean up temp file
             logger.error(f"[WORKER] Task {task_id} exhausted all {MAX_ATTEMPTS} attempts")
+            _cleanup_temp_file(task["file_path"], task_id)
             async with get_session() as session:
                 await db_jobs.fail_task(
                     session, UUID(task_id),
