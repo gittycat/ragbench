@@ -1,5 +1,40 @@
 # CLAUDE.md
 
+
+# Global Software Coding Guidelines
+
+## Communication Style
+- Keep responses direct and concise without unnecessary affirmations or agreement phrases. Be blunt.
+- Dont be a sycophant. Avoid phrases like "You're absolutely right" or "I agree" unless I explicitely ask "Suck up to me".
+
+## Libraries
+- When adding libraries or packages, search online and use the most current released version.
+- Be progressive when selecting a library or package. Go for libraries and packages that have a high adoption rate unless it is not widely used (eg: less than 1K stars in github).
+
+## Database
+- Use SQL Schema for migrations (or migration tool output reviewed as SQL).
+- Use **query builders** for most queries, not ORM.
+- Optionally, lightweight mappings (dataclasses / pydantic models) without relying on ORM relationship loading for critical paths.
+- Keep tricky SQL as explicit SQL (views, CTEs, window functions) and call it directly.
+
+### git usage
+- Use short one liners for git commit messages.
+
+
+## Library and Tool documentation
+Use the Svelte MCP server for any Svelte related coding, question or documentation.
+
+Otherwise, use context7 when I need code generation, setup or configuration steps, or
+library/API documentation. This means you should automatically use the Context7 MCP
+tools to resolve library id when it is not known, and get library docs without me having to explicitly ask.
+
+### Context7 IDs
+For tailwind 4, use context7 with id: websites/tailwindcss
+For DaisyUI doc, use context7 with id: websites/daisyui
+
+
+## Language-Specific Guidelines
+
 ## Python
 
 ### Prefer Functions Over Classes
