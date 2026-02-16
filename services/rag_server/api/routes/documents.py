@@ -25,6 +25,7 @@ from infrastructure.database import documents as db_docs
 from infrastructure.database.documents import SORT_COLUMNS
 from infrastructure.database import jobs as db_jobs
 from app.settings import get_shared_upload_dir
+from infrastructure.config.models_config import get_models_config
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -137,6 +138,22 @@ async def check_duplicate_documents(request: FileCheckRequest):
 @router.post("/upload", response_model=BatchUploadResponse)
 async def upload_documents(files: List[UploadFile] = File(...)):
     logger.info(f"[UPLOAD] Upload endpoint called with {len(files)} files")
+
+    # Pre-flight check: reject early if Ollama is unreachable
+    config = get_models_config()
+    if config.embedding.provider == "ollama":
+        import httpx
+        base_url = (config.embedding.base_url or "").rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{base_url}/api/tags")
+                resp.raise_for_status()
+        except Exception:
+            raise HTTPException(
+                status_code=503,
+                detail="Ollama is not reachable. Please ensure Ollama is running before uploading documents.",
+            )
+
     for f in files:
         logger.info(f"[UPLOAD] File: {f.filename} (Content-Type: {f.content_type})")
 
