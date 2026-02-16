@@ -346,8 +346,19 @@ export async function uploadFiles(files: FileList | File[]): Promise<BatchUpload
 	});
 
 	if (!response.ok) {
-		const error = await response.text();
-		throw new Error(`Upload failed: ${error}`);
+		const errorText = await response.text();
+		let detail = errorText;
+		try {
+			const parsed = JSON.parse(errorText);
+			if (parsed.detail) detail = parsed.detail;
+		} catch { /* use raw text */ }
+
+		if (response.status === 503) {
+			const err = new Error(detail);
+			err.name = 'ServiceUnavailable';
+			throw err;
+		}
+		throw new Error(`Upload failed: ${detail}`);
 	}
 
 	return response.json();
