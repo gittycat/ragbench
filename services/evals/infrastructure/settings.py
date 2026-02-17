@@ -7,12 +7,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         secrets_dir="/run/secrets",
-        secrets_dir_missing="error",
+        secrets_dir_missing="warn",
         case_sensitive=True,
     )
 
-    OPENAI_API_KEY: SecretStr
-    ANTHROPIC_API_KEY: SecretStr
+    OPENAI_API_KEY: SecretStr | None = None
+    ANTHROPIC_API_KEY: SecretStr | None = None
     GOOGLE_API_KEY: SecretStr | None = None
     DEEPSEEK_API_KEY: SecretStr | None = None
     MOONSHOT_API_KEY: SecretStr | None = None
@@ -46,11 +46,15 @@ def init_settings() -> Settings:
 
 def get_openai_key() -> str:
     s = init_settings()
+    if s.OPENAI_API_KEY is None:
+        return ""
     return _sanitize_secret(s.OPENAI_API_KEY.get_secret_value())
 
 
 def get_anthropic_key() -> str:
     s = init_settings()
+    if s.ANTHROPIC_API_KEY is None:
+        return ""
     return _sanitize_secret(s.ANTHROPIC_API_KEY.get_secret_value())
 
 

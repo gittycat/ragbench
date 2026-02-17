@@ -10,7 +10,7 @@ def print_config_banner(compact: bool = True) -> None:
         compact: If True, show minimal config. If False, show full config.
     """
     try:
-        config = get_models_config()
+        config = get_models_config(validate_secrets=False)
 
         if compact:
             _print_compact_banner(config)

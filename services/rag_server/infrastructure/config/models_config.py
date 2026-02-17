@@ -264,11 +264,12 @@ class ModelsConfig(BaseModel):
     _source_path: Path | None = None
 
     @classmethod
-    def load(cls, config_path: str | Path | None = None) -> "ModelsConfig":
+    def load(cls, config_path: str | Path | None = None, *, validate_secrets: bool = True) -> "ModelsConfig":
         """Load configuration from YAML file and inject secrets from /run/secrets.
 
         Args:
             config_path: Path to the models.yml file. If None, searches in standard locations.
+            validate_secrets: If True, inject and validate API keys. Set False for display-only usage.
 
         Returns:
             ModelsConfig instance with secrets injected.
@@ -307,23 +308,25 @@ class ModelsConfig(BaseModel):
             # Legacy format - use as-is
             resolved_data = data
 
-        # Inject API keys from secrets based on requires_api_key flag
-        for key in ["llm", "embedding", "eval"]:
-            if key in resolved_data and resolved_data[key].get("requires_api_key"):
-                provider = resolved_data[key].get("provider")
-                if provider:
-                    api_key = get_api_key_for_provider(provider)
-                    if api_key:
-                        resolved_data[key]["api_key"] = api_key
+        if validate_secrets:
+            # Inject API keys from secrets based on requires_api_key flag
+            for key in ["llm", "embedding", "eval"]:
+                if key in resolved_data and resolved_data[key].get("requires_api_key"):
+                    provider = resolved_data[key].get("provider")
+                    if provider:
+                        api_key = get_api_key_for_provider(provider)
+                        if api_key:
+                            resolved_data[key]["api_key"] = api_key
 
         # Create and validate config
         config = cls(**resolved_data)
         config._source_path = Path(config_path)
 
-        # Run provider-specific validations
-        config.llm.validate_provider_requirements()
-        config.embedding.validate_provider_requirements()
-        config.eval.validate_provider_requirements()
+        if validate_secrets:
+            # Run provider-specific validations
+            config.llm.validate_provider_requirements()
+            config.embedding.validate_provider_requirements()
+            config.eval.validate_provider_requirements()
 
         return config
 
@@ -428,7 +431,7 @@ class ModelsConfigManager:
         self._resolved_path: Path | None = None
         self._last_mtime: float = 0.0
 
-    def get_config(self) -> ModelsConfig:
+    def get_config(self, *, validate_secrets: bool = True) -> ModelsConfig:
         """Get config, auto-reloading if the file changed on disk."""
         if self._config is not None and self._resolved_path is not None:
             try:
@@ -440,7 +443,7 @@ class ModelsConfigManager:
                 pass
 
         if self._config is None:
-            self._config = ModelsConfig.load(self._config_path)
+            self._config = ModelsConfig.load(self._config_path, validate_secrets=validate_secrets)
             self._resolved_path = self._config._source_path  # type: ignore[attr-defined]
             if self._resolved_path:
                 self._last_mtime = self._resolved_path.stat().st_mtime
@@ -457,7 +460,7 @@ class ModelsConfigManager:
 _default_manager = ModelsConfigManager()
 
 
-def get_models_config(config_path: str | Path | None = None) -> ModelsConfig:
+def get_models_config(config_path: str | Path | None = None, *, validate_secrets: bool = True) -> ModelsConfig:
     """
     Get or load ModelsConfig using default manager.
 
@@ -466,6 +469,7 @@ def get_models_config(config_path: str | Path | None = None) -> ModelsConfig:
 
     Args:
         config_path: Optional path to config file. Only used on first call.
+        validate_secrets: If True, inject and validate API keys. Set False for display-only usage.
 
     Returns:
         ModelsConfig instance
@@ -473,7 +477,7 @@ def get_models_config(config_path: str | Path | None = None) -> ModelsConfig:
     # Note: config_path only affects first call (lazy initialization)
     if _default_manager._config is None and config_path is not None:
         _default_manager._config_path = config_path
-    return _default_manager.get_config()
+    return _default_manager.get_config(validate_secrets=validate_secrets)
 
 
 def get_database_config() -> DatabaseConfig:

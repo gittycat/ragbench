@@ -73,7 +73,7 @@ class SquadV2Loader(BaseDatasetLoader):
         # SQuAD v2 only has train and validation splits (no test with labels)
         hf_split = "validation" if split in ("test", "validation", "val") else "train"
 
-        dataset = load_dataset("rajpurkar/squad_v2", split=hf_split, trust_remote_code=True)
+        dataset = load_dataset("rajpurkar/squad_v2", split=hf_split)
 
         # Convert all items
         all_questions: list[EvalQuestion] = []

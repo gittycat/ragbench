@@ -25,6 +25,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -75,8 +76,8 @@ def main():
     eval_parser.add_argument(
         "--rag-url",
         type=str,
-        help="RAG server URL (default: http://localhost:8001)",
-        default="http://localhost:8001",
+        help="RAG server URL (default: RAG_SERVER_URL env or http://localhost:8001)",
+        default=os.environ.get("RAG_SERVER_URL", "http://localhost:8001"),
     )
     eval_parser.add_argument(
         "--no-judge",

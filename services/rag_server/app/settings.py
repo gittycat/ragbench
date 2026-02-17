@@ -10,17 +10,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         secrets_dir="/run/secrets",
-        secrets_dir_missing="error",
+        secrets_dir_missing="warn",
         case_sensitive=True,
     )
 
-    OPENAI_API_KEY: SecretStr
-    ANTHROPIC_API_KEY: SecretStr
+    OPENAI_API_KEY: SecretStr | None = None
+    ANTHROPIC_API_KEY: SecretStr | None = None
     GOOGLE_API_KEY: SecretStr | None = None
     DEEPSEEK_API_KEY: SecretStr | None = None
     MOONSHOT_API_KEY: SecretStr | None = None
-    RAG_SERVER_DB_USER: SecretStr
-    RAG_SERVER_DB_PASSWORD: SecretStr
+    RAG_SERVER_DB_USER: SecretStr | None = None
+    RAG_SERVER_DB_PASSWORD: SecretStr | None = None
 
     @classmethod
     def settings_customise_sources(
@@ -54,11 +54,15 @@ def init_settings() -> Settings:
 
 def get_openai_key() -> str:
     s = init_settings()
+    if s.OPENAI_API_KEY is None:
+        return ""
     return _sanitize_secret(s.OPENAI_API_KEY.get_secret_value())
 
 
 def get_anthropic_key() -> str:
     s = init_settings()
+    if s.ANTHROPIC_API_KEY is None:
+        return ""
     return _sanitize_secret(s.ANTHROPIC_API_KEY.get_secret_value())
 
 
@@ -122,11 +126,15 @@ def has_anthropic_key() -> bool:
 
 def get_postgres_user() -> str:
     s = init_settings()
+    if s.RAG_SERVER_DB_USER is None:
+        raise RuntimeError("RAG_SERVER_DB_USER secret not mounted at /run/secrets/")
     return _sanitize_secret(s.RAG_SERVER_DB_USER.get_secret_value())
 
 
 def get_postgres_password() -> str:
     s = init_settings()
+    if s.RAG_SERVER_DB_PASSWORD is None:
+        raise RuntimeError("RAG_SERVER_DB_PASSWORD secret not mounted at /run/secrets/")
     return _sanitize_secret(s.RAG_SERVER_DB_PASSWORD.get_secret_value())
 
 

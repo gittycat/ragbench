@@ -79,7 +79,6 @@ class HotpotQALoader(BaseDatasetLoader):
             "hotpotqa/hotpot_qa",
             "distractor",
             split=hf_split,
-            trust_remote_code=True,
         )
 
         # Convert all items

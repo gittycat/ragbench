@@ -142,7 +142,6 @@ class RAGBenchLoader(BaseDatasetLoader):
             "rungalileo/ragbench",
             subset_name,
             split=split,
-            trust_remote_code=True,
         )
 
         # Sample if needed

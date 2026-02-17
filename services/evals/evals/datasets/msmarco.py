@@ -79,7 +79,6 @@ class MSMarcoLoader(BaseDatasetLoader):
                 "microsoft/ms_marco",
                 "v2.1",
                 split=hf_split,
-                trust_remote_code=True,
             )
         except Exception as e:
             logger.warning(f"Failed to load MS MARCO v2.1, trying v1.1: {e}")
@@ -87,7 +86,6 @@ class MSMarcoLoader(BaseDatasetLoader):
                 "microsoft/ms_marco",
                 "v1.1",
                 split=hf_split,
-                trust_remote_code=True,
             )
 
         # Convert items

@@ -152,13 +152,17 @@ services:
     build:
       context: .
       dockerfile: ./services/evals/Dockerfile
+    environment:
+      - RAG_SERVER_URL=http://rag-server:8001
     volumes:
       - ./config.yml:/app/config.yml:ro
       - ./services/evals/evals/data:/app/evals/data
+      - ./.hf_cache:/home/appuser/.cache/huggingface
     secrets:
       - OPENAI_API_KEY
       - ANTHROPIC_API_KEY
     networks:
+      - public
       - private
     profiles:
       - eval
@@ -172,7 +176,8 @@ networks:
     driver: bridge
   private:
     driver: bridge
-    internal: true
+    internal: true # full isolation of services on this network
+    external: false # =true if the network is defined outside of this file
 
 # Persistent volumes
 volumes:
