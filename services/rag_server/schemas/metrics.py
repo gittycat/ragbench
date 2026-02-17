@@ -10,7 +10,7 @@ This file contains shared models (ConfigSnapshot, LatencyMetrics, CostMetrics)
 that are imported by both metrics.py and eval.py.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 from pydantic import BaseModel, Field
 
@@ -239,7 +239,7 @@ class SystemMetrics(BaseModel):
     # System info
     system_name: str = Field("ragbench", description="System name")
     version: str = Field("1.0.0", description="System version")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Response timestamp")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Response timestamp")
 
     # Models
     models: ModelsConfig = Field(..., description="All models configuration")

@@ -8,8 +8,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 @pytest.mark.asyncio
-async def test_pgsearch_retriever_uses_match_for_raw_user_queries():
-    """BM25 retriever should use match() and preserve raw user text."""
+async def test_pgsearch_retriever_uses_bm25_search_for_raw_user_queries():
+    """BM25 retriever should use pg_textsearch bm25_search and preserve raw user text."""
     from infrastructure.search.bm25_retriever import PgSearchBM25Retriever
 
     query = "what's an LLM"
@@ -25,13 +25,15 @@ async def test_pgsearch_retriever_uses_match_for_raw_user_queries():
 
     assert results == []
     sql, params = session.execute.await_args.args
-    assert "paradedb.match('content', :query)" in str(sql)
+    sql_str = str(sql)
+    assert "bm25_search(" in sql_str
+    assert "websearch_to_tsquery('english', :query)" in sql_str
     assert params["query"] == query
 
 
 @pytest.mark.asyncio
-async def test_document_bm25_search_uses_match():
-    """BM25 search should route user text through match()."""
+async def test_document_bm25_search_uses_pg_textsearch():
+    """BM25 search should route user text through pg_textsearch bm25_search."""
     from infrastructure.database.documents import search_chunks_bm25
 
     query = "what's an LLM"
@@ -46,5 +48,7 @@ async def test_document_bm25_search_uses_match():
 
     assert results == []
     sql, params = session.execute.await_args.args
-    assert "paradedb.match('content', :query)" in str(sql)
+    sql_str = str(sql)
+    assert "bm25_search(" in sql_str
+    assert "websearch_to_tsquery('english', :query)" in sql_str
     assert params == {"query": query, "limit": 5}
