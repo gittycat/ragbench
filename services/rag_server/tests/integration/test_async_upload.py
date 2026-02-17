@@ -29,7 +29,7 @@ class TestTaskCompletion:
     - ollama (embeddings)
     """
 
-    def test_celery_task_completes(
+    def test_async_task_completes(
         self,
         integration_env,
         check_services,
@@ -38,7 +38,7 @@ class TestTaskCompletion:
         wait_for_task,
     ):
         """
-        Upload via API -> Celery processes -> status shows completed.
+        Upload via API -> task-worker processes -> status shows completed.
 
         This validates the entire async processing pipeline works end-to-end.
         """

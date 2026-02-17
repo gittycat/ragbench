@@ -139,7 +139,7 @@ def sample_pdf(tmp_path):
     """
 
     for line in content.strip().split("\n"):
-        pdf.cell(0, 10, line.strip(), ln=True)
+        pdf.cell(0, 10, line.strip(), new_x="LMARGIN", new_y="NEXT")
 
     pdf_path = tmp_path / "test_document.pdf"
     pdf.output(str(pdf_path))
