@@ -35,10 +35,7 @@ RAGBENCH_SUBSETS = {
     "hagrid": "general",
     "hotpotqa": "general",
     "msmarco": "general",
-    "narrativeqa": "general",
-    "natural_questions": "general",
     "pubmedqa": "medical",
-    "squad": "general",
     "tatqa": "finance",
     "techqa": "technical",
 }

@@ -134,7 +134,7 @@ def parse_rag_response(
 
     # Extract retrieved chunks
     retrieved_chunks = []
-    sources = raw_response.get("sources", [])
+    sources = raw_response.get("sources") or []
     for i, source in enumerate(sources):
         chunk = RetrievedChunk(
             doc_id=source.get("doc_id", source.get("document_id", "")),
@@ -148,7 +148,7 @@ def parse_rag_response(
 
     # Extract citations (if present in response)
     citations = []
-    raw_citations = raw_response.get("citations", [])
+    raw_citations = raw_response.get("citations") or []
     for cit in raw_citations:
         citation = Citation(
             source_index=cit.get("source_index", 0),
