@@ -50,7 +50,7 @@ class RecallAtK(BaseMetric):
         if not gold_chunk_ids:
             return MetricResult(
                 name=self.name,
-                value=1.0,  # No gold = perfect recall by default
+                value=0.0,  # No gold passages = cannot evaluate recall
                 group=self.group,
                 sample_size=1,
                 details={"note": "No gold passages defined"},
@@ -171,7 +171,7 @@ class MRR(BaseMetric):
         if not gold_chunk_ids:
             return MetricResult(
                 name=self.name,
-                value=1.0,
+                value=0.0,  # No gold passages = cannot evaluate MRR
                 group=self.group,
                 sample_size=1,
                 details={"note": "No gold passages defined"},
@@ -236,7 +236,7 @@ class NDCG(BaseMetric):
         if not relevance_map:
             return MetricResult(
                 name=self.name,
-                value=1.0,
+                value=0.0,  # No gold passages = cannot evaluate NDCG
                 group=self.group,
                 sample_size=1,
                 details={"note": "No gold passages defined"},

@@ -5,8 +5,8 @@ from functools import partial
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
-from schemas.query import QueryRequest, QueryResponse, QueryMetrics, TokenUsage
-from pipelines.inference import query_rag, query_rag_stream
+from schemas.query import QueryRequest, QueryResponse, QueryMetrics, TokenUsage, QueryWithContextRequest
+from pipelines.inference import query_rag, query_rag_stream, query_rag_with_context
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -79,6 +79,48 @@ async def query(request: QueryRequest):
         import traceback
         logger.error(f"[QUERY] Error processing query: {str(e)}")
         logger.error(f"[QUERY] Traceback:\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/query/with-context", response_model=QueryResponse)
+async def query_with_context(request: QueryWithContextRequest):
+    """Execute RAG generation with pre-injected context (bypasses retrieval)."""
+    try:
+        session_id = request.session_id or str(uuid.uuid4())
+        passages = [{"text": p.text, "doc_id": p.doc_id} for p in request.context_passages]
+
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            partial(query_rag_with_context, request.query, passages, session_id),
+        )
+
+        metrics = None
+        if result.get("metrics"):
+            raw_metrics = result["metrics"]
+            token_usage = None
+            if raw_metrics.get("token_usage"):
+                token_usage = TokenUsage(
+                    prompt_tokens=raw_metrics["token_usage"]["prompt_tokens"],
+                    completion_tokens=raw_metrics["token_usage"]["completion_tokens"],
+                    total_tokens=raw_metrics["token_usage"]["total_tokens"],
+                )
+            metrics = QueryMetrics(
+                latency_ms=raw_metrics["latency_ms"],
+                token_usage=token_usage,
+            )
+
+        return QueryResponse(
+            answer=result["answer"],
+            sources=result["sources"],
+            session_id=result["session_id"],
+            citations=None,
+            metrics=metrics,
+        )
+    except Exception as e:
+        import traceback
+        logger.error(f"[QUERY_WITH_CONTEXT] Error: {str(e)}")
+        logger.error(f"[QUERY_WITH_CONTEXT] Traceback:\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -19,6 +19,24 @@ class DatasetName(str, Enum):
     GOLDEN = "golden"
 
 
+class EvalTier(str, Enum):
+    """Evaluation tier controlling how queries are executed."""
+
+    GENERATION = "generation"   # Tier 1: inject context directly, no ingestion
+    END_TO_END = "end_to_end"   # Tier 2: ingest docs, full pipeline
+
+
+# Which tiers each dataset supports
+DATASET_TIER_SUPPORT: dict[str, list[EvalTier]] = {
+    DatasetName.RAGBENCH:  [EvalTier.GENERATION, EvalTier.END_TO_END],
+    DatasetName.SQUAD_V2:  [EvalTier.GENERATION],
+    DatasetName.GOLDEN:    [EvalTier.GENERATION],
+    DatasetName.QASPER:    [EvalTier.END_TO_END],
+    DatasetName.HOTPOTQA:  [EvalTier.END_TO_END],
+    DatasetName.MSMARCO:   [EvalTier.END_TO_END],
+}
+
+
 # Dataset -> Primary evaluation aspect mapping
 DATASET_ASPECTS = {
     DatasetName.RAGBENCH: ["generation", "retrieval"],  # Cross-domain baseline
@@ -121,6 +139,8 @@ class EvalConfig:
     rag_server_url: str = "http://localhost:8001"
     runs_dir: Path = field(default_factory=lambda: Path("data/eval_runs"))
     seed: int | None = 42
+    tier: EvalTier = field(default_factory=lambda: EvalTier.END_TO_END)
+    cleanup_on_failure: bool = True
 
     def __post_init__(self):
         if isinstance(self.runs_dir, str):
@@ -133,6 +153,18 @@ class EvalConfig:
             else:
                 normalized.append(ds)
         self.datasets = normalized
+        # Normalize tier
+        if isinstance(self.tier, str):
+            self.tier = EvalTier(self.tier)
+        # Validate tier/dataset combinations
+        for ds in self.datasets:
+            supported = DATASET_TIER_SUPPORT.get(ds, list(EvalTier))
+            if self.tier not in supported:
+                supported_names = [t.value for t in supported]
+                raise ValueError(
+                    f"Dataset '{ds.value}' does not support tier '{self.tier.value}'. "
+                    f"Supported tiers: {supported_names}"
+                )
 
     @classmethod
     def from_yaml(cls, path: Path | str) -> "EvalConfig":
@@ -146,6 +178,10 @@ class EvalConfig:
             data["metrics"] = MetricConfig(**data["metrics"])
         if "judge" in data and isinstance(data["judge"], dict):
             data["judge"] = JudgeConfig(**data["judge"])
+
+        # Normalize tier from string
+        if "tier" in data and isinstance(data["tier"], str):
+            data["tier"] = EvalTier(data["tier"])
 
         return cls(**data)
 
@@ -177,6 +213,8 @@ class EvalConfig:
             "rag_server_url": self.rag_server_url,
             "runs_dir": str(self.runs_dir),
             "seed": self.seed,
+            "tier": self.tier.value,
+            "cleanup_on_failure": self.cleanup_on_failure,
         }
 
         with open(path, "w") as f:

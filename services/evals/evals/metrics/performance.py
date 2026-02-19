@@ -181,19 +181,30 @@ class CostPerQuery(BaseMetric):
     def __init__(
         self,
         model: str,
-        cost_per_1m_input_tokens: float,
-        cost_per_1m_output_tokens: float,
+        cost_per_1m_input_tokens: float | None = None,
+        cost_per_1m_output_tokens: float | None = None,
     ):
         """Initialize with model name and cost rates.
 
         Args:
             model: Model name for display
-            cost_per_1m_input_tokens: Cost per 1M input tokens in USD
-            cost_per_1m_output_tokens: Cost per 1M output tokens in USD
+            cost_per_1m_input_tokens: Cost per 1M input tokens in USD (looks up from MODEL_COSTS if None)
+            cost_per_1m_output_tokens: Cost per 1M output tokens in USD (looks up from MODEL_COSTS if None)
         """
+        from evals.config import MODEL_COSTS
+        costs = MODEL_COSTS.get(model, {"input": 0.0, "output": 0.0})
+        if costs is None:
+            for pattern, pattern_costs in MODEL_COSTS.items():
+                if pattern.endswith("/*"):
+                    provider = pattern[:-2]
+                    if model.startswith(provider) or provider in model.lower():
+                        costs = pattern_costs
+                        break
+            else:
+                costs = {"input": 0.0, "output": 0.0}
         self._model = model
-        self._input_cost = cost_per_1m_input_tokens
-        self._output_cost = cost_per_1m_output_tokens
+        self._input_cost = cost_per_1m_input_tokens if cost_per_1m_input_tokens is not None else costs["input"]
+        self._output_cost = cost_per_1m_output_tokens if cost_per_1m_output_tokens is not None else costs["output"]
 
     @property
     def model(self) -> str:

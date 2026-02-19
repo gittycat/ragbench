@@ -8,6 +8,17 @@ class QueryRequest(BaseModel):
     include_chunks: bool = False
 
 
+class ContextPassage(BaseModel):
+    text: str
+    doc_id: str
+
+
+class QueryWithContextRequest(BaseModel):
+    query: str
+    context_passages: list[ContextPassage]
+    session_id: str | None = None
+
+
 class TokenUsage(BaseModel):
     """Token usage statistics for a query."""
     prompt_tokens: int

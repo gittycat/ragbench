@@ -93,7 +93,7 @@ class TestRecallAtK:
         assert result.details["gold_count"] == 4
 
     def test_no_gold_passages(self):
-        """No gold passages should default to recall of 1.0."""
+        """No gold passages should score 0.0 (cannot evaluate recall without ground truth)."""
         from evals.metrics.retrieval import RecallAtK
         from evals.schemas import EvalQuestion, EvalResponse, RetrievedChunk
 
@@ -116,7 +116,7 @@ class TestRecallAtK:
 
         result = metric.compute(question, response)
 
-        assert result.value == 1.0
+        assert result.value == 0.0
         assert "No gold passages" in result.details.get("note", "")
 
     def test_k_limit_applied(self):
@@ -341,6 +341,33 @@ class TestMRR:
         assert result.value == 0.0
         assert result.details["first_relevant_rank"] is None
 
+    def test_no_gold_passages(self):
+        """No gold passages should score 0.0 (cannot evaluate MRR without ground truth)."""
+        from evals.metrics.retrieval import MRR
+        from evals.schemas import EvalQuestion, EvalResponse, RetrievedChunk
+
+        metric = MRR()
+
+        question = EvalQuestion(
+            id="q1",
+            question="What is X?",
+            expected_answer="Y",
+            gold_passages=[],
+        )
+
+        response = EvalResponse(
+            question_id="q1",
+            answer="Y",
+            retrieved_chunks=[
+                RetrievedChunk(doc_id="doc1", chunk_id="chunk1", text="text", rank=1),
+            ],
+        )
+
+        result = metric.compute(question, response)
+
+        assert result.value == 0.0
+        assert "No gold passages" in result.details.get("note", "")
+
 
 class TestNDCG:
     """Tests for Normalized Discounted Cumulative Gain metric."""
@@ -411,7 +438,7 @@ class TestNDCG:
         assert result.value > 0.0
 
     def test_no_gold_passages(self):
-        """No gold passages should default to NDCG of 1.0."""
+        """No gold passages should score 0.0 (cannot evaluate NDCG without ground truth)."""
         from evals.metrics.retrieval import NDCG
         from evals.schemas import EvalQuestion, EvalResponse, RetrievedChunk
 
@@ -434,7 +461,72 @@ class TestNDCG:
 
         result = metric.compute(question, response)
 
-        assert result.value == 1.0
+        assert result.value == 0.0
+
+
+# =============================================================================
+# EVAL TIER CONFIG TESTS
+# =============================================================================
+
+
+class TestEvalTierConfig:
+    """Tests for EvalTier and dataset tier validation."""
+
+    def test_eval_tier_end_to_end_is_default(self):
+        """EvalConfig should default to END_TO_END tier."""
+        from evals.config import EvalConfig, EvalTier
+
+        config = EvalConfig()
+        assert config.tier == EvalTier.END_TO_END
+
+    def test_eval_tier_generation_valid_for_ragbench(self):
+        """RAGBench supports both GENERATION and END_TO_END tiers."""
+        from evals.config import EvalConfig, EvalTier, DatasetName
+
+        config = EvalConfig(datasets=[DatasetName.RAGBENCH], tier=EvalTier.GENERATION)
+        assert config.tier == EvalTier.GENERATION
+
+    def test_eval_tier_generation_valid_for_squad_v2(self):
+        """SQuAD v2 supports GENERATION tier."""
+        from evals.config import EvalConfig, EvalTier, DatasetName
+
+        config = EvalConfig(datasets=[DatasetName.SQUAD_V2], tier=EvalTier.GENERATION)
+        assert config.tier == EvalTier.GENERATION
+
+    def test_eval_tier_end_to_end_invalid_for_squad_v2(self):
+        """SQuAD v2 does NOT support END_TO_END tier — should raise ValueError."""
+        from evals.config import EvalConfig, EvalTier, DatasetName
+
+        with pytest.raises(ValueError, match="squad_v2"):
+            EvalConfig(datasets=[DatasetName.SQUAD_V2], tier=EvalTier.END_TO_END)
+
+    def test_eval_tier_generation_invalid_for_qasper(self):
+        """Qasper does NOT support GENERATION tier — should raise ValueError."""
+        from evals.config import EvalConfig, EvalTier, DatasetName
+
+        with pytest.raises(ValueError, match="qasper"):
+            EvalConfig(datasets=[DatasetName.QASPER], tier=EvalTier.GENERATION)
+
+    def test_cleanup_on_failure_default_true(self):
+        """cleanup_on_failure should default to True."""
+        from evals.config import EvalConfig
+
+        config = EvalConfig()
+        assert config.cleanup_on_failure is True
+
+    def test_tier_from_string(self):
+        """EvalConfig should accept tier as a string."""
+        from evals.config import EvalConfig, EvalTier, DatasetName
+
+        config = EvalConfig(datasets=[DatasetName.RAGBENCH], tier="generation")
+        assert config.tier == EvalTier.GENERATION
+
+    def test_invalid_tier_string_raises(self):
+        """Invalid tier string should raise ValueError."""
+        from evals.config import EvalConfig
+
+        with pytest.raises(ValueError):
+            EvalConfig(tier="invalid_tier")
 
 
 # =============================================================================
@@ -1061,6 +1153,45 @@ class TestSquadV2Loader:
 
         # SQuAD v2 has ~50% unanswerable questions
         assert len(unanswerable) > 0
+
+    def test_unanswerable_questions_have_no_expected_answer(self):
+        """Unanswerable questions should have expected_answer=None and is_unanswerable=True."""
+        from evals.datasets.squad_v2 import SquadV2Loader
+
+        loader = SquadV2Loader()
+        dataset = loader.load(split="validation", max_samples=50, seed=42)
+
+        for q in dataset.questions:
+            if q.is_unanswerable:
+                assert q.expected_answer is None, (
+                    f"Unanswerable question {q.id} should have expected_answer=None"
+                )
+
+    def test_answerable_questions_have_expected_answer(self):
+        """Answerable questions should have a non-None expected_answer."""
+        from evals.datasets.squad_v2 import SquadV2Loader
+
+        loader = SquadV2Loader()
+        dataset = loader.load(split="validation", max_samples=20, seed=42)
+
+        answerable = [q for q in dataset.questions if not q.is_unanswerable]
+        for q in answerable:
+            assert q.expected_answer is not None, (
+                f"Answerable question {q.id} should have an expected_answer"
+            )
+
+    def test_squad_v2_questions_have_gold_passages(self):
+        """SQuAD v2 questions should include gold context passages for Tier 1."""
+        from evals.datasets.squad_v2 import SquadV2Loader
+
+        loader = SquadV2Loader()
+        dataset = loader.load(split="validation", max_samples=10, seed=42)
+
+        for q in dataset.questions:
+            assert len(q.gold_passages) > 0, (
+                f"Question {q.id} has no gold passages (needed for Tier 1 injection)"
+            )
+            assert q.gold_passages[0].text, "Gold passage text should not be empty"
 
 
 @pytest.mark.eval

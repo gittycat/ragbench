@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Generator
 import json
 import logging
 import time
+import uuid
 
 from llama_index.core import VectorStoreIndex
 from llama_index.core.memory import ChatMemoryBuffer
@@ -641,6 +642,79 @@ def query_rag(
         'metrics': {
             'latency_ms': latency_ms,
             'token_usage': token_counts if token_counts['total_tokens'] > 0 else None,
+        },
+    }
+
+
+def query_rag_with_context(
+    query_text: str,
+    context_passages: List[Dict],
+    session_id: Optional[str] = None,
+) -> Dict:
+    """
+    Execute RAG generation with pre-injected context (Tier 1 eval).
+
+    Bypasses hybrid retrieval entirely. Uses the provided passages as context
+    and calls the LLM directly via Settings.llm.chat().
+
+    Args:
+        query_text: The user's question
+        context_passages: List of {"text": str, "doc_id": str} dicts
+        session_id: Optional session ID for response tracking
+
+    Returns:
+        Same shape as query_rag(): answer, sources, session_id, citations, metrics
+    """
+    from llama_index.core.llms import ChatMessage
+
+    reset_token_counter()
+    query_start = time.time()
+
+    # Format passages as numbered context block
+    context_lines = []
+    for i, p in enumerate(context_passages, 1):
+        context_lines.append(f"[{i}] (source: {p['doc_id']})\n{p['text']}")
+    context_str = "\n\n".join(context_lines)
+
+    system_prompt = get_system_prompt()
+    user_content = f"Context:\n{context_str}\n\nQuestion: {query_text}"
+
+    messages = [
+        ChatMessage(role="system", content=system_prompt),
+        ChatMessage(role="user", content=user_content),
+    ]
+
+    logger.info(f"[QUERY_WITH_CONTEXT] Calling LLM with {len(context_passages)} passages")
+    response = Settings.llm.chat(messages)
+    answer = str(response)
+
+    token_counts = get_token_counts()
+
+    # Build sources from provided passages (no retrieval)
+    sources = [
+        {
+            "document_id": p["doc_id"],
+            "document_name": p["doc_id"],
+            "excerpt": p["text"][:200] + "..." if len(p["text"]) > 200 else p["text"],
+            "full_text": p["text"],
+            "path": "",
+            "score": None,
+        }
+        for p in context_passages
+    ]
+
+    latency_ms = (time.time() - query_start) * 1000
+    logger.info(f"[QUERY_WITH_CONTEXT] Complete ({latency_ms:.0f}ms)")
+
+    return {
+        "answer": answer,
+        "sources": sources,
+        "query": query_text,
+        "session_id": session_id or str(uuid.uuid4()),
+        "citations": None,
+        "metrics": {
+            "latency_ms": latency_ms,
+            "token_usage": token_counts if token_counts["total_tokens"] > 0 else None,
         },
     }
 

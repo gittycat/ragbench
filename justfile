@@ -96,10 +96,18 @@ test-integration-local: docker-up
       .venv/bin/pytest tests/integration -v --run-integration
 
 test-eval: show-config
-    docker compose --profile eval run --rm evals eval --datasets ragbench --samples 5
+    docker compose --profile eval run --rm evals eval --tier end_to_end --datasets ragbench --samples 5
+
+# Tier 1 smoke test — all generation-compatible datasets (no ingestion, fast)
+test-eval-generation: show-config
+    docker compose --profile eval run --rm evals eval --tier generation --datasets ragbench,squad_v2,golden --samples 5
+
+# Tier 2 smoke test — all end_to_end-compatible datasets (full pipeline)
+test-eval-end-to-end: show-config
+    docker compose --profile eval run --rm evals eval --tier end_to_end --datasets ragbench,qasper,hotpotqa,msmarco --samples 5
 
 test-eval-full: show-config
-    docker compose --profile eval run --rm evals eval
+    docker compose --profile eval run --rm evals eval --tier end_to_end --datasets ragbench,qasper,hotpotqa,msmarco
 
 eval-datasets:
     docker compose --profile eval run --rm evals datasets

@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from evals.config import EvalConfig, DatasetName, JudgeConfig, MetricConfig
+from evals.config import EvalConfig, DatasetName, EvalTier, DATASET_TIER_SUPPORT, JudgeConfig, MetricConfig
 from evals.datasets.registry import list_datasets, get_dataset
 from evals.runner import EvaluationRunner, run_evaluation, compute_pareto_frontier
 from evals.schemas import EvalRun
@@ -94,6 +94,13 @@ def main():
         "--config",
         type=str,
         help="Path to YAML configuration file",
+    )
+    eval_parser.add_argument(
+        "--tier",
+        type=str,
+        choices=["generation", "end_to_end"],
+        default="end_to_end",
+        help="Evaluation tier: generation (inject context, no ingestion) or end_to_end (full pipeline)",
     )
 
     # stats command
@@ -169,8 +176,12 @@ def cmd_eval(args):
     print()
 
     # Load config from file or build from args
+    tier = EvalTier(args.tier)
+
     if args.config:
         config = EvalConfig.from_yaml(args.config)
+        # CLI --tier overrides YAML tier
+        config.tier = tier
         print(f"Loaded config from: {args.config}")
     else:
         # Parse datasets
@@ -179,16 +190,49 @@ def cmd_eval(args):
             for ds in args.datasets.split(",")
         ]
 
-        # Build config
-        config = EvalConfig(
-            datasets=dataset_names,
-            samples_per_dataset=args.samples,
-            seed=args.seed,
-            rag_server_url=args.rag_url,
-            runs_dir=Path(args.output),
-            judge=JudgeConfig(enabled=not args.no_judge),
-        )
+        # Validate dataset+tier combinations before building config
+        incompatible = []
+        for ds in dataset_names:
+            supported = DATASET_TIER_SUPPORT.get(ds, list(EvalTier))
+            if tier not in supported:
+                incompatible.append((ds.value, [t.value for t in supported]))
 
+        if incompatible:
+            print(f"\nERROR: Incompatible dataset/tier combinations for tier '{tier.value}':")
+            for ds_name, supported_tiers in incompatible:
+                print(f"  - {ds_name}: supports {supported_tiers}")
+            sys.exit(1)
+
+        # Build config
+        try:
+            config = EvalConfig(
+                datasets=dataset_names,
+                samples_per_dataset=args.samples,
+                seed=args.seed,
+                rag_server_url=args.rag_url,
+                runs_dir=Path(args.output),
+                judge=JudgeConfig(enabled=not args.no_judge),
+                tier=tier,
+            )
+        except ValueError as e:
+            print(f"\nERROR: {e}")
+            sys.exit(1)
+
+    # For END_TO_END, verify the RAG server's upload endpoint is reachable
+    if config.tier == EvalTier.END_TO_END:
+        import httpx
+        try:
+            resp = httpx.get(f"{config.rag_server_url}/health", timeout=5.0)
+            if resp.status_code != 200:
+                print(f"\nERROR: RAG server at {config.rag_server_url} returned status {resp.status_code}")
+                print("For END_TO_END tier, the full RAG stack (rag-server + task-worker) must be running.")
+                sys.exit(1)
+        except Exception as e:
+            print(f"\nERROR: Cannot reach RAG server at {config.rag_server_url}: {e}")
+            print("For END_TO_END tier, the full RAG stack (rag-server + task-worker) must be running.")
+            sys.exit(1)
+
+    print(f"Tier: {config.tier.value}")
     print(f"Datasets: {[ds.value for ds in config.datasets]}")
     print(f"Samples per dataset: {config.samples_per_dataset}")
     print(f"RAG server: {config.rag_server_url}")

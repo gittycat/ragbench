@@ -21,6 +21,7 @@ import httpx
 from evals.config import (
     EvalConfig,
     DatasetName,
+    EvalTier,
     DEFAULT_WEIGHTS,
 )
 from evals.datasets.registry import get_dataset, load_datasets
@@ -71,23 +72,79 @@ class RAGClient:
         self.timeout = timeout
         self._client = httpx.Client(timeout=timeout)
 
-    def query(self, question: str, session_id: str | None = None) -> dict[str, Any]:
-        """Send a query to the RAG server.
-
-        Args:
-            question: The question text
-            session_id: Optional session ID for conversation continuity
-
-        Returns:
-            Raw response from the server
-        """
-        payload = {"query": question}
+    def query(self, question: str, session_id: str | None = None, include_chunks: bool = False) -> dict[str, Any]:
+        """Send a query to the RAG server."""
+        payload: dict[str, Any] = {"query": question, "include_chunks": include_chunks}
         if session_id:
             payload["session_id"] = session_id
 
         response = self._client.post(f"{self.base_url}/query", json=payload)
         response.raise_for_status()
         return response.json()
+
+    def query_with_context(
+        self,
+        question: str,
+        passages: list,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """POST /query/with-context with gold passages as injected context."""
+        body: dict[str, Any] = {
+            "query": question,
+            "context_passages": [{"text": p.text, "doc_id": p.doc_id} for p in passages],
+        }
+        if session_id:
+            body["session_id"] = session_id
+
+        response = self._client.post(f"{self.base_url}/query/with-context", json=body)
+        response.raise_for_status()
+        return response.json()
+
+    def upload_text_as_document(self, text: str, filename: str) -> str:
+        """Upload plain text as a .txt file. Returns batch_id."""
+        import io
+        files = [("files", (filename, io.BytesIO(text.encode()), "text/plain"))]
+        response = self._client.post(f"{self.base_url}/upload", files=files)
+        response.raise_for_status()
+        return response.json()["batch_id"]
+
+    def wait_for_batch(self, batch_id: str, timeout: float = 300.0, poll_interval: float = 2.0) -> bool:
+        """Poll batch status until all tasks complete or timeout.
+
+        Returns True if all completed successfully, False if any failed or timed out.
+        """
+        import time
+        start = time.time()
+        while time.time() - start < timeout:
+            response = self._client.get(f"{self.base_url}/tasks/{batch_id}/status")
+            response.raise_for_status()
+            data = response.json()
+            total = data.get("total", 0)
+            completed = data.get("completed", 0)
+            failed = data.get("failed", 0)
+            if failed > 0:
+                logger.warning(f"[RAG_CLIENT] Batch {batch_id} has {failed} failed tasks")
+                return False
+            if total > 0 and completed >= total:
+                return True
+            time.sleep(poll_interval)
+        logger.warning(f"[RAG_CLIENT] Batch {batch_id} timed out after {timeout}s")
+        return False
+
+    def list_documents(self) -> list[dict[str, Any]]:
+        """GET /documents - returns list of all documents."""
+        response = self._client.get(f"{self.base_url}/documents")
+        response.raise_for_status()
+        return response.json()
+
+    def delete_document(self, document_id: str) -> bool:
+        """DELETE /documents/{document_id}. Returns True on success."""
+        try:
+            response = self._client.delete(f"{self.base_url}/documents/{document_id}")
+            return response.status_code in (200, 204)
+        except Exception as e:
+            logger.warning(f"[RAG_CLIENT] Failed to delete document {document_id}: {e}")
+            return False
 
     def get_config(self) -> dict[str, Any]:
         """Get the current RAG server configuration."""
@@ -129,8 +186,8 @@ def parse_rag_response(
     Returns:
         Parsed EvalResponse
     """
-    # Extract answer
-    answer = raw_response.get("response", "")
+    # Extract answer ("answer" is the current field name; "response" kept for compatibility)
+    answer = raw_response.get("answer", raw_response.get("response", ""))
 
     # Extract retrieved chunks
     retrieved_chunks = []
@@ -224,8 +281,8 @@ class EvaluationRunner:
         """Initialize metric instances based on config."""
         self._metrics = {}
 
-        # Retrieval metrics
-        if self.config.metrics.retrieval:
+        # Retrieval metrics — skipped for GENERATION tier (no retrieval happened)
+        if self.config.metrics.retrieval and self.config.tier != EvalTier.GENERATION:
             self._metrics[MetricGroup.RETRIEVAL] = [
                 RecallAtK(k=k) for k in self.config.metrics.recall_k_values
             ] + [
@@ -297,12 +354,30 @@ class EvaluationRunner:
         self._init_metrics()
 
         # Load datasets
-        logger.info(f"[EVAL] Loading datasets: {self.config.datasets}")
+        logger.info(f"[EVAL] Loading datasets: {self.config.datasets} (tier={self.config.tier.value})")
         datasets = load_datasets(
             self.config.datasets,
             max_samples=self.config.samples_per_dataset,
             seed=self.config.seed,
         )
+
+        # Collect all questions upfront (needed for END_TO_END ingestion before querying)
+        all_questions_to_run: list[EvalQuestion] = []
+        for dataset in datasets:
+            logger.info(f"[EVAL] Loaded dataset: {dataset.name} ({len(dataset)} questions)")
+            for question in dataset:
+                all_questions_to_run.append(question)
+
+        logger.info(f"[EVAL] Total questions: {len(all_questions_to_run)}")
+
+        # Ingest documents for END_TO_END tier
+        doc_id_map: dict[str, str] = {}
+        if self.config.tier == EvalTier.END_TO_END:
+            doc_id_map = self._ingest_documents(all_questions_to_run)
+            # Patch gold passage doc_ids to use RAG server's assigned IDs
+            for q in all_questions_to_run:
+                for gp in q.gold_passages:
+                    gp.doc_id = doc_id_map.get(gp.doc_id, gp.doc_id)
 
         # Run queries and collect responses
         all_questions: list[EvalQuestion] = []
@@ -310,13 +385,20 @@ class EvaluationRunner:
         latencies: list[float] = []
         error_count = 0
 
-        for dataset in datasets:
-            logger.info(f"[EVAL] Processing dataset: {dataset.name} ({len(dataset)} questions)")
-
-            for question in dataset:
+        try:
+            for question in all_questions_to_run:
                 try:
                     start_time = time.perf_counter()
-                    raw_response = self.client.query(question.question)
+
+                    if self.config.tier == EvalTier.GENERATION:
+                        raw_response = self.client.query_with_context(
+                            question.question, question.gold_passages
+                        )
+                    else:
+                        raw_response = self.client.query(
+                            question.question, include_chunks=True
+                        )
+
                     latency_ms = (time.perf_counter() - start_time) * 1000
 
                     response = parse_rag_response(
@@ -332,6 +414,10 @@ class EvaluationRunner:
                 except Exception as e:
                     logger.error(f"[EVAL] Query failed for {question.id}: {e}")
                     error_count += 1
+
+        finally:
+            if self.config.tier == EvalTier.END_TO_END and doc_id_map:
+                self._cleanup_documents(list(doc_id_map.values()))
 
         logger.info(
             f"[EVAL] Completed {len(all_responses)} queries, {error_count} errors"
@@ -358,6 +444,7 @@ class EvaluationRunner:
             metadata={
                 "samples_per_dataset": self.config.samples_per_dataset,
                 "seed": self.config.seed,
+                "tier": self.config.tier.value,
             },
         )
 
@@ -369,6 +456,81 @@ class EvaluationRunner:
         )
 
         return eval_run
+
+    def _ingest_documents(self, questions: list[EvalQuestion]) -> dict[str, str]:
+        """Upload gold passage texts to the RAG server for END_TO_END eval.
+
+        Collects all unique doc_ids, concatenates their passage texts, uploads
+        one file per doc_id, and returns a gold_doc_id → rag_doc_id mapping.
+        """
+        # Collect unique doc_ids and their passage texts
+        doc_texts: dict[str, list[str]] = {}
+        for q in questions:
+            for gp in q.gold_passages:
+                if gp.doc_id not in doc_texts:
+                    doc_texts[gp.doc_id] = []
+                if gp.text not in doc_texts[gp.doc_id]:
+                    doc_texts[gp.doc_id].append(gp.text)
+
+        if not doc_texts:
+            return {}
+
+        logger.info(f"[EVAL] Ingesting {len(doc_texts)} unique documents for END_TO_END eval")
+
+        # Upload each doc, track filename → gold_doc_id mapping for later matching
+        filename_to_gold_id: dict[str, str] = {}
+        batch_ids: list[str] = []
+
+        for gold_doc_id, texts in doc_texts.items():
+            # Sanitize filename: replace colons and spaces
+            filename = gold_doc_id.replace(":", "_").replace(" ", "_") + ".txt"
+            combined_text = "\n\n".join(texts)
+            try:
+                batch_id = self.client.upload_text_as_document(combined_text, filename)
+                batch_ids.append(batch_id)
+                filename_to_gold_id[filename] = gold_doc_id
+                logger.info(f"[EVAL] Uploaded {filename} → batch {batch_id}")
+            except Exception as e:
+                logger.error(f"[EVAL] Failed to upload {filename}: {e}")
+
+        # Wait for all batches to complete
+        for batch_id in batch_ids:
+            ok = self.client.wait_for_batch(batch_id)
+            if not ok:
+                logger.warning(f"[EVAL] Batch {batch_id} failed or timed out")
+
+        # Match uploaded filenames to RAG server document IDs
+        try:
+            docs = self.client.list_documents()
+        except Exception as e:
+            logger.error(f"[EVAL] Failed to list documents: {e}")
+            return {}
+
+        gold_to_rag: dict[str, str] = {}
+        for doc in docs:
+            file_name = doc.get("file_name", "")
+            if file_name in filename_to_gold_id:
+                gold_doc_id = filename_to_gold_id[file_name]
+                gold_to_rag[gold_doc_id] = doc["id"]
+
+        logger.info(f"[EVAL] Mapped {len(gold_to_rag)} of {len(doc_texts)} documents to RAG IDs")
+        return gold_to_rag
+
+    def _cleanup_documents(self, rag_doc_ids: list[str]) -> None:
+        """Delete uploaded documents from the RAG server. Never raises."""
+        failed_ids = []
+        for doc_id in rag_doc_ids:
+            ok = self.client.delete_document(doc_id)
+            if not ok:
+                failed_ids.append(doc_id)
+
+        if failed_ids:
+            logger.warning(
+                f"[EVAL] {len(failed_ids)} documents could not be deleted "
+                f"(manual cleanup may be needed): {failed_ids}"
+            )
+        else:
+            logger.info(f"[EVAL] Deleted {len(rag_doc_ids)} documents")
 
     def _create_config_snapshot(self, rag_config: dict) -> ConfigSnapshot:
         """Create a snapshot of the current RAG configuration."""
@@ -499,12 +661,11 @@ class EvaluationRunner:
                 value = max(0.0, min(1.0, metric.value))
                 objective_scores[objective].append(value)
 
-        # Compute average per objective
+        # Compute average per objective — only include objectives that have data
         for obj, scores in objective_scores.items():
             if scores:
                 objectives[obj] = sum(scores) / len(scores)
-            else:
-                objectives[obj] = 0.0
+            # Objectives with no data are excluded; their weight is redistributed via normalization
 
         # Handle performance objectives (latency, cost) - invert since lower is better
         # For now, assume normalized values; could be enhanced with target thresholds
