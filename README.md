@@ -13,7 +13,17 @@ For decent performance, this requires a dedicated server spec'd for large open s
 
 ## Observability
 
-This covers both measures of the **quality** of the data (accuracy, completeness, groundedness / hallucination rate, relevance) and **Operational metrics** values like cost, latency and speed. This project provides dashboards that should allow the admin to determine the best combinations of LLM models used and settings for their data and organisation constraints. This is an ever improving area of RAGs, including this project.
+This covers both measures of the **quality** of the data (accuracy, completeness, groundedness / hallucination rate, relevance) and **Operational metrics** values like cost, latency and speed.
+
+The system includes an **Evaluation Service** that runs automated quality assessments against multiple datasets. Results are distilled into 5 dashboard metrics:
+
+- **Retrieval Relevance** — Are we finding the right content?
+- **Faithfulness** — Is the answer grounded in retrieved context?
+- **Answer Completeness** — Does the answer cover all key points?
+- **Answer Relevance** — Does the answer address the question asked?
+- **Response Latency** — Is the system fast enough?
+
+These metrics allow admins to determine the best combinations of LLM models and settings for their data and organisation constraints.
 
 ## Tech Stack
 
@@ -117,7 +127,7 @@ just init
 docker compose up -d
 ```
 
-Open **http://localhost:8000** in your browser.
+Open **http://localhost:8000** in your browser. The eval service API is available at **http://localhost:8002**.
 
 ### 5. Stop the Application
 

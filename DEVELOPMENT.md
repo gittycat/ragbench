@@ -58,11 +58,12 @@ The differentiating features of this RAG are:
 - Configuration recommendation API (optimize for accuracy vs cost vs latency)
 - CLI and pytest integration for CI/CD workflows
 
-**Metrics API**:
-- Real-time system health monitoring
-- Per-run detailed metrics
-- Compare evaluation runs side-by-side
-- Designed for frontend visualization (integration planned)
+**Eval Service API** (port 8002):
+- Trigger eval runs via API, track progress via polling
+- 5 high-level dashboard metrics (retrieval relevance, faithfulness, answer completeness, answer relevance, latency)
+- Compare runs side-by-side with metric deltas
+- One job at a time (409 if busy), cancellation support
+- JSON files on disk, in-memory index rebuilt on startup
 
 ### c) Advanced RAG Capabilities
 
@@ -101,9 +102,16 @@ The system is composed of multiple services running in a Docker Compose managed 
 - **task-worker** (Python 3.13): Background task processor for async document ingestion via SKIP LOCKED
   - Shares codebase with rag_server (same Docker image, different entrypoint)
 
+**Evaluation Service**:
+- **evals** (Python 3.13 + FastAPI): Evaluation API and CLI for RAG quality assessment
+  - Runs on port 8002, always-on (no profile gating)
+  - Triggers eval runs, tracks progress, serves results
+  - Heavy deps (deepeval, datasets, HuggingFace) isolated from rag-server
+  - CLI still accessible via `docker compose exec evals .venv/bin/python -m evals.cli ...`
+
 **Frontend Service**:
 - **webapp** (Typescript + SvelteKit): User interface for document upload, chat, and session management
-  - Proxies API requests to rag_server
+  - Proxies `/api/eval/*` to evals service, all other `/api/*` to rag-server
   - Exposed on port 8000
 
 ### External Services
@@ -367,6 +375,8 @@ Primary configuration file for models and retrieval settings.
 | `DATABASE_NAME` | `ragbench` | PostgreSQL database |
 | `LOG_LEVEL` | `WARNING` | Logging verbosity |
 | `MAX_UPLOAD_SIZE` | `80` | Max upload size in MB |
+| `RAG_SERVER_URL` | `http://rag-server:8001` | RAG server URL (used by evals + webapp) |
+| `EVALS_SERVICE_URL` | `http://evals:8002` | Eval service URL (used by webapp) |
 
 ## Secrets
 
@@ -437,42 +447,94 @@ Higher scores are better (except hallucination - lower is better).
 
 ### Running Evaluations
 
-**Prerequisites**: `ANTHROPIC_API_KEY` environment variable
+**Prerequisites**: `ANTHROPIC_API_KEY` secret file, Docker services running.
 
-**CLI Usage**:
+**Via API** (recommended for webapp integration):
 ```bash
-cd services/rag_server
-export ANTHROPIC_API_KEY=sk-ant-...
+# Trigger a run
+curl -X POST http://localhost:8002/eval/runs \
+  -H 'Content-Type: application/json' \
+  -d '{"tier": "generation", "datasets": ["ragbench"], "samples": 5}'
 
-# Quick evaluation (5 samples)
-.venv/bin/python -m evaluation.cli eval --samples 5
+# Poll progress
+curl http://localhost:8002/eval/runs/active
 
-# Full evaluation
-.venv/bin/python -m evaluation.cli eval
+# View results
+curl http://localhost:8002/eval/runs
 
-# Save results for metrics API
-.venv/bin/python -m evaluation.cli eval --save
-
-# Dataset statistics
-.venv/bin/python -m evaluation.cli stats
-
-# Generate synthetic Q&A pairs
-.venv/bin/python -m evaluation.cli generate document.txt -n 10
+# Dashboard summary
+curl http://localhost:8002/eval/dashboard
 ```
 
-**Pytest Integration**:
+**Via CLI** (inside the running evals container):
 ```bash
-# Run eval tests (requires --run-eval flag)
-pytest tests/ --run-eval --eval-samples=5
+# Quick evaluation (5 samples)
+docker compose exec evals .venv/bin/python -m evals.cli eval --tier generation --datasets ragbench --samples 5
 
-# Just eval tests
-just test-eval         # Quick (5 samples)
-just test-eval-full    # Full dataset
+# Full evaluation
+docker compose exec evals .venv/bin/python -m evals.cli eval --tier end_to_end --datasets ragbench
+
+# List datasets
+docker compose exec evals .venv/bin/python -m evals.cli datasets
+```
+
+**Via just**:
+```bash
+just test-eval              # Quick end-to-end (5 samples)
+just test-eval-generation   # Tier 1 generation test
+just test-eval-end-to-end   # Tier 2 end-to-end test
+just test-eval-full         # Full dataset
+just eval-datasets          # List datasets
+just eval-compare id1 id2   # Compare runs
 ```
 
 **CI/CD**: Evaluation tests are optional (expensive, ~2-5min). Trigger via commit message containing `[eval]` or manual workflow dispatch.
 
-### Evaluation API Endpoints
+### Eval Service API (port 8002)
+
+The eval service runs as a standalone FastAPI app. The webapp proxies `/api/eval/*` to it.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/eval/runs` | Trigger eval run (202 / 409 if busy) |
+| GET | `/eval/runs/active` | Current job progress (null if idle) |
+| DELETE | `/eval/runs/active` | Cancel running job |
+| GET | `/eval/runs` | List completed runs (paginated) |
+| GET | `/eval/runs/{run_id}` | Full run detail with scorecard |
+| GET | `/eval/runs/compare?ids=a,b` | Compare runs with metric deltas |
+| GET | `/eval/dashboard` | Latest run + active job summary |
+| GET | `/eval/datasets` | Available datasets with tier support |
+| GET | `/health` | Health check |
+
+**Dashboard Metrics** (computed on-the-fly from scorecard):
+
+| Metric | Scale | Source |
+|--------|-------|--------|
+| Retrieval Relevance | 0-1 | avg(recall@5, mrr) — null for generation tier |
+| Faithfulness | 0-1 | faithfulness (LLM judge) |
+| Answer Completeness | 0-1 | answer_correctness (LLM judge) |
+| Answer Relevance | 0-1 | answer_relevancy (LLM judge) |
+| Response Latency | seconds | latency_p50_ms / latency_p95_ms |
+
+**Trigger request:**
+```json
+{
+  "tier": "generation",
+  "datasets": ["ragbench"],
+  "samples": 20,
+  "seed": 42,
+  "judge_enabled": true
+}
+```
+
+**Design decisions:**
+- One job at a time (evals are resource-intensive)
+- No database — JSON files on disk, in-memory index rebuilt on startup
+- Polling via `GET /eval/runs/active` (every 2-3s during a run)
+- Background `threading.Thread` (runner is sync)
+- Progress callback + cancellation via `threading.Event`
+
+### Legacy Evaluation API Endpoints (rag-server, port 8001)
 
 **Core Endpoints**:
 - `GET /metrics/evaluation/definitions`: Metric descriptions and thresholds
@@ -972,6 +1034,7 @@ For detailed feature roadmap including implementation tasks and effort estimates
 
 ### Recently Completed
 
+- **Eval Service API** (Feb 2026): Standalone FastAPI service (port 8002) for triggering evals, tracking progress, and serving results with 5 dashboard metrics. Webapp proxy routing for `/api/eval/*`
 - **PostgreSQL-backed Chat Memory** (Oct 2025): Session-based conversation history with persistent storage
 - **Hybrid Search** (Oct 2025): BM25 + Vector + RRF fusion with ~48% retrieval improvement
 - **Contextual Retrieval** (Oct 2025): LLM-generated chunk context with ~49% fewer retrieval failures
@@ -981,11 +1044,11 @@ For detailed feature roadmap including implementation tasks and effort estimates
 
 ### In Planning
 
+- **Eval Dashboard UI**: Frontend pages for triggering evals, viewing results, and comparing runs
 - **PII Masking**: Anonymize sensitive data for cloud LLM providers (see [implementation plan](docs/PII_MASKING_IMPLEMENTATION_PLAN.md))
 - **Centralized Logging**: Grafana Loki + Promtail + structlog (see [implementation plan](docs/LOGGING_IMPLEMENTATION_PLAN.md))
 - **Parent Document Retrieval**: Sentence window method for better context
 - **Query Fusion**: Multi-query generation for improved recall
-- **Metrics Visualization**: Frontend dashboards for evaluation and system health
 
 
 ## Production Considerations

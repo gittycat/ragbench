@@ -10,8 +10,10 @@ This module provides:
 
 import json
 import logging
+import threading
 import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -320,11 +322,18 @@ class EvaluationRunner:
 
         # Performance metrics are computed separately from latencies
 
-    def run(self, name: str | None = None) -> EvalRun:
+    def run(
+        self,
+        name: str | None = None,
+        progress_callback: Callable[[dict], None] | None = None,
+        cancelled: threading.Event | None = None,
+    ) -> EvalRun:
         """Execute a complete evaluation run.
 
         Args:
             name: Optional name for this run
+            progress_callback: Called with progress dicts at key phases
+            cancelled: Set this event to cancel the run between questions
 
         Returns:
             Complete EvalRun with all results
@@ -332,6 +341,10 @@ class EvaluationRunner:
         run_id = str(uuid.uuid4())[:8]
         run_name = name or f"eval-{run_id}"
         created_at = datetime.now()
+
+        def _report(phase: str, **extra: Any) -> None:
+            if progress_callback:
+                progress_callback({"phase": phase, **extra})
 
         logger.info(f"[EVAL] Starting run: {run_name}")
 
@@ -371,6 +384,7 @@ class EvaluationRunner:
                 all_questions_to_run.append(question)
 
         logger.info(f"[EVAL] Total questions: {len(all_questions_to_run)}")
+        _report("datasets_loaded", total_questions=len(all_questions_to_run))
 
         # Ingest documents for END_TO_END tier
         doc_id_map: dict[str, str] = {}
@@ -388,7 +402,18 @@ class EvaluationRunner:
         error_count = 0
 
         try:
-            for question in all_questions_to_run:
+            for qi, question in enumerate(all_questions_to_run):
+                if cancelled and cancelled.is_set():
+                    logger.info("[EVAL] Cancelled by user")
+                    break
+
+                _report(
+                    "querying",
+                    current_question=qi + 1,
+                    total_questions=len(all_questions_to_run),
+                    current_dataset=question.domain or "",
+                )
+
                 try:
                     start_time = time.perf_counter()
 
@@ -424,6 +449,7 @@ class EvaluationRunner:
         logger.info(
             f"[EVAL] Completed {len(all_responses)} queries, {error_count} errors"
         )
+        _report("computing_metrics", current_question=len(all_responses), total_questions=len(all_questions_to_run))
 
         # Compute metrics
         scorecard = self._compute_metrics(all_questions, all_responses, latencies)
@@ -452,6 +478,7 @@ class EvaluationRunner:
 
         # Save run
         self._save_run(eval_run)
+        _report("complete", current_question=len(all_questions), total_questions=len(all_questions_to_run))
 
         logger.info(
             f"[EVAL] Run complete. Weighted score: {weighted_score.score:.3f}"

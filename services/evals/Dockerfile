@@ -15,6 +15,7 @@ RUN groupadd -g 1000 appuser && \
 COPY --chown=appuser:appuser services/evals/pyproject.toml services/evals/uv.lock ./
 COPY --chown=appuser:appuser services/evals/evals ./evals
 COPY --chown=appuser:appuser services/evals/infrastructure ./infrastructure
+COPY --chown=appuser:appuser services/evals/api ./api
 
 # Install dependencies
 RUN uv sync --frozen
@@ -22,5 +23,8 @@ RUN uv sync --frozen
 # Switch to non-root user
 USER appuser
 
-# Set entrypoint
-ENTRYPOINT [".venv/bin/python", "-m", "evals.cli"]
+EXPOSE 8002
+
+# Default: run the API server. CLI still accessible via:
+#   docker compose exec evals .venv/bin/python -m evals.cli ...
+CMD [".venv/bin/uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8002"]

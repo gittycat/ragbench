@@ -10,6 +10,7 @@ services:
     environment:
       - ORIGIN=http://localhost:8000
       - RAG_SERVER_URL=http://rag-server:8001
+      - EVALS_SERVICE_URL=http://evals:8002
       - MAX_UPLOAD_SIZE=80
     depends_on:
       rag-server:
@@ -147,25 +148,33 @@ services:
       - docs_repo:/tmp/shared
       - ./.hf_cache:/home/appuser/.cache/huggingface
 
-  # Evals Service - CLI-based evaluation (profile-gated)
+  # Evals Service - API (port 8002) + CLI
   evals:
     build:
       context: .
       dockerfile: ./services/evals/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
     environment:
       - RAG_SERVER_URL=http://rag-server:8001
     volumes:
       - ./config.yml:/app/config.yml:ro
       - ./services/evals/evals/data:/app/evals/data
+      - ./data/eval_runs:/app/data/eval_runs
       - ./.hf_cache:/home/appuser/.cache/huggingface
     secrets:
       - OPENAI_API_KEY
       - ANTHROPIC_API_KEY
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     networks:
       - public
       - private
-    profiles:
-      - eval
     depends_on:
       rag-server:
         condition: service_healthy
