@@ -1,9 +1,12 @@
 """Dataset registry for managing available datasets."""
 
+import logging
 from typing import TYPE_CHECKING
 
 from evals.config import DatasetName
 from evals.schemas import EvalDataset
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from evals.datasets.base import BaseDatasetLoader
@@ -84,8 +87,12 @@ def load_datasets(
     max_samples: int | None = None,
     seed: int | None = None,
 ) -> list[EvalDataset]:
-    """Load multiple datasets."""
-    return [
-        get_dataset(name, split=split, max_samples=max_samples, seed=seed)
-        for name in names
-    ]
+    """Load multiple datasets, skipping any that fail to load."""
+    results = []
+    for name in names:
+        try:
+            results.append(get_dataset(name, split=split, max_samples=max_samples, seed=seed))
+        except Exception as e:
+            logger.warning(f"[REGISTRY] Skipping dataset '{name}': {e}")
+            print(f"\nWARNING: Skipping dataset '{name}': {e}\n")
+    return results

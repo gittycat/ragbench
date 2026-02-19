@@ -78,7 +78,15 @@ class QasperLoader(BaseDatasetLoader):
         else:
             hf_split = "train"
 
-        dataset = load_dataset("allenai/qasper", split=hf_split)
+        try:
+            dataset = load_dataset("allenai/qasper", split=hf_split)
+        except RuntimeError as e:
+            if "Dataset scripts are no longer supported" in str(e):
+                raise RuntimeError(
+                    "allenai/qasper uses a custom loading script not supported in datasets>=4.0. "
+                    "Remove 'qasper' from your dataset list or downgrade the datasets library."
+                ) from e
+            raise
 
         questions: list[EvalQuestion] = []
         question_idx = 0

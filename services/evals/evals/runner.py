@@ -135,7 +135,9 @@ class RAGClient:
         """GET /documents - returns list of all documents."""
         response = self._client.get(f"{self.base_url}/documents")
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        # API returns {"documents": [...]}
+        return data.get("documents", data) if isinstance(data, dict) else data
 
     def delete_document(self, document_id: str) -> bool:
         """DELETE /documents/{document_id}. Returns True on success."""
