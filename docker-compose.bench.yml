@@ -70,7 +70,7 @@ services:
     volumes:
       - ./config.yml:/app/config.yml:ro
       - docs_repo_bench:/tmp/shared
-      - ./.hf_cache:/home/appuser/.cache/huggingface
+      - ./.cache/huggingface:/home/appuser/.cache/huggingface
       - documents_data_bench:/data/documents
 
   # Task Worker for benchmark
@@ -104,7 +104,7 @@ services:
     volumes:
       - ./config.yml:/app/config.yml:ro
       - docs_repo_bench:/tmp/shared
-      - ./.hf_cache:/home/appuser/.cache/huggingface
+      - ./.cache/huggingface:/home/appuser/.cache/huggingface
       - documents_data_bench:/data/documents
 
 networks:

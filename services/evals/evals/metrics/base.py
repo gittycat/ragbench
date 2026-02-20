@@ -65,6 +65,7 @@ class BaseMetric(ABC):
         self,
         questions: list[EvalQuestion],
         responses: list[EvalResponse],
+        progress_callback: Any | None = None,
         **kwargs: Any,
     ) -> MetricResult:
         """Compute the metric across a batch of question/response pairs.
@@ -75,6 +76,7 @@ class BaseMetric(ABC):
         Args:
             questions: List of evaluation questions
             responses: List of RAG responses
+            progress_callback: Called with (current_index,) after each item
 
         Returns:
             Aggregated MetricResult
@@ -95,7 +97,7 @@ class BaseMetric(ABC):
 
         # Compute individual results
         results = []
-        for q, r in zip(questions, responses):
+        for i, (q, r) in enumerate(zip(questions, responses)):
             try:
                 result = self.compute(q, r, **kwargs)
                 results.append(result)
@@ -105,6 +107,8 @@ class BaseMetric(ABC):
                 logging.getLogger(__name__).warning(
                     f"[METRIC] {self.name} failed for question {q.id}: {e}"
                 )
+            if progress_callback:
+                progress_callback(i + 1)
 
         if not results:
             return MetricResult(

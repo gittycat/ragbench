@@ -327,17 +327,9 @@ class EvaluationRunner:
         name: str | None = None,
         progress_callback: Callable[[dict], None] | None = None,
         cancelled: threading.Event | None = None,
+        use_cache: bool = True,
     ) -> EvalRun:
-        """Execute a complete evaluation run.
-
-        Args:
-            name: Optional name for this run
-            progress_callback: Called with progress dicts at key phases
-            cancelled: Set this event to cancel the run between questions
-
-        Returns:
-            Complete EvalRun with all results
-        """
+        """Execute a complete evaluation run."""
         run_id = str(uuid.uuid4())[:8]
         run_name = name or f"eval-{run_id}"
         created_at = datetime.now()
@@ -368,12 +360,19 @@ class EvaluationRunner:
         # Initialize metrics
         self._init_metrics()
 
+        # Count total judge items for progress reporting
+        judge_metric_count = sum(
+            1 for metrics in self._metrics.values() for m in metrics if m.requires_judge
+        )
+
         # Load datasets
+        _report("loading_datasets")
         logger.info(f"[EVAL] Loading datasets: {self.config.datasets} (tier={self.config.tier.value})")
         datasets = load_datasets(
             self.config.datasets,
             max_samples=self.config.samples_per_dataset,
             seed=self.config.seed,
+            use_cache=use_cache,
         )
 
         # Collect all questions upfront (needed for END_TO_END ingestion before querying)
@@ -384,7 +383,11 @@ class EvaluationRunner:
                 all_questions_to_run.append(question)
 
         logger.info(f"[EVAL] Total questions: {len(all_questions_to_run)}")
-        _report("datasets_loaded", total_questions=len(all_questions_to_run))
+        _report(
+            "datasets_loaded",
+            total_questions=len(all_questions_to_run),
+            judge_metric_count=judge_metric_count,
+        )
 
         # Ingest documents for END_TO_END tier
         doc_id_map: dict[str, str] = {}
@@ -452,10 +455,11 @@ class EvaluationRunner:
         _report("computing_metrics", current_question=len(all_responses), total_questions=len(all_questions_to_run))
 
         # Compute metrics
-        scorecard = self._compute_metrics(all_questions, all_responses, latencies)
+        scorecard = self._compute_metrics(all_questions, all_responses, latencies, progress_callback)
 
         # Compute weighted score
         weighted_score = self._compute_weighted_score(scorecard)
+        _report("saving")
 
         # Create run result
         eval_run = EvalRun(
@@ -580,18 +584,14 @@ class EvaluationRunner:
         questions: list[EvalQuestion],
         responses: list[EvalResponse],
         latencies: list[float],
+        progress_callback: Callable[[dict], None] | None = None,
     ) -> Scorecard:
-        """Compute all metrics for the evaluation.
-
-        Args:
-            questions: List of questions
-            responses: List of RAG responses
-            latencies: List of query latencies in ms
-
-        Returns:
-            Complete Scorecard with all metrics
-        """
+        """Compute all metrics for the evaluation."""
         scorecard = Scorecard()
+
+        def _report(phase: str, **extra: Any) -> None:
+            if progress_callback:
+                progress_callback({"phase": phase, **extra})
 
         # Compute each metric group
         for group, metrics in self._metrics.items():
@@ -599,12 +599,34 @@ class EvaluationRunner:
 
             for metric in metrics:
                 try:
-                    # Pass judge for generation metrics
-                    kwargs = {}
+                    kwargs: dict[str, Any] = {}
                     if metric.requires_judge:
                         kwargs["judge"] = self.judge
 
-                    result = metric.compute_batch(questions, responses, **kwargs)
+                    # Per-item callback for judge metrics
+                    if metric.requires_judge:
+                        _report(
+                            "judging_metric",
+                            metric_name=metric.name,
+                            total_items=len(questions),
+                        )
+
+                        def _item_cb(current: int, _name: str = metric.name) -> None:
+                            _report(
+                                "judging_item",
+                                metric_name=_name,
+                                current_item=current,
+                                total_items=len(questions),
+                            )
+
+                        result = metric.compute_batch(
+                            questions, responses,
+                            progress_callback=_item_cb,
+                            **kwargs,
+                        )
+                    else:
+                        result = metric.compute_batch(questions, responses, **kwargs)
+
                     scorecard.add_metric(result)
                     logger.debug(f"[EVAL] {result.name}: {result.value:.3f}")
 
@@ -778,6 +800,7 @@ class EvaluationRunner:
             } if run.weighted_score else None,
             "question_count": run.question_count,
             "error_count": run.error_count,
+            "duration_seconds": run.duration_seconds,
             "metadata": run.metadata,
         }
 
@@ -806,18 +829,16 @@ class EvaluationRunner:
             self._client.close()
 
 
-def run_evaluation(config: EvalConfig | None = None) -> EvalRun:
-    """Convenience function to run an evaluation.
-
-    Args:
-        config: Evaluation configuration
-
-    Returns:
-        Complete EvalRun with results
-    """
+def run_evaluation(
+    config: EvalConfig | None = None,
+    name: str | None = None,
+    progress_callback: Callable[[dict], None] | None = None,
+    use_cache: bool = True,
+) -> EvalRun:
+    """Convenience function to run an evaluation."""
     runner = EvaluationRunner(config)
     try:
-        return runner.run()
+        return runner.run(name=name, progress_callback=progress_callback, use_cache=use_cache)
     finally:
         runner.close()
 

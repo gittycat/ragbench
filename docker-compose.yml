@@ -64,7 +64,7 @@ services:
       - ./config.yml:/app/config.yml             # Model configuration (read-write for settings)
       - ./data/indexed_documents:/app/documents
       - docs_repo:/tmp/shared
-      - ./.hf_cache:/home/appuser/.cache/huggingface
+      - ./.cache/huggingface:/home/appuser/.cache/huggingface
 
   # PostgreSQL 17 with pg_textsearch (BM25)
   postgres:
@@ -147,7 +147,7 @@ services:
       - ./config.yml:/app/config.yml             # Model configuration (read-write for settings)
       - ./data/indexed_documents:/app/documents
       - docs_repo:/tmp/shared
-      - ./.hf_cache:/home/appuser/.cache/huggingface
+      - ./.cache/huggingface:/home/appuser/.cache/huggingface
 
   # Evals Service - API (port 8002) + CLI
   evals:
@@ -164,7 +164,8 @@ services:
       - ./config.yml:/app/config.yml:ro
       - ./services/evals/evals/data:/app/evals/data
       - ./data/eval_runs:/app/data/eval_runs
-      - ./.hf_cache:/home/appuser/.cache/huggingface
+      - ./.cache/huggingface:/home/appuser/.cache/huggingface
+      - ./.cache/datasets:/app/data/dataset_cache
     secrets:
       - OPENAI_API_KEY
       - ANTHROPIC_API_KEY

@@ -316,12 +316,12 @@ def ensure_reranker_model_cached() -> None:
     except LocalEntryNotFoundError as e:
         logger.error(
             "[STARTUP] Reranker model missing in local cache. "
-            "Run `just init` to download '%s' into ./.hf_cache, then restart.",
+            "Run `just init` to download '%s' into ./.cache/huggingface, then restart.",
             model,
         )
         raise RuntimeError(
             "[STARTUP] Reranker model not found in local cache. "
-            f"Run `just init` to download '{model}' into ./.hf_cache, "
+            f"Run `just init` to download '{model}' into ./.cache/huggingface, "
             "then restart the service."
         ) from e
 

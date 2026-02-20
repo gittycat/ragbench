@@ -127,9 +127,9 @@ docker-logs: docker-up
 migrate-sessions: docker-up
     docker compose exec rag-server python scripts/migrate_sessions.py
 
-# Pre-download Hugging Face reranker model into ./.hf_cache (bind-mounted)
+# Pre-download Hugging Face reranker model into .cache/huggingface (bind-mounted)
 init MODEL="cross-encoder/ms-marco-MiniLM-L-6-v2":
-    @mkdir -p .hf_cache
+    @mkdir -p .cache/huggingface .cache/datasets
     docker compose run --rm --no-deps --build rag-server \
       .venv/bin/python -c "from huggingface_hub import snapshot_download; snapshot_download('{{MODEL}}')"
 

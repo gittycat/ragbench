@@ -30,8 +30,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from rich.console import Console
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+    TimeElapsedColumn,
+)
+
 from evals.config import EvalConfig, DatasetName, EvalTier, DATASET_TIER_SUPPORT, JudgeConfig, MetricConfig
-from evals.datasets.registry import list_datasets, get_dataset
+from evals.datasets.registry import list_datasets, get_dataset, clear_cache, CACHE_DIR
 from evals.runner import EvaluationRunner, run_evaluation, compute_pareto_frontier
 from evals.schemas import EvalRun
 from infrastructure.config.display import print_config_banner
@@ -102,6 +112,17 @@ def main():
         default="end_to_end",
         help="Evaluation tier: generation (inject context, no ingestion) or end_to_end (full pipeline)",
     )
+    eval_parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Bypass dataset cache (re-download from source)",
+    )
+
+    # cache command
+    cache_parser = subparsers.add_parser("cache", help="Manage dataset cache")
+    cache_sub = cache_parser.add_subparsers(dest="cache_action")
+    cache_sub.add_parser("clear", help="Clear cached datasets")
+    cache_sub.add_parser("status", help="Show cache status")
 
     # stats command
     stats_parser = subparsers.add_parser("stats", help="Show dataset statistics")
@@ -164,6 +185,8 @@ def main():
         cmd_export(args)
     elif args.command == "compare":
         cmd_compare(args)
+    elif args.command == "cache":
+        cmd_cache(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -232,22 +255,94 @@ def cmd_eval(args):
             print("For END_TO_END tier, the full RAG stack (rag-server + task-worker) must be running.")
             sys.exit(1)
 
-    print(f"Tier: {config.tier.value}")
-    print(f"Datasets: {[ds.value for ds in config.datasets]}")
-    print(f"Samples per dataset: {config.samples_per_dataset}")
-    print(f"RAG server: {config.rag_server_url}")
-    print(f"Judge enabled: {config.judge.enabled}")
-    print("-" * 60)
+    console = Console()
+    console.print(f"Tier: {config.tier.value}")
+    console.print(f"Datasets: {[ds.value for ds in config.datasets]}")
+    console.print(f"Samples per dataset: {config.samples_per_dataset}")
+    console.print(f"RAG server: {config.rag_server_url}")
+    console.print(f"Judge enabled: {config.judge.enabled}")
+    console.rule()
+
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=False,
+    )
+
+    # Create all steps upfront so the user sees the full pipeline
+    step_load = progress.add_task("Load datasets", total=1, visible=True)
+    step_query = progress.add_task("Query RAG server", total=None, visible=True)
+    step_judge = progress.add_task("Judge metrics", total=None, visible=True)
+    step_save = progress.add_task("Save results", total=1, visible=True)
+
+    def progress_callback(info: dict) -> None:
+        phase = info.get("phase")
+
+        if phase == "loading_datasets":
+            progress.start_task(step_load)
+
+        elif phase == "datasets_loaded":
+            progress.update(step_load, completed=1)
+            total_q = info.get("total_questions", 0)
+            progress.update(step_query, total=total_q)
+            # Judge total = questions × judge_metrics
+            judge_count = info.get("judge_metric_count", 0)
+            if judge_count > 0:
+                progress.update(step_judge, total=total_q * judge_count)
+            else:
+                # No judge metrics — mark as done immediately
+                progress.update(step_judge, total=1, completed=1, description="Judge metrics (skipped)")
+
+        elif phase == "querying":
+            current = info.get("current_question", 0)
+            dataset = info.get("current_dataset", "")
+            desc = f"Query RAG server [dim]\\[{dataset}][/dim]" if dataset else "Query RAG server"
+            progress.update(step_query, completed=current, description=desc)
+
+        elif phase == "computing_metrics":
+            # Querying done — ensure bar is full
+            total_q = info.get("total_questions", 0)
+            progress.update(step_query, completed=total_q)
+
+        elif phase == "judging_item":
+            metric_name = info.get("metric_name", "")
+            current = info.get("current_item", 0)
+            progress.update(
+                step_judge,
+                advance=1,
+                description=f"Judge metrics [dim]\\[{metric_name}][/dim]",
+            )
+
+        elif phase == "saving":
+            progress.update(step_save, completed=0)
+            progress.start_task(step_save)
+
+        elif phase == "complete":
+            progress.update(step_save, completed=1)
 
     try:
-        result = run_evaluation(config)
+        with progress:
+            result = run_evaluation(
+                config,
+                name=args.name,
+                progress_callback=progress_callback,
+                use_cache=not args.no_cache,
+            )
+        console.print()
         print_run_summary(result)
     except ConnectionError as e:
-        print(f"\nERROR: {e}")
-        print("Make sure the RAG server is running.")
+        progress.stop()
+        console.print(f"\n[red]ERROR:[/red] {e}")
+        console.print("Make sure the RAG server is running.")
         sys.exit(1)
     except Exception as e:
-        print(f"\nERROR: {e}")
+        progress.stop()
+        console.print(f"\n[red]ERROR:[/red] {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
@@ -415,13 +510,19 @@ def cmd_compare(args):
             row.append(value)
         print(" | ".join(str(v).ljust(col_width) for v in row))
 
-    # Weighted scores
+    # Weighted scores + duration
     print("-" * (col_width * len(header) + 3 * (len(header) - 1)))
     row = ["WEIGHTED SCORE"]
     for run in runs:
         ws = run.get("weighted_score", {})
         score = ws.get("score", 0)
         row.append(f"{score:.3f}")
+    print(" | ".join(str(v).ljust(col_width) for v in row))
+
+    row = ["DURATION"]
+    for run in runs:
+        dur = run.get("duration_seconds")
+        row.append(f"{dur:.1f}s" if dur is not None else "-")
     print(" | ".join(str(v).ljust(col_width) for v in row))
 
     # Pareto analysis
@@ -526,6 +627,26 @@ def _print_pareto_analysis(points: list[dict]) -> None:
             )
             if best_point:
                 print(f"  Best {obj}: {best_point['config_name']} ({best_point['objectives'][obj]:.3f})")
+
+
+def cmd_cache(args):
+    """Manage dataset cache."""
+    action = getattr(args, "cache_action", None)
+    if action == "clear":
+        count = clear_cache()
+        print(f"Cleared {count} cached dataset(s).")
+    elif action == "status":
+        if not CACHE_DIR.exists():
+            print("No cache directory.")
+            return
+        files = list(CACHE_DIR.glob("*.json"))
+        total_bytes = sum(f.stat().st_size for f in files)
+        print(f"Cache: {CACHE_DIR}")
+        print(f"Files: {len(files)}")
+        print(f"Size:  {total_bytes / 1024:.0f} KB")
+    else:
+        print("Usage: cache {clear,status}")
+        sys.exit(1)
 
 
 def print_run_summary(run: EvalRun):

@@ -18,6 +18,7 @@ dependencies = [
     "deepeval>=3.6.9",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
+    "rich>=14.0.0",
 ]
 
 [dependency-groups]
