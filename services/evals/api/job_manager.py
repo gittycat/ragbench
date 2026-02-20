@@ -25,6 +25,22 @@ from api.schemas import (
 from evals.config import DatasetName, EvalConfig, EvalTier, JudgeConfig
 from evals.runner import EvaluationRunner
 
+
+def _extract_duration(data: dict) -> float | None:
+    """Extract duration_seconds from run data, computing from timestamps as fallback."""
+    if data.get("duration_seconds") is not None:
+        return data["duration_seconds"]
+    created = data.get("created_at")
+    completed = data.get("completed_at")
+    if not created or not completed:
+        return None
+    try:
+        t0 = datetime.fromisoformat(created)
+        t1 = datetime.fromisoformat(completed)
+        return (t1 - t0).total_seconds()
+    except (ValueError, TypeError):
+        return None
+
 logger = logging.getLogger(__name__)
 
 
@@ -223,6 +239,7 @@ class JobManager:
             datasets=data.get("datasets", []),
             question_count=data.get("question_count", 0),
             error_count=data.get("error_count", 0),
+            duration_seconds=_extract_duration(data),
             weighted_score=ws.get("score") if ws else None,
             dashboard_metrics=dm,
         )
@@ -243,6 +260,7 @@ class JobManager:
             weighted_score=ws,
             question_count=data.get("question_count", 0),
             error_count=data.get("error_count", 0),
+            duration_seconds=_extract_duration(data),
             metadata=data.get("metadata", {}),
             dashboard_metrics=dm,
         )

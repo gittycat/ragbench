@@ -126,6 +126,14 @@ def compare_runs(ids: str = Query(..., description="Comma-separated run IDs")):
     # Compute deltas between first and second run's dashboard metrics
     deltas: dict[str, float | None] = {}
     if len(details) >= 2:
+        # Duration delta
+        d1 = details[0].duration_seconds
+        d2 = details[1].duration_seconds
+        if d1 is not None and d2 is not None:
+            deltas["duration_seconds"] = round(d2 - d1, 1)
+        else:
+            deltas["duration_seconds"] = None
+
         m1 = details[0].dashboard_metrics
         m2 = details[1].dashboard_metrics
         if m1 and m2:

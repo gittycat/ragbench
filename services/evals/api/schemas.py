@@ -58,6 +58,7 @@ class RunSummary(BaseModel):
     datasets: list[str] = Field(default_factory=list)
     question_count: int = 0
     error_count: int = 0
+    duration_seconds: float | None = None
     weighted_score: float | None = None
     dashboard_metrics: DashboardMetrics | None = None
 
@@ -81,6 +82,7 @@ class RunDetailResponse(BaseModel):
     weighted_score: dict | None = None
     question_count: int = 0
     error_count: int = 0
+    duration_seconds: float | None = None
     metadata: dict = Field(default_factory=dict)
     dashboard_metrics: DashboardMetrics | None = None
 
