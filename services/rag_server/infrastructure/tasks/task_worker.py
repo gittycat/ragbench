@@ -9,8 +9,9 @@ from uuid import UUID
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*validate_default.*")
 
+import os
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, os.getenv("LOG_LEVEL", "WARNING").upper()),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )

@@ -27,4 +27,4 @@ EXPOSE 8002
 
 # Default: run the API server. CLI still accessible via:
 #   docker compose exec evals .venv/bin/python -m evals.cli ...
-CMD [".venv/bin/uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8002"]
+CMD [".venv/bin/uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8002", "--log-level", "warning"]
