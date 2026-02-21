@@ -78,15 +78,9 @@ class QasperLoader(BaseDatasetLoader):
         else:
             hf_split = "train"
 
-        try:
-            dataset = load_dataset("allenai/qasper", split=hf_split)
-        except RuntimeError as e:
-            if "Dataset scripts are no longer supported" in str(e):
-                raise RuntimeError(
-                    "allenai/qasper uses a custom loading script not supported in datasets>=4.0. "
-                    "Remove 'qasper' from your dataset list or downgrade the datasets library."
-                ) from e
-            raise
+        dataset = load_dataset(
+            "allenai/qasper", split=hf_split, revision="refs/convert/parquet"
+        )
 
         questions: list[EvalQuestion] = []
         question_idx = 0
@@ -130,11 +124,26 @@ class QasperLoader(BaseDatasetLoader):
         section_map = self._build_section_map(full_text, paper_id)
 
         # Process each QA pair
-        qas = paper.get("qas", [])
-        for qa_idx, qa in enumerate(qas):
-            question = self._convert_qa(qa, paper_id, section_map, qa_idx)
-            if question:
-                questions.append(question)
+        # Parquet delivers qas as dict of parallel lists; original format is list of dicts
+        qas_raw = paper.get("qas", {})
+        if isinstance(qas_raw, dict):
+            q_texts = qas_raw.get("question", [])
+            q_ids = qas_raw.get("question_id", [])
+            q_answers = qas_raw.get("answers", [])
+            for qa_idx, (q_text, q_id, ann_answers) in enumerate(
+                zip(q_texts, q_ids, q_answers)
+            ):
+                # ann_answers is {"answer": [annotator_dicts], ...} — unwrap to match original format
+                annotator_answers = ann_answers.get("answer", []) if isinstance(ann_answers, dict) else ann_answers
+                qa = {"question": q_text, "question_id": q_id, "answers": annotator_answers}
+                question = self._convert_qa(qa, paper_id, section_map, qa_idx)
+                if question:
+                    questions.append(question)
+        else:
+            for qa_idx, qa in enumerate(qas_raw):
+                question = self._convert_qa(qa, paper_id, section_map, qa_idx)
+                if question:
+                    questions.append(question)
 
         return questions
 
@@ -184,7 +193,7 @@ class QasperLoader(BaseDatasetLoader):
 
             # Use first answer (Qasper may have multiple annotators)
             first_answer = answers[0]
-            answer_info = first_answer.get("answer", {})
+            answer_info = first_answer.get("answer", first_answer)
 
             # Check answer type
             is_unanswerable = answer_info.get("unanswerable", False)
