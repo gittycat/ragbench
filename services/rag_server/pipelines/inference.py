@@ -263,21 +263,18 @@ def create_hybrid_retriever(index: VectorStoreIndex, similarity_top_k: int = 10)
 # STEP 3: RERANKING
 # ============================================================================
 
+# Cached reranker — CrossEncoder init is not thread-safe in transformers 4.57+
+# (init_empty_weights context manager races across threads causing meta tensor errors).
+# Initialize once and reuse across all queries.
+_cached_reranker: Optional[List] = None
+
+
 def create_reranker_postprocessor() -> Optional[List]:
-    """
-    Create reranker postprocessor for improving retrieval quality.
+    """Return cached reranker postprocessors, creating on first call."""
+    global _cached_reranker
+    if _cached_reranker is not None:
+        return _cached_reranker
 
-    Flow:
-    1. Check if reranking enabled in config
-    2. Create SentenceTransformerRerank with cross-encoder model
-    3. Configure top_n (typically 5-7 nodes, or half of retrieval_top_k)
-
-    Reranker uses cross-encoder model to score query-document pairs.
-    This is more accurate than bi-encoder embeddings but slower.
-    Model downloads on first use (~80MB, adds ~100-300ms latency).
-
-    Returns None if reranking disabled.
-    """
     config = get_inference_config()
 
     if not config['reranker_enabled']:
@@ -286,18 +283,17 @@ def create_reranker_postprocessor() -> Optional[List]:
 
     logger.info(f"[RERANKER] Initializing reranker: {config['reranker_model']}")
 
-    # Calculate top_n: return best reranked nodes (usually half of retrieved, min 5)
     top_n = max(5, config['retrieval_top_k'] // 2)
     logger.info(f"[RERANKER] Returning top {top_n} nodes after reranking")
 
-    postprocessors = [
+    _cached_reranker = [
         SentenceTransformerRerank(
             model=config['reranker_model'],
-            top_n=top_n
+            top_n=top_n,
         )
     ]
-    logger.info("[RERANKER] Postprocessor initialized")
-    return postprocessors
+    logger.info("[RERANKER] Postprocessor initialized and cached")
+    return _cached_reranker
 
 
 def ensure_reranker_model_cached() -> None:
