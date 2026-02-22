@@ -113,6 +113,11 @@ models:
       model: gpt-5-mini
       requires_api_key: true
 
+    gpt5-2:
+      provider: openai
+      model: gpt-5.2
+      requires_api_key: true
+
   reranker:
     # Lightweight reranker (default)
     minilm-l6:
@@ -134,7 +139,7 @@ models:
 active:
   inference: gpt5-mini
   embedding: nomic-embed
-  eval: gpt5-mini
+  eval: gpt5-2
   reranker: minilm-l6
 
 # ============================================================================

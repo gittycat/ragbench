@@ -7,6 +7,7 @@ import math
 from typing import Any
 
 from evals.metrics.base import BaseMetric
+from evals.metrics.text_match import match_retrieved_to_gold, _token_overlap
 from evals.schemas import (
     EvalQuestion,
     EvalResponse,
@@ -44,25 +45,18 @@ class RecallAtK(BaseMetric):
         response: EvalResponse,
         **kwargs: Any,
     ) -> MetricResult:
-        # Get gold chunk IDs
-        gold_chunk_ids = {p.chunk_id for p in question.gold_passages}
-
-        if not gold_chunk_ids:
+        if not question.gold_passages:
             return MetricResult(
                 name=self.name,
-                value=0.0,  # No gold passages = cannot evaluate recall
+                value=0.0,
                 group=self.group,
                 sample_size=1,
                 details={"note": "No gold passages defined"},
             )
 
-        # Get retrieved chunk IDs (top K)
         retrieved_chunks = response.retrieved_chunks[: self.k]
-        retrieved_chunk_ids = {c.chunk_id for c in retrieved_chunks}
-
-        # Calculate recall
-        hits = len(gold_chunk_ids & retrieved_chunk_ids)
-        recall = hits / len(gold_chunk_ids)
+        matched = match_retrieved_to_gold(retrieved_chunks, question.gold_passages)
+        recall = len(matched) / len(question.gold_passages)
 
         return MetricResult(
             name=self.name,
@@ -70,9 +64,9 @@ class RecallAtK(BaseMetric):
             group=self.group,
             sample_size=1,
             details={
-                "hits": hits,
-                "gold_count": len(gold_chunk_ids),
-                "retrieved_count": len(retrieved_chunk_ids),
+                "hits": len(matched),
+                "gold_count": len(question.gold_passages),
+                "retrieved_count": len(retrieved_chunks),
             },
         )
 
@@ -106,14 +100,17 @@ class PrecisionAtK(BaseMetric):
         response: EvalResponse,
         **kwargs: Any,
     ) -> MetricResult:
-        # Get gold chunk IDs
-        gold_chunk_ids = {p.chunk_id for p in question.gold_passages}
+        if not question.gold_passages:
+            return MetricResult(
+                name=self.name,
+                value=0.0,
+                group=self.group,
+                sample_size=1,
+                details={"note": "No gold passages defined"},
+            )
 
-        # Get retrieved chunk IDs (top K)
         retrieved_chunks = response.retrieved_chunks[: self.k]
-        retrieved_chunk_ids = {c.chunk_id for c in retrieved_chunks}
-
-        if not retrieved_chunk_ids:
+        if not retrieved_chunks:
             return MetricResult(
                 name=self.name,
                 value=0.0,
@@ -122,9 +119,8 @@ class PrecisionAtK(BaseMetric):
                 details={"note": "No chunks retrieved"},
             )
 
-        # Calculate precision
-        hits = len(gold_chunk_ids & retrieved_chunk_ids)
-        precision = hits / min(self.k, len(retrieved_chunk_ids))
+        matched = match_retrieved_to_gold(retrieved_chunks, question.gold_passages)
+        precision = len(matched) / min(self.k, len(retrieved_chunks))
 
         return MetricResult(
             name=self.name,
@@ -132,9 +128,9 @@ class PrecisionAtK(BaseMetric):
             group=self.group,
             sample_size=1,
             details={
-                "hits": hits,
-                "gold_count": len(gold_chunk_ids),
-                "retrieved_count": len(retrieved_chunk_ids),
+                "hits": len(matched),
+                "gold_count": len(question.gold_passages),
+                "retrieved_count": len(retrieved_chunks),
             },
         )
 
@@ -165,20 +161,20 @@ class MRR(BaseMetric):
         response: EvalResponse,
         **kwargs: Any,
     ) -> MetricResult:
-        # Get gold chunk IDs
-        gold_chunk_ids = {p.chunk_id for p in question.gold_passages}
-
-        if not gold_chunk_ids:
+        if not question.gold_passages:
             return MetricResult(
                 name=self.name,
-                value=0.0,  # No gold passages = cannot evaluate MRR
+                value=0.0,
                 group=self.group,
                 sample_size=1,
                 details={"note": "No gold passages defined"},
             )
 
-        # Find rank of first relevant result
-        for rank, chunk in enumerate(response.retrieved_chunks, start=1):
+        gold_chunk_ids = {p.chunk_id for p in question.gold_passages}
+
+        for i, chunk in enumerate(response.retrieved_chunks):
+            rank = i + 1
+            # Exact ID match
             if chunk.chunk_id in gold_chunk_ids:
                 return MetricResult(
                     name=self.name,
@@ -187,8 +183,18 @@ class MRR(BaseMetric):
                     sample_size=1,
                     details={"first_relevant_rank": rank},
                 )
+            # Text overlap fallback
+            if chunk.text:
+                for gold in question.gold_passages:
+                    if gold.text and _token_overlap(chunk.text, gold.text) >= 0.3:
+                        return MetricResult(
+                            name=self.name,
+                            value=1.0 / rank,
+                            group=self.group,
+                            sample_size=1,
+                            details={"first_relevant_rank": rank},
+                        )
 
-        # No relevant result found
         return MetricResult(
             name=self.name,
             value=0.0,
@@ -228,36 +234,36 @@ class NDCG(BaseMetric):
         response: EvalResponse,
         **kwargs: Any,
     ) -> MetricResult:
-        # Build relevance map: chunk_id -> relevance score
-        relevance_map = {
-            p.chunk_id: p.relevance_score for p in question.gold_passages
-        }
-
-        if not relevance_map:
+        if not question.gold_passages:
             return MetricResult(
                 name=self.name,
-                value=0.0,  # No gold passages = cannot evaluate NDCG
+                value=0.0,
                 group=self.group,
                 sample_size=1,
                 details={"note": "No gold passages defined"},
             )
 
-        # Get relevance scores for retrieved chunks
+        gold_id_to_score = {p.chunk_id: p.relevance_score for p in question.gold_passages}
+
+        # Build relevance vector using exact ID match then text overlap
         retrieved_relevances = []
         for chunk in response.retrieved_chunks[: self.k]:
-            rel = relevance_map.get(chunk.chunk_id, 0.0)
+            rel = gold_id_to_score.get(chunk.chunk_id, 0.0)
+            if rel == 0.0 and chunk.text:
+                for gold in question.gold_passages:
+                    if gold.text and _token_overlap(chunk.text, gold.text) >= 0.3:
+                        rel = gold.relevance_score
+                        break
             retrieved_relevances.append(rel)
 
         # Compute DCG
         dcg = self._compute_dcg(retrieved_relevances)
 
         # Compute ideal DCG (sorted relevances)
-        ideal_relevances = sorted(relevance_map.values(), reverse=True)[: self.k]
-        # Pad with zeros if needed
+        ideal_relevances = sorted(gold_id_to_score.values(), reverse=True)[: self.k]
         ideal_relevances.extend([0.0] * (self.k - len(ideal_relevances)))
         idcg = self._compute_dcg(ideal_relevances)
 
-        # NDCG
         ndcg = dcg / idcg if idcg > 0 else 0.0
 
         return MetricResult(
@@ -276,7 +282,5 @@ class NDCG(BaseMetric):
         """Compute Discounted Cumulative Gain."""
         dcg = 0.0
         for i, rel in enumerate(relevances):
-            # DCG formula: rel_i / log2(i + 2)
-            # Using i + 2 because positions are 1-indexed
             dcg += rel / math.log2(i + 2)
         return dcg

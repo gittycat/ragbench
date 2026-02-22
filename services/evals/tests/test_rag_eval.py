@@ -131,7 +131,8 @@ class TestRecallAtK:
             question="What is X?",
             expected_answer="Y",
             gold_passages=[
-                GoldPassage(doc_id="doc1", chunk_id="chunk3", text="chunk 3"),  # At rank 3, outside k=2
+                # Use text clearly distinct from the top-2 chunks so text overlap won't match
+                GoldPassage(doc_id="doc1", chunk_id="chunk3", text="photosynthesis converts sunlight into glucose"),
             ],
         )
 
@@ -139,9 +140,9 @@ class TestRecallAtK:
             question_id="q1",
             answer="Y",
             retrieved_chunks=[
-                RetrievedChunk(doc_id="doc1", chunk_id="chunk1", text="chunk 1", rank=1),
-                RetrievedChunk(doc_id="doc1", chunk_id="chunk2", text="chunk 2", rank=2),
-                RetrievedChunk(doc_id="doc1", chunk_id="chunk3", text="chunk 3", rank=3),
+                RetrievedChunk(doc_id="doc1", chunk_id="chunk1", text="the capital city is paris france", rank=1),
+                RetrievedChunk(doc_id="doc1", chunk_id="chunk2", text="water boils at one hundred degrees celsius", rank=2),
+                RetrievedChunk(doc_id="doc1", chunk_id="chunk3", text="photosynthesis converts sunlight into glucose", rank=3),
             ],
         )
 

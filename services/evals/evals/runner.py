@@ -196,7 +196,7 @@ def parse_rag_response(
         chunk = RetrievedChunk(
             doc_id=source.get("doc_id", source.get("document_id", "")),
             chunk_id=source.get("chunk_id", source.get("node_id", f"chunk-{i}")),
-            text=source.get("text", source.get("content", "")),
+            text=source.get("full_text", source.get("text", source.get("content", ""))),
             score=source.get("score"),
             rank=i + 1,
             metadata=source.get("metadata", {}),
@@ -209,16 +209,20 @@ def parse_rag_response(
     for cit in raw_citations:
         citation = Citation(
             source_index=cit.get("source_index", 0),
-            doc_id=cit.get("doc_id"),
+            doc_id=cit.get("doc_id", cit.get("document_id")),
             chunk_id=cit.get("chunk_id"),
             chunk_index=cit.get("chunk_index"),
             text_span=cit.get("text_span"),
         )
         citations.append(citation)
 
-    # Extract token usage if available
+    # Extract token usage if available — RAG server nests this at metrics.token_usage
     token_usage = None
-    usage = raw_response.get("usage", {})
+    metrics_data = raw_response.get("metrics", {})
+    if isinstance(metrics_data, dict):
+        usage = metrics_data.get("token_usage", raw_response.get("usage", {}))
+    else:
+        usage = raw_response.get("usage", {})
     if usage:
         token_usage = TokenUsage(
             prompt_tokens=usage.get("prompt_tokens", 0),
@@ -352,6 +356,20 @@ class EvaluationRunner:
             self._model_config = {}
 
         config_snapshot = self._create_config_snapshot(rag_config)
+
+        # Warn if citation metrics are enabled but the RAG server won't produce explicit citations
+        if self.config.metrics.citation:
+            try:
+                eval_settings = rag_config.get("eval", {})
+                citation_scope = eval_settings.get("citation_scope", "retrieved")
+                if citation_scope != "explicit":
+                    logger.warning(
+                        "[EVAL] citation_scope is '%s' — LLM won't produce explicit citations. "
+                        "Set citation_scope='explicit' in config.yml for citation metrics to work.",
+                        citation_scope,
+                    )
+            except Exception:
+                pass
 
         # Initialize metrics
         self._init_metrics()
@@ -687,12 +705,26 @@ class EvaluationRunner:
         contributions = {}
         objectives = {}
 
-        # Map metric groups to objectives
-        group_to_objective = {
-            MetricGroup.RETRIEVAL: "retrieval",
-            MetricGroup.GENERATION: "accuracy",
-            MetricGroup.CITATION: "citation",
-            MetricGroup.ABSTENTION: "accuracy",  # Contributes to accuracy
+        # Map individual metric names to objectives (faithfulness gets its own bucket)
+        metric_to_objective = {
+            # Retrieval
+            "recall_at_1": "retrieval", "recall_at_3": "retrieval",
+            "recall_at_5": "retrieval", "recall_at_10": "retrieval",
+            "precision_at_1": "retrieval", "precision_at_3": "retrieval",
+            "precision_at_5": "retrieval",
+            "mrr": "retrieval", "ndcg_at_10": "retrieval",
+            # Generation
+            "faithfulness": "faithfulness",
+            "answer_correctness": "accuracy",
+            "answer_relevancy": "accuracy",
+            # Citation
+            "citation_precision": "citation",
+            "citation_recall": "citation",
+            "section_accuracy": "citation",
+            # Abstention
+            "unanswerable_accuracy": "accuracy",
+            "abstention_false_positive_rate": "accuracy",
+            "abstention_false_negative_rate": "accuracy",
         }
 
         # Collect average scores per objective
@@ -702,7 +734,7 @@ class EvaluationRunner:
             if metric.group == MetricGroup.PERFORMANCE:
                 continue  # Performance metrics handled separately
 
-            objective = group_to_objective.get(metric.group)
+            objective = metric_to_objective.get(metric.name)
             if objective and objective in objective_scores:
                 # Normalize metric value to 0-1 range
                 value = max(0.0, min(1.0, metric.value))
@@ -718,14 +750,19 @@ class EvaluationRunner:
         # For now, assume normalized values; could be enhanced with target thresholds
         latency_metric = scorecard.get_metric("latency_p50_ms")
         if latency_metric and "latency" in weights:
-            # Normalize: assume 5000ms is worst case, 0ms is best
-            normalized_latency = 1.0 - min(latency_metric.value / 5000, 1.0)
+            # Normalize: END_TO_END tier has higher latency due to retrieval overhead
+            latency_threshold = 30000 if self.config.tier == EvalTier.END_TO_END else 5000
+            normalized_latency = 1.0 - min(latency_metric.value / latency_threshold, 1.0)
             objectives["latency"] = normalized_latency
 
-        # Cost objective (if we have token usage)
+        # Cost objective — invert cost: $0 = 1.0, $0.10+/query = 0.0
         if "cost" in weights:
-            # Placeholder: would need token usage aggregation
-            objectives["cost"] = 1.0  # Assume free/local by default
+            cost_metric = scorecard.get_metric("cost_per_query")
+            if cost_metric and cost_metric.value > 0:
+                max_cost_per_query = 0.10  # USD threshold
+                objectives["cost"] = 1.0 - min(cost_metric.value / max_cost_per_query, 1.0)
+            else:
+                objectives["cost"] = 1.0  # Free/local models
 
         # Compute weighted score
         total_weight = sum(weights.get(obj, 0) for obj in objectives)
