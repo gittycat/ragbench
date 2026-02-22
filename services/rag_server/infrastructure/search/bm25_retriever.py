@@ -51,8 +51,9 @@ class PgSearchBM25Retriever(BaseRetriever):
     async def _search_bm25(
         self, session: AsyncSession, query_str: str
     ) -> list[NodeWithScore]:
-        """Execute BM25 search using pg_textsearch."""
-        # pg_textsearch uses tsquery for full-text search with BM25 ranking
+        """Execute BM25 search using pg_textsearch <@> operator."""
+        # pg_textsearch uses the <@> operator which returns negative BM25 scores
+        # (lower = better match, so we ORDER BY ASC and negate for positive scores)
         sql = text("""
             SELECT
                 dc.id,
@@ -68,12 +69,11 @@ class PgSearchBM25Retriever(BaseRetriever):
                 d.file_size_bytes,
                 d.file_hash,
                 d.uploaded_at,
-                bm25_search.score as bm25_score
+                -(dc.content <@> to_bm25query(:query, 'idx_chunks_bm25')) as bm25_score
             FROM document_chunks dc
-            JOIN documents d ON dc.document_id = d.id,
-            LATERAL bm25_search('idx_chunks_bm25', websearch_to_tsquery('english', :query)) bm25_search
-            WHERE dc.id = bm25_search.id
-            ORDER BY bm25_score DESC
+            JOIN documents d ON dc.document_id = d.id
+            WHERE dc.content <@> to_bm25query(:query, 'idx_chunks_bm25') < 0
+            ORDER BY dc.content <@> to_bm25query(:query, 'idx_chunks_bm25')
             LIMIT :limit
         """)
 

@@ -44,6 +44,7 @@ services:
       - MAX_UPLOAD_SIZE=80
       - SHARED_UPLOAD_DIR=/tmp/shared
       - USE_CACHED_RERANKER=true
+      - ANONYMIZED_TELEMETRY=False
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -131,6 +132,7 @@ services:
       - MAX_UPLOAD_SIZE=80
       - SHARED_UPLOAD_DIR=/tmp/shared
       - USE_CACHED_RERANKER=true
+      - ANONYMIZED_TELEMETRY=False
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
