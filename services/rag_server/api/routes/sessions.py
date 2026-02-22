@@ -123,7 +123,8 @@ async def create_new_session(request: CreateSessionRequest):
         if request.title:
             title = request.title
         elif request.first_message:
-            title = generate_ai_title(request.first_message)
+            loop = asyncio.get_running_loop()
+            title = await loop.run_in_executor(None, generate_ai_title, request.first_message)
         else:
             title = "New Chat"
 

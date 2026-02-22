@@ -8,6 +8,7 @@ This module provides:
 - Run persistence and reporting
 """
 
+import asyncio
 import json
 import logging
 import threading
@@ -67,24 +68,24 @@ logger = logging.getLogger(__name__)
 
 
 class RAGClient:
-    """HTTP client for the RAG server."""
+    """Async HTTP client for the RAG server."""
 
     def __init__(self, base_url: str = "http://localhost:8001", timeout: float = 120.0):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self._client = httpx.Client(timeout=timeout)
+        self._client = httpx.AsyncClient(timeout=timeout)
 
-    def query(self, question: str, session_id: str | None = None, include_chunks: bool = False) -> dict[str, Any]:
+    async def query(self, question: str, session_id: str | None = None, include_chunks: bool = False) -> dict[str, Any]:
         """Send a query to the RAG server."""
         payload: dict[str, Any] = {"query": question, "include_chunks": include_chunks}
         if session_id:
             payload["session_id"] = session_id
 
-        response = self._client.post(f"{self.base_url}/query", json=payload)
+        response = await self._client.post(f"{self.base_url}/query", json=payload)
         response.raise_for_status()
         return response.json()
 
-    def query_with_context(
+    async def query_with_context(
         self,
         question: str,
         passages: list,
@@ -98,27 +99,23 @@ class RAGClient:
         if session_id:
             body["session_id"] = session_id
 
-        response = self._client.post(f"{self.base_url}/query/with-context", json=body)
+        response = await self._client.post(f"{self.base_url}/query/with-context", json=body)
         response.raise_for_status()
         return response.json()
 
-    def upload_text_as_document(self, text: str, filename: str) -> str:
+    async def upload_text_as_document(self, text: str, filename: str) -> str:
         """Upload plain text as a .txt file. Returns batch_id."""
         import io
         files = [("files", (filename, io.BytesIO(text.encode()), "text/plain"))]
-        response = self._client.post(f"{self.base_url}/upload", files=files)
+        response = await self._client.post(f"{self.base_url}/upload", files=files)
         response.raise_for_status()
         return response.json()["batch_id"]
 
-    def wait_for_batch(self, batch_id: str, timeout: float = 300.0, poll_interval: float = 2.0) -> bool:
-        """Poll batch status until all tasks complete or timeout.
-
-        Returns True if all completed successfully, False if any failed or timed out.
-        """
-        import time
+    async def wait_for_batch(self, batch_id: str, timeout: float = 300.0, poll_interval: float = 2.0) -> bool:
+        """Poll batch status until all tasks complete or timeout."""
         start = time.time()
         while time.time() - start < timeout:
-            response = self._client.get(f"{self.base_url}/tasks/{batch_id}/status")
+            response = await self._client.get(f"{self.base_url}/tasks/{batch_id}/status")
             response.raise_for_status()
             data = response.json()
             total = data.get("total", 0)
@@ -129,50 +126,49 @@ class RAGClient:
                 return False
             if total > 0 and completed >= total:
                 return True
-            time.sleep(poll_interval)
+            await asyncio.sleep(poll_interval)
         logger.warning(f"[RAG_CLIENT] Batch {batch_id} timed out after {timeout}s")
         return False
 
-    def list_documents(self) -> list[dict[str, Any]]:
+    async def list_documents(self) -> list[dict[str, Any]]:
         """GET /documents - returns list of all documents."""
-        response = self._client.get(f"{self.base_url}/documents")
+        response = await self._client.get(f"{self.base_url}/documents")
         response.raise_for_status()
         data = response.json()
-        # API returns {"documents": [...]}
         return data.get("documents", data) if isinstance(data, dict) else data
 
-    def delete_document(self, document_id: str) -> bool:
+    async def delete_document(self, document_id: str) -> bool:
         """DELETE /documents/{document_id}. Returns True on success."""
         try:
-            response = self._client.delete(f"{self.base_url}/documents/{document_id}")
+            response = await self._client.delete(f"{self.base_url}/documents/{document_id}")
             return response.status_code in (200, 204)
         except Exception as e:
             logger.warning(f"[RAG_CLIENT] Failed to delete document {document_id}: {e}")
             return False
 
-    def get_config(self) -> dict[str, Any]:
+    async def get_config(self) -> dict[str, Any]:
         """Get the current RAG server configuration."""
-        response = self._client.get(f"{self.base_url}/models/info")
+        response = await self._client.get(f"{self.base_url}/models/info")
         response.raise_for_status()
         return response.json()
 
-    def health_check(self) -> bool:
+    async def health_check(self) -> bool:
         """Check if the RAG server is healthy."""
         try:
-            response = self._client.get(f"{self.base_url}/health")
+            response = await self._client.get(f"{self.base_url}/health")
             return response.status_code == 200
         except Exception:
             return False
 
-    def close(self):
+    async def close(self):
         """Close the HTTP client."""
-        self._client.close()
+        await self._client.aclose()
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
 
 
 def parse_rag_response(
@@ -322,7 +318,7 @@ class EvaluationRunner:
 
         # Performance metrics are computed separately from latencies
 
-    def run(
+    async def run(
         self,
         name: str | None = None,
         progress_callback: Callable[[dict], None] | None = None,
@@ -341,15 +337,15 @@ class EvaluationRunner:
         logger.info(f"[EVAL] Starting run: {run_name}")
 
         # Check RAG server health
-        if not self.client.health_check():
+        if not await self.client.health_check():
             raise ConnectionError(
                 f"RAG server not available at {self.config.rag_server_url}"
             )
 
         # Get RAG server config for snapshot
         try:
-            rag_config = self.client.get_config()
-            self._model_config = rag_config  # Store for cost calculation
+            rag_config = await self.client.get_config()
+            self._model_config = rag_config
         except Exception as e:
             logger.warning(f"[EVAL] Could not get RAG config: {e}")
             rag_config = {}
@@ -375,7 +371,7 @@ class EvaluationRunner:
             use_cache=use_cache,
         )
 
-        # Collect all questions upfront (needed for END_TO_END ingestion before querying)
+        # Collect all questions upfront
         all_questions_to_run: list[EvalQuestion] = []
         for dataset in datasets:
             logger.info(f"[EVAL] Loaded dataset: {dataset.name} ({len(dataset)} questions)")
@@ -392,62 +388,74 @@ class EvaluationRunner:
         # Ingest documents for END_TO_END tier
         doc_id_map: dict[str, str] = {}
         if self.config.tier == EvalTier.END_TO_END:
-            doc_id_map = self._ingest_documents(all_questions_to_run)
-            # Patch gold passage doc_ids to use RAG server's assigned IDs
+            doc_id_map = await self._ingest_documents(all_questions_to_run)
             for q in all_questions_to_run:
                 for gp in q.gold_passages:
                     gp.doc_id = doc_id_map.get(gp.doc_id, gp.doc_id)
 
-        # Run queries and collect responses
+        # Run queries concurrently and collect responses
         all_questions: list[EvalQuestion] = []
         all_responses: list[EvalResponse] = []
         latencies: list[float] = []
         error_count = 0
 
         try:
-            for qi, question in enumerate(all_questions_to_run):
+            sem = asyncio.Semaphore(self.config.query_concurrency)
+            completed_count = 0
+
+            async def _query_one(qi: int, question: EvalQuestion) -> tuple[EvalQuestion, EvalResponse, float] | None:
+                nonlocal completed_count
                 if cancelled and cancelled.is_set():
-                    logger.info("[EVAL] Cancelled by user")
-                    break
-
-                _report(
-                    "querying",
-                    current_question=qi + 1,
-                    total_questions=len(all_questions_to_run),
-                    current_dataset=question.domain or "",
-                )
-
-                try:
-                    start_time = time.perf_counter()
-
-                    if self.config.tier == EvalTier.GENERATION:
-                        raw_response = self.client.query_with_context(
-                            question.question, question.gold_passages
+                    return None
+                async with sem:
+                    try:
+                        start_time = time.perf_counter()
+                        if self.config.tier == EvalTier.GENERATION:
+                            raw_response = await self.client.query_with_context(
+                                question.question, question.gold_passages
+                            )
+                        else:
+                            raw_response = await self.client.query(
+                                question.question, include_chunks=True
+                            )
+                        latency_ms = (time.perf_counter() - start_time) * 1000
+                        response = parse_rag_response(
+                            question_id=question.id,
+                            raw_response=raw_response,
+                            latency_ms=latency_ms,
                         )
-                    else:
-                        raw_response = self.client.query(
-                            question.question, include_chunks=True
+                        return (question, response, latency_ms)
+                    except Exception as e:
+                        logger.error(f"[EVAL] Query failed for {question.id}: {e}")
+                        return None
+                    finally:
+                        completed_count += 1
+                        _report(
+                            "querying",
+                            current_question=completed_count,
+                            total_questions=len(all_questions_to_run),
+                            current_dataset=question.domain or "",
                         )
 
-                    latency_ms = (time.perf_counter() - start_time) * 1000
+            tasks = [_query_one(qi, q) for qi, q in enumerate(all_questions_to_run)]
+            results = await asyncio.gather(*tasks)
 
-                    response = parse_rag_response(
-                        question_id=question.id,
-                        raw_response=raw_response,
-                        latency_ms=latency_ms,
-                    )
-
-                    all_questions.append(question)
-                    all_responses.append(response)
-                    latencies.append(latency_ms)
-
-                except Exception as e:
-                    logger.error(f"[EVAL] Query failed for {question.id}: {e}")
+            for result in results:
+                if result is not None:
+                    q, resp, lat = result
+                    all_questions.append(q)
+                    all_responses.append(resp)
+                    latencies.append(lat)
+                else:
                     error_count += 1
+
+            # Subtract cancelled queries from error count
+            if cancelled and cancelled.is_set():
+                error_count = max(0, error_count - sum(1 for r in results if r is None))
 
         finally:
             if self.config.tier == EvalTier.END_TO_END and doc_id_map:
-                self._cleanup_documents(list(doc_id_map.values()))
+                await self._cleanup_documents(list(doc_id_map.values()))
 
         logger.info(
             f"[EVAL] Completed {len(all_responses)} queries, {error_count} errors"
@@ -455,13 +463,12 @@ class EvaluationRunner:
         _report("computing_metrics", current_question=len(all_responses), total_questions=len(all_questions_to_run))
 
         # Compute metrics
-        scorecard = self._compute_metrics(all_questions, all_responses, latencies, progress_callback)
+        scorecard = await self._compute_metrics(all_questions, all_responses, latencies, progress_callback)
 
         # Compute weighted score
         weighted_score = self._compute_weighted_score(scorecard)
         _report("saving")
 
-        # Create run result
         eval_run = EvalRun(
             id=run_id,
             name=run_name,
@@ -480,7 +487,6 @@ class EvaluationRunner:
             },
         )
 
-        # Save run
         self._save_run(eval_run)
         _report("complete", current_question=len(all_questions), total_questions=len(all_questions_to_run))
 
@@ -490,13 +496,8 @@ class EvaluationRunner:
 
         return eval_run
 
-    def _ingest_documents(self, questions: list[EvalQuestion]) -> dict[str, str]:
-        """Upload gold passage texts to the RAG server for END_TO_END eval.
-
-        Collects all unique doc_ids, concatenates their passage texts, uploads
-        one file per doc_id, and returns a gold_doc_id → rag_doc_id mapping.
-        """
-        # Collect unique doc_ids and their passage texts
+    async def _ingest_documents(self, questions: list[EvalQuestion]) -> dict[str, str]:
+        """Upload gold passage texts to the RAG server for END_TO_END eval."""
         doc_texts: dict[str, list[str]] = {}
         for q in questions:
             for gp in q.gold_passages:
@@ -510,31 +511,27 @@ class EvaluationRunner:
 
         logger.info(f"[EVAL] Ingesting {len(doc_texts)} unique documents for END_TO_END eval")
 
-        # Upload each doc, track filename → gold_doc_id mapping for later matching
         filename_to_gold_id: dict[str, str] = {}
         batch_ids: list[str] = []
 
         for gold_doc_id, texts in doc_texts.items():
-            # Sanitize filename: replace colons and spaces
             filename = gold_doc_id.replace(":", "_").replace(" ", "_") + ".txt"
             combined_text = "\n\n".join(texts)
             try:
-                batch_id = self.client.upload_text_as_document(combined_text, filename)
+                batch_id = await self.client.upload_text_as_document(combined_text, filename)
                 batch_ids.append(batch_id)
                 filename_to_gold_id[filename] = gold_doc_id
                 logger.info(f"[EVAL] Uploaded {filename} → batch {batch_id}")
             except Exception as e:
                 logger.error(f"[EVAL] Failed to upload {filename}: {e}")
 
-        # Wait for all batches to complete
         for batch_id in batch_ids:
-            ok = self.client.wait_for_batch(batch_id)
+            ok = await self.client.wait_for_batch(batch_id)
             if not ok:
                 logger.warning(f"[EVAL] Batch {batch_id} failed or timed out")
 
-        # Match uploaded filenames to RAG server document IDs
         try:
-            docs = self.client.list_documents()
+            docs = await self.client.list_documents()
         except Exception as e:
             logger.error(f"[EVAL] Failed to list documents: {e}")
             return {}
@@ -549,11 +546,11 @@ class EvaluationRunner:
         logger.info(f"[EVAL] Mapped {len(gold_to_rag)} of {len(doc_texts)} documents to RAG IDs")
         return gold_to_rag
 
-    def _cleanup_documents(self, rag_doc_ids: list[str]) -> None:
+    async def _cleanup_documents(self, rag_doc_ids: list[str]) -> None:
         """Delete uploaded documents from the RAG server. Never raises."""
         failed_ids = []
         for doc_id in rag_doc_ids:
-            ok = self.client.delete_document(doc_id)
+            ok = await self.client.delete_document(doc_id)
             if not ok:
                 failed_ids.append(doc_id)
 
@@ -579,7 +576,7 @@ class EvaluationRunner:
             additional=rag_config,
         )
 
-    def _compute_metrics(
+    async def _compute_metrics(
         self,
         questions: list[EvalQuestion],
         responses: list[EvalResponse],
@@ -593,7 +590,6 @@ class EvaluationRunner:
             if progress_callback:
                 progress_callback({"phase": phase, **extra})
 
-        # Compute each metric group
         for group, metrics in self._metrics.items():
             logger.info(f"[EVAL] Computing {group.value} metrics")
 
@@ -603,7 +599,6 @@ class EvaluationRunner:
                     if metric.requires_judge:
                         kwargs["judge"] = self.judge
 
-                    # Per-item callback for judge metrics
                     if metric.requires_judge:
                         _report(
                             "judging_metric",
@@ -619,13 +614,14 @@ class EvaluationRunner:
                                 total_items=len(questions),
                             )
 
-                        result = metric.compute_batch(
+                        result = await metric.compute_batch(
                             questions, responses,
                             progress_callback=_item_cb,
+                            concurrency=self.config.judge_concurrency,
                             **kwargs,
                         )
                     else:
-                        result = metric.compute_batch(questions, responses, **kwargs)
+                        result = await metric.compute_batch(questions, responses, **kwargs)
 
                     scorecard.add_metric(result)
                     logger.debug(f"[EVAL] {result.name}: {result.value:.3f}")
@@ -675,7 +671,7 @@ class EvaluationRunner:
                         cost_per_1m_input_tokens=self._model_config.get("cost_per_1m_input_tokens", 0.0),
                         cost_per_1m_output_tokens=self._model_config.get("cost_per_1m_output_tokens", 0.0),
                     )
-                    result = cost_metric.compute_batch(questions, responses)
+                    result = await cost_metric.compute_batch(questions, responses)
                     scorecard.add_metric(result)
                 except Exception as e:
                     logger.error(f"[EVAL] Failed to compute cost metric: {e}")
@@ -823,13 +819,13 @@ class EvaluationRunner:
             },
         }
 
-    def close(self):
+    async def close(self):
         """Clean up resources."""
         if self._client:
-            self._client.close()
+            await self._client.close()
 
 
-def run_evaluation(
+async def run_evaluation(
     config: EvalConfig | None = None,
     name: str | None = None,
     progress_callback: Callable[[dict], None] | None = None,
@@ -838,9 +834,9 @@ def run_evaluation(
     """Convenience function to run an evaluation."""
     runner = EvaluationRunner(config)
     try:
-        return runner.run(name=name, progress_callback=progress_callback, use_cache=use_cache)
+        return await runner.run(name=name, progress_callback=progress_callback, use_cache=use_cache)
     finally:
-        runner.close()
+        await runner.close()
 
 
 def compute_pareto_frontier(runs: list[EvalRun]) -> list[ParetoPoint]:

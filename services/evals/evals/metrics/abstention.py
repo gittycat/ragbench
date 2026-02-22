@@ -109,10 +109,12 @@ class UnanswerableAccuracy(BaseMetric):
             },
         )
 
-    def compute_batch(
+    async def compute_batch(
         self,
         questions: list[EvalQuestion],
         responses: list[EvalResponse],
+        progress_callback: Any | None = None,
+        concurrency: int = 10,
         **kwargs: Any,
     ) -> MetricResult:
         """Compute accuracy with detailed breakdown."""

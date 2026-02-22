@@ -141,6 +141,8 @@ class EvalConfig:
     seed: int | None = 42
     tier: EvalTier = field(default_factory=lambda: EvalTier.END_TO_END)
     cleanup_on_failure: bool = True
+    query_concurrency: int = 10
+    judge_concurrency: int = 10
 
     def __post_init__(self):
         if isinstance(self.runs_dir, str):
@@ -215,6 +217,8 @@ class EvalConfig:
             "seed": self.seed,
             "tier": self.tier.value,
             "cleanup_on_failure": self.cleanup_on_failure,
+            "query_concurrency": self.query_concurrency,
+            "judge_concurrency": self.judge_concurrency,
         }
 
         with open(path, "w") as f:

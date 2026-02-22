@@ -24,6 +24,7 @@ Usage:
 """
 
 import argparse
+import asyncio
 import json
 import os
 import sys
@@ -327,12 +328,12 @@ def cmd_eval(args):
 
     try:
         with progress:
-            result = run_evaluation(
+            result = asyncio.run(run_evaluation(
                 config,
                 name=args.name,
                 progress_callback=progress_callback,
                 use_cache=not args.no_cache,
-            )
+            ))
         console.print()
         print_run_summary(result)
     except ConnectionError as e:

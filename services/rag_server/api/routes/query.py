@@ -145,18 +145,38 @@ async def query_stream(request: QueryRequest):
         if not metadata:
             await create_session_metadata_async(session_id, is_temporary=False)
 
+    async def stream_wrapper():
+        """Run sync generator in a thread, feed chunks via async queue."""
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        sentinel = object()
+
+        def sync_producer():
+            try:
+                for chunk in query_rag_stream(
+                    request.query,
+                    session_id,
+                    is_temporary=request.is_temporary,
+                    include_chunks=request.include_chunks,
+                    ensure_metadata=False,
+                ):
+                    asyncio.run_coroutine_threadsafe(queue.put(chunk), loop).result()
+            finally:
+                asyncio.run_coroutine_threadsafe(queue.put(sentinel), loop).result()
+
+        loop.run_in_executor(None, sync_producer)
+        while True:
+            item = await queue.get()
+            if item is sentinel:
+                break
+            yield item
+
     return StreamingResponse(
-        query_rag_stream(
-            request.query,
-            session_id,
-            is_temporary=request.is_temporary,
-            include_chunks=request.include_chunks,
-            ensure_metadata=False,
-        ),
+        stream_wrapper(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"  # Disable nginx buffering
+            "X-Accel-Buffering": "no",
         }
     )

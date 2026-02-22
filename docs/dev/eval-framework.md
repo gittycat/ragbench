@@ -136,7 +136,9 @@ The eval service runs as a standalone FastAPI app. The webapp proxies `/api/eval
 - One job at a time (evals are resource-intensive)
 - No database — JSON files on disk, in-memory index rebuilt on startup
 - Polling via `GET /eval/runs/active` (every 2-3s during a run)
-- Background `threading.Thread` (runner is sync)
+- Background `threading.Thread` runs `asyncio.run()` over the async runner
+- Async parallelization: RAG queries and LLM judge calls run concurrently via `asyncio.gather()` + `Semaphore`
+- Concurrency controlled by `query_concurrency` (default 10) and `judge_concurrency` (default 10) in `EvalConfig`
 - Progress callback + cancellation via `threading.Event`
 
 ## Legacy Evaluation API Endpoints (rag-server, port 8001)

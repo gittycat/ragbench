@@ -53,10 +53,12 @@ class LatencyP50(BaseMetric):
             details={"latency_ms": latency},
         )
 
-    def compute_batch(
+    async def compute_batch(
         self,
         questions: list[EvalQuestion],
         responses: list[EvalResponse],
+        progress_callback: Any | None = None,
+        concurrency: int = 10,
         **kwargs: Any,
     ) -> MetricResult:
         """Compute P50 latency across batch."""
@@ -132,10 +134,12 @@ class LatencyP95(BaseMetric):
             details={"latency_ms": latency},
         )
 
-    def compute_batch(
+    async def compute_batch(
         self,
         questions: list[EvalQuestion],
         responses: list[EvalResponse],
+        progress_callback: Any | None = None,
+        concurrency: int = 10,
         **kwargs: Any,
     ) -> MetricResult:
         """Compute P95 latency across batch."""
@@ -263,10 +267,12 @@ class CostPerQuery(BaseMetric):
             },
         )
 
-    def compute_batch(
+    async def compute_batch(
         self,
         questions: list[EvalQuestion],
         responses: list[EvalResponse],
+        progress_callback: Any | None = None,
+        concurrency: int = 10,
         **kwargs: Any,
     ) -> MetricResult:
         """Compute average cost per query across batch."""

@@ -1,19 +1,17 @@
 """Base class for evaluation metrics."""
 
+import asyncio
+import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
 from evals.schemas import EvalQuestion, EvalResponse, MetricResult, MetricGroup
 
+logger = logging.getLogger(__name__)
+
 
 class BaseMetric(ABC):
-    """Abstract base class for evaluation metrics.
-
-    Each metric is responsible for:
-    1. Computing a single metric value from question/response pairs
-    2. Providing metadata about the metric
-    3. Supporting batch computation for efficiency
-    """
+    """Abstract base class for evaluation metrics."""
 
     @property
     @abstractmethod
@@ -29,17 +27,14 @@ class BaseMetric(ABC):
 
     @property
     def description(self) -> str:
-        """Human-readable description of this metric."""
         return ""
 
     @property
     def requires_gold(self) -> bool:
-        """Whether this metric requires gold passages/answers."""
         return True
 
     @property
     def requires_judge(self) -> bool:
-        """Whether this metric requires an LLM judge."""
         return False
 
     @abstractmethod
@@ -49,37 +44,21 @@ class BaseMetric(ABC):
         response: EvalResponse,
         **kwargs: Any,
     ) -> MetricResult:
-        """Compute the metric for a single question/response pair.
-
-        Args:
-            question: The evaluation question with gold data
-            response: The RAG system's response
-            **kwargs: Additional metric-specific parameters
-
-        Returns:
-            MetricResult with the computed value
-        """
+        """Compute the metric for a single question/response pair."""
         ...
 
-    def compute_batch(
+    async def compute_batch(
         self,
         questions: list[EvalQuestion],
         responses: list[EvalResponse],
         progress_callback: Any | None = None,
+        concurrency: int = 10,
         **kwargs: Any,
     ) -> MetricResult:
         """Compute the metric across a batch of question/response pairs.
 
-        Default implementation averages individual results.
-        Override for more efficient batch computation.
-
-        Args:
-            questions: List of evaluation questions
-            responses: List of RAG responses
-            progress_callback: Called with (current_index,) after each item
-
-        Returns:
-            Aggregated MetricResult
+        For judge metrics, runs concurrently with semaphore.
+        For non-judge metrics, runs sequentially.
         """
         if len(questions) != len(responses):
             raise ValueError(
@@ -95,20 +74,42 @@ class BaseMetric(ABC):
                 sample_size=0,
             )
 
-        # Compute individual results
-        results = []
-        for i, (q, r) in enumerate(zip(questions, responses)):
-            try:
-                result = self.compute(q, r, **kwargs)
-                results.append(result)
-            except Exception as e:
-                # Skip failed computations but log them
-                import logging
-                logging.getLogger(__name__).warning(
-                    f"[METRIC] {self.name} failed for question {q.id}: {e}"
-                )
-            if progress_callback:
-                progress_callback(i + 1)
+        results: list[MetricResult] = []
+
+        if self.requires_judge:
+            # Concurrent execution with semaphore for I/O-bound judge calls
+            sem = asyncio.Semaphore(concurrency)
+            completed_count = 0
+
+            async def _run_one(q: EvalQuestion, r: EvalResponse) -> MetricResult | None:
+                nonlocal completed_count
+                async with sem:
+                    try:
+                        result = self.compute(q, r, **kwargs)
+                        if asyncio.iscoroutine(result):
+                            result = await result
+                        return result
+                    except Exception as e:
+                        logger.warning(f"[METRIC] {self.name} failed for question {q.id}: {e}")
+                        return None
+                    finally:
+                        completed_count += 1
+                        if progress_callback:
+                            progress_callback(completed_count)
+
+            tasks = [_run_one(q, r) for q, r in zip(questions, responses)]
+            task_results = await asyncio.gather(*tasks)
+            results = [r for r in task_results if r is not None]
+        else:
+            # Sequential execution for CPU-bound metrics
+            for i, (q, r) in enumerate(zip(questions, responses)):
+                try:
+                    result = self.compute(q, r, **kwargs)
+                    results.append(result)
+                except Exception as e:
+                    logger.warning(f"[METRIC] {self.name} failed for question {q.id}: {e}")
+                if progress_callback:
+                    progress_callback(i + 1)
 
         if not results:
             return MetricResult(
@@ -119,7 +120,6 @@ class BaseMetric(ABC):
                 details={"error": "All computations failed"},
             )
 
-        # Aggregate
         avg_value = sum(r.value for r in results) / len(results)
 
         return MetricResult(

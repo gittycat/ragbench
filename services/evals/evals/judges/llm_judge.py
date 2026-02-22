@@ -98,20 +98,12 @@ class LLMJudge:
         logger.info(f"[JUDGE] Creating {provider.value} LLM: {self.config.model}")
         return create_llm_client(llm_config)
 
-    def evaluate_faithfulness(
+    async def evaluate_faithfulness(
         self,
         answer: str,
         context: str,
     ) -> JudgeResult:
-        """Evaluate whether the answer is faithful to the context.
-
-        Args:
-            answer: The generated answer
-            context: The retrieved context
-
-        Returns:
-            JudgeResult with faithfulness score (0-1)
-        """
+        """Evaluate whether the answer is faithful to the context."""
         prompt = f"""You are evaluating the faithfulness of an answer to the provided context.
 Faithfulness measures whether all claims in the answer are supported by the context.
 
@@ -130,24 +122,15 @@ Provide your response in the following format:
 SCORE: [0.0-1.0]
 REASONING: [Your explanation]"""
 
-        return self._evaluate(prompt, "faithfulness")
+        return await self._evaluate(prompt, "faithfulness")
 
-    def evaluate_correctness(
+    async def evaluate_correctness(
         self,
         answer: str,
         expected_answer: str,
         question: str,
     ) -> JudgeResult:
-        """Evaluate whether the answer is correct compared to expected.
-
-        Args:
-            answer: The generated answer
-            expected_answer: The expected/reference answer
-            question: The original question
-
-        Returns:
-            JudgeResult with correctness score (0-1)
-        """
+        """Evaluate whether the answer is correct compared to expected."""
         prompt = f"""You are evaluating the correctness of an answer compared to a reference answer.
 Correctness measures whether the answer conveys the same information as the reference.
 
@@ -169,22 +152,14 @@ Provide your response in the following format:
 SCORE: [0.0-1.0]
 REASONING: [Your explanation]"""
 
-        return self._evaluate(prompt, "correctness")
+        return await self._evaluate(prompt, "correctness")
 
-    def evaluate_relevancy(
+    async def evaluate_relevancy(
         self,
         answer: str,
         question: str,
     ) -> JudgeResult:
-        """Evaluate whether the answer is relevant to the question.
-
-        Args:
-            answer: The generated answer
-            question: The original question
-
-        Returns:
-            JudgeResult with relevancy score (0-1)
-        """
+        """Evaluate whether the answer is relevant to the question."""
         prompt = f"""You are evaluating the relevancy of an answer to a question.
 Relevancy measures whether the answer addresses what the question is asking.
 
@@ -203,16 +178,15 @@ Provide your response in the following format:
 SCORE: [0.0-1.0]
 REASONING: [Your explanation]"""
 
-        return self._evaluate(prompt, "relevancy")
+        return await self._evaluate(prompt, "relevancy")
 
-    def _evaluate(self, prompt: str, metric_name: str) -> JudgeResult:
-        """Run evaluation with retry logic."""
+    async def _evaluate(self, prompt: str, metric_name: str) -> JudgeResult:
+        """Run evaluation with retry logic using async LLM call."""
         for attempt in range(self.config.max_retries):
             try:
-                response = self.llm.complete(prompt)
+                response = await self.llm.acomplete(prompt)
                 raw_response = str(response)
 
-                # Parse response
                 score, reasoning = self._parse_response(raw_response)
 
                 return JudgeResult(
@@ -235,7 +209,6 @@ REASONING: [Your explanation]"""
                         metadata={"error": str(e)},
                     )
 
-        # Should not reach here
         return JudgeResult(metric_name=metric_name, score=0.0, reasoning="Unknown error")
 
     def _parse_response(self, response: str) -> tuple[float, str]:

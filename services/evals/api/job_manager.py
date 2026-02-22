@@ -5,6 +5,7 @@ run data is persisted to disk by EvaluationRunner and indexed here for
 fast lookup.
 """
 
+import asyncio
 import json
 import logging
 import threading
@@ -127,7 +128,7 @@ class JobManager:
         return job_id
 
     def _run_job(self, job_id: str, config: EvalConfig, run_name: str) -> None:
-        """Background thread target."""
+        """Background thread target — runs async eval in a new event loop."""
         with self._lock:
             self._active_status = "running"
 
@@ -137,12 +138,11 @@ class JobManager:
 
         runner = EvaluationRunner(config)
         try:
-            result = runner.run(
+            result = asyncio.run(runner.run(
                 name=run_name,
                 progress_callback=progress_callback,
                 cancelled=self._cancelled,
-            )
-            # Index the new run
+            ))
             filepath = self.runs_dir / f"{result.id}_{result.created_at.strftime('%Y%m%d_%H%M%S')}.json"
             if filepath.exists():
                 data = json.loads(filepath.read_text())
@@ -156,7 +156,7 @@ class JobManager:
                 self._active_status = "failed"
                 self._active_progress["error"] = str(e)
         finally:
-            runner.close()
+            asyncio.run(runner.close())
 
     # ── Active job ────────────────────────────────────────────────────────
 

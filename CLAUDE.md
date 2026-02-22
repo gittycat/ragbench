@@ -85,6 +85,7 @@ Local RAG system: FastAPI + Docling + LlamaIndex + PostgreSQL (pg_textsearch BM2
 - **Hybrid Search**: pg_textsearch BM25 + ChromaDB vectors with RRF fusion (k=60), auto-indexes
 - **Contextual Retrieval**: LLM-generated context prepended to chunks before embedding (toggle: `ENABLE_CONTEXTUAL_RETRIEVAL`)
 - **Async Processing**: SKIP LOCKED on job_tasks table for work queue + PostgreSQL job_batches for progress tracking
+- **Async Concurrency**: Evals use `asyncio.gather()` + `Semaphore` for parallel RAG queries and LLM judge calls. RAG server offloads sync generators/LLM calls to executor threads to avoid blocking FastAPI's event loop.
 - **Conversational RAG**: `condense_plus_context` mode, `ChatMemoryBuffer` + `PostgresChatStore`
 - **Document IDs**: `{doc_id}-chunk-{i}`
 

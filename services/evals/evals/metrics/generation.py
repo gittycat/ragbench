@@ -49,13 +49,12 @@ class Faithfulness(BaseMetric):
     def requires_judge(self) -> bool:
         return True
 
-    def compute(
+    async def compute(
         self,
         question: EvalQuestion,
         response: EvalResponse,
         **kwargs: Any,
     ) -> MetricResult:
-        # Build context from retrieved chunks
         context = "\n\n".join(
             chunk.text for chunk in response.retrieved_chunks
         )
@@ -69,8 +68,7 @@ class Faithfulness(BaseMetric):
                 details={"note": "No context retrieved"},
             )
 
-        # Use judge to evaluate faithfulness
-        result = self.judge.evaluate_faithfulness(
+        result = await self.judge.evaluate_faithfulness(
             answer=response.answer,
             context=context,
         )
@@ -124,7 +122,7 @@ class AnswerCorrectness(BaseMetric):
     def requires_judge(self) -> bool:
         return True
 
-    def compute(
+    async def compute(
         self,
         question: EvalQuestion,
         response: EvalResponse,
@@ -139,8 +137,7 @@ class AnswerCorrectness(BaseMetric):
                 details={"note": "No expected answer defined"},
             )
 
-        # Use judge to evaluate correctness
-        result = self.judge.evaluate_correctness(
+        result = await self.judge.evaluate_correctness(
             answer=response.answer,
             expected_answer=question.expected_answer,
             question=question.question,
@@ -195,14 +192,13 @@ class AnswerRelevancy(BaseMetric):
     def requires_judge(self) -> bool:
         return True
 
-    def compute(
+    async def compute(
         self,
         question: EvalQuestion,
         response: EvalResponse,
         **kwargs: Any,
     ) -> MetricResult:
-        # Use judge to evaluate relevancy
-        result = self.judge.evaluate_relevancy(
+        result = await self.judge.evaluate_relevancy(
             answer=response.answer,
             question=question.question,
         )
