@@ -727,6 +727,9 @@ class EvaluationRunner:
             "abstention_false_negative_rate": "accuracy",
         }
 
+        # Metrics where lower is better — invert before averaging
+        _inverted_metrics = {"abstention_false_positive_rate", "abstention_false_negative_rate"}
+
         # Collect average scores per objective
         objective_scores: dict[str, list[float]] = {obj: [] for obj in weights}
 
@@ -738,6 +741,8 @@ class EvaluationRunner:
             if objective and objective in objective_scores:
                 # Normalize metric value to 0-1 range
                 value = max(0.0, min(1.0, metric.value))
+                if metric.name in _inverted_metrics:
+                    value = 1.0 - value
                 objective_scores[objective].append(value)
 
         # Compute average per objective — only include objectives that have data
