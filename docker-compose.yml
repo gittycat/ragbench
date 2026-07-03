@@ -133,6 +133,7 @@ services:
       - SHARED_UPLOAD_DIR=/tmp/shared
       - USE_CACHED_RERANKER=true
       - ANONYMIZED_TELEMETRY=False
+      - WORKER_CONCURRENCY=2
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

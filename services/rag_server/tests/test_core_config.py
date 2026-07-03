@@ -47,6 +47,17 @@ def test_dimension_match_skips_empty_collection():
         check_embedding_dimension_match()  # no error
 
 
+def test_dimension_match_skips_when_chromadb_unreachable():
+    """Startup must not hard-fail if ChromaDB isn't reachable yet (e.g. during tests or startup ordering)."""
+    from core.config import check_embedding_dimension_match
+
+    config = create_mock_models_config()
+
+    with patch("infrastructure.search.vector_store.get_chroma_client", side_effect=ValueError("Could not connect to a Chroma server")), \
+         patch("infrastructure.config.models_config.get_models_config", return_value=config):
+        check_embedding_dimension_match()  # no error, logs a warning instead
+
+
 def test_dimension_match_passes_when_equal():
     from core.config import check_embedding_dimension_match
     from llama_index.core import Settings

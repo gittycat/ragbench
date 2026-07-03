@@ -12,6 +12,9 @@ venv/
 env/
 ENV/
 
+# uv cache (project-local so uv doesn't need ~/.cache/uv write access under sandbox)
+.uv-cache/
+
 # Python specific
 *.pyc
 *.pyo

@@ -6,5 +6,8 @@
       "Read(./.env)",
       "Read(./secrets/**)"
     ]
+  },
+  "env": {
+    "UV_CACHE_DIR": "/Users/bernard/dev/code/rag/ragbench/.uv-cache"
   }
 }

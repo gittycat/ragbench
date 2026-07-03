@@ -29,10 +29,16 @@ def check_embedding_dimension_match():
     from infrastructure.config.models_config import get_models_config
 
     config = get_models_config()
-    client = get_chroma_client()
-    collection = client.get_or_create_collection(config.chromadb.collection)
 
-    if collection.count() == 0:
+    try:
+        client = get_chroma_client()
+        collection = client.get_or_create_collection(config.chromadb.collection)
+        count = collection.count()
+    except Exception as e:
+        logger.warning(f"[SETTINGS] Could not reach ChromaDB to verify embedding dimension, skipping check: {e}")
+        return
+
+    if count == 0:
         return
 
     existing = collection.peek(limit=1)

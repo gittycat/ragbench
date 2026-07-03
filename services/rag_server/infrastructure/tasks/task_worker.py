@@ -33,8 +33,21 @@ MAX_ATTEMPTS = 3           # Max claim attempts before permanent failure
 STUCK_TIMEOUT = 3600       # Seconds before a processing task is considered stuck
 STUCK_CHECK_INTERVAL = 60  # Seconds between stuck-task checks
 RETRY_DELAYS = [5, 15, 60] # Seconds to wait before re-queuing for retry
+MAX_WORKER_CONCURRENCY = 8 # Cap on concurrent claim loops (connection pool budget)
 
 _shutdown = False
+
+
+def get_worker_concurrency() -> int:
+    """Read WORKER_CONCURRENCY from env, capped at MAX_WORKER_CONCURRENCY."""
+    concurrency = int(os.getenv("WORKER_CONCURRENCY", "2"))
+    if concurrency > MAX_WORKER_CONCURRENCY:
+        logger.warning(
+            f"[WORKER] WORKER_CONCURRENCY={concurrency} exceeds cap of {MAX_WORKER_CONCURRENCY}; "
+            f"capping to {MAX_WORKER_CONCURRENCY}"
+        )
+        concurrency = MAX_WORKER_CONCURRENCY
+    return max(1, concurrency)
 
 
 def signal_handler(signum, frame):
@@ -118,10 +131,28 @@ async def check_stuck_tasks():
         await asyncio.sleep(STUCK_CHECK_INTERVAL)
 
 
+async def claim_loop(loop_id: int):
+    """Independent claim-process loop. Multiple instances run concurrently."""
+    while not _shutdown:
+        try:
+            processed = await claim_and_process()
+            if not processed:
+                # No tasks available, wait before polling again
+                await asyncio.sleep(POLL_INTERVAL)
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            logger.error(f"[WORKER] Loop {loop_id} error: {e}")
+            await asyncio.sleep(POLL_INTERVAL)
+
+
 async def run_worker():
     """Main worker loop — polls for tasks via SKIP LOCKED."""
+    concurrency = get_worker_concurrency()
+
     logger.info("=" * 60)
     logger.info("Task Worker starting (SKIP LOCKED)...")
+    logger.info(f"Worker concurrency: {concurrency}")
     logger.info(f"Poll interval: {POLL_INTERVAL}s")
     logger.info(f"Max attempts: {MAX_ATTEMPTS}")
     logger.info(f"Stuck timeout: {STUCK_TIMEOUT}s")
@@ -131,17 +162,7 @@ async def run_worker():
     stuck_checker = asyncio.create_task(check_stuck_tasks())
 
     try:
-        while not _shutdown:
-            try:
-                processed = await claim_and_process()
-                if not processed:
-                    # No tasks available, wait before polling again
-                    await asyncio.sleep(POLL_INTERVAL)
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                logger.error(f"[WORKER] Worker loop error: {e}")
-                await asyncio.sleep(POLL_INTERVAL)
+        await asyncio.gather(*(claim_loop(i) for i in range(concurrency)))
     finally:
         stuck_checker.cancel()
         try:

@@ -454,6 +454,7 @@ class ModelsConfigManager:
     def reset(self) -> None:
         """Reset the config instance. Useful for testing."""
         self._config = None
+        self._resolved_path = None
         self._last_mtime = 0.0
 
 
