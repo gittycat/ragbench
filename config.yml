@@ -73,6 +73,7 @@ models:
       provider: ollama
       model: nomic-embed-text:latest
       base_url: http://host.docker.internal:11434
+      embed_batch_size: 64
 
     # OpenAI embeddings (cloud API)
     openai-ada:
@@ -86,6 +87,7 @@ models:
       model: text-embedding-3-small
       base_url: https://api.openai.com/v1
       requires_api_key: true
+      embed_batch_size: 100
 
     openai-3-large:
       provider: openai

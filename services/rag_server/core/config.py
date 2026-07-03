@@ -19,6 +19,39 @@ def get_optional_env(var_name: str, default: str = "") -> str:
     return os.getenv(var_name, default)
 
 
+def check_embedding_dimension_match():
+    """Guard against silent retrieval corruption from switching embedding models.
+
+    If the ChromaDB collection already holds vectors, their dimension must match
+    the active embedding model's output dimension.
+    """
+    from infrastructure.search.vector_store import get_chroma_client
+    from infrastructure.config.models_config import get_models_config
+
+    config = get_models_config()
+    client = get_chroma_client()
+    collection = client.get_or_create_collection(config.chromadb.collection)
+
+    if collection.count() == 0:
+        return
+
+    existing = collection.peek(limit=1)
+    embeddings = existing.get("embeddings")
+    if embeddings is None or len(embeddings) == 0:
+        return
+
+    stored_dim = len(embeddings[0])
+    active_dim = len(Settings.embed_model.get_text_embedding("dim-probe"))
+
+    if stored_dim != active_dim:
+        raise ValueError(
+            f"Embedding dimension mismatch: ChromaDB collection '{config.chromadb.collection}' "
+            f"stores {stored_dim}-dimensional vectors, but the active embedding model "
+            f"'{config.embedding.model}' produces {active_dim}-dimensional vectors. "
+            f"Delete and re-index the collection, or switch the embedding model back."
+        )
+
+
 def initialize_settings():
     """Initialize global LlamaIndex Settings"""
     from infrastructure.llm.embeddings import get_embedding_function
@@ -28,6 +61,9 @@ def initialize_settings():
 
     Settings.embed_model = get_embedding_function()
     logger.info("[SETTINGS] Embedding model configured")
+
+    check_embedding_dimension_match()
+    logger.info("[SETTINGS] Embedding dimension check passed")
 
     Settings.llm = get_llm_client()
     logger.info("[SETTINGS] LLM configured")

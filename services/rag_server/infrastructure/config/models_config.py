@@ -45,6 +45,7 @@ class EmbeddingConfig(BaseModel):
     base_url: str | None = None
     api_key: str | None = None
     requires_api_key: bool = False
+    embed_batch_size: int | None = None
 
     @field_validator("model")
     @classmethod
