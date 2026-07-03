@@ -112,6 +112,10 @@ test-eval-full: show-config docker-up
 eval-datasets: docker-up
     docker compose exec evals .venv/bin/python -m evals.cli datasets
 
+# Calibrate the LLM judge against RAGBench TRACe ground-truth annotations
+eval-calibrate SAMPLES="20": docker-up
+    docker compose exec evals .venv/bin/python -m evals.cli calibrate --samples {{SAMPLES}}
+
 eval-compare +ARGS: docker-up
     docker compose exec evals .venv/bin/python -m evals.cli compare {{ARGS}}
 

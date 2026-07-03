@@ -119,6 +119,35 @@ def main():
         help="Bypass dataset cache (re-download from source)",
     )
 
+    # calibrate command — judge vs RAGBench TRACe ground-truth labels
+    calibrate_parser = subparsers.add_parser(
+        "calibrate",
+        help="Calibrate the LLM judge against RAGBench TRACe annotations",
+    )
+    calibrate_parser.add_argument(
+        "--samples",
+        type=int,
+        default=20,
+        help="Total number of RAGBench items to judge (default: 20)",
+    )
+    calibrate_parser.add_argument(
+        "--subsets",
+        type=str,
+        help="Comma-separated RAGBench subsets (default: curated mix)",
+    )
+    calibrate_parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for sampling",
+    )
+    calibrate_parser.add_argument(
+        "--output",
+        type=str,
+        default="data/calibration",
+        help="Output directory for calibration results",
+    )
+
     # cache command
     cache_parser = subparsers.add_parser("cache", help="Manage dataset cache")
     cache_sub = cache_parser.add_subparsers(dest="cache_action")
@@ -188,6 +217,8 @@ def main():
         cmd_compare(args)
     elif args.command == "cache":
         cmd_cache(args)
+    elif args.command == "calibrate":
+        cmd_calibrate(args)
     else:
         parser.print_help()
         sys.exit(1)
@@ -628,6 +659,69 @@ def _print_pareto_analysis(points: list[dict]) -> None:
             )
             if best_point:
                 print(f"  Best {obj}: {best_point['config_name']} ({best_point['objectives'][obj]:.3f})")
+
+
+def cmd_calibrate(args):
+    """Calibrate the LLM judge against RAGBench TRACe ground-truth labels."""
+    from evals.calibration import calibrate_judge, save_calibration
+    from evals.datasets.ragbench import RAGBenchLoader, DEFAULT_SUBSETS
+
+    print_config_banner(compact=True)
+    print()
+
+    subsets = (
+        [s.strip() for s in args.subsets.split(",")] if args.subsets else DEFAULT_SUBSETS
+    )
+    console = Console()
+    console.print(f"Judge calibration on RAGBench subsets: {subsets}")
+    console.print(f"Samples: {args.samples}")
+    console.rule()
+
+    loader = RAGBenchLoader()
+    items = loader.load_raw_items(
+        subsets=subsets, split="test", max_samples=args.samples, seed=args.seed
+    )
+    if not items:
+        console.print("[red]ERROR:[/red] No RAGBench items loaded.")
+        sys.exit(1)
+
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TextColumn("•"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=False,
+    )
+    task = progress.add_task("Judging reference responses", total=len(items))
+
+    def _on_progress(completed: int) -> None:
+        progress.update(task, completed=completed)
+
+    with progress:
+        result = asyncio.run(calibrate_judge(items, progress_callback=_on_progress))
+
+    path = save_calibration(result, Path(args.output))
+
+    console.print()
+    console.rule("Judge Calibration Results")
+    console.print(f"Judge model: {result.judge_model}")
+    console.print(f"Samples judged: {result.sample_count}")
+    if result.adherence_accuracy is not None:
+        console.print(
+            f"Adherence agreement (judge faithfulness >= 0.5 vs ground truth): "
+            f"{result.adherence_accuracy:.1%}"
+        )
+        console.print(f"Adherence RMSE: {result.adherence_rmse:.3f}")
+    if result.relevance_rmse is not None:
+        console.print(f"Context relevance RMSE: {result.relevance_rmse:.3f}")
+    console.print(f"Saved: {path}")
+    console.print(
+        "\n[dim]Lower RMSE / higher agreement = eval judge scores are more trustworthy. "
+        "RAGBench paper baselines: RAGAS/TruLens RMSE ~0.25-0.35.[/dim]"
+    )
 
 
 def cmd_cache(args):

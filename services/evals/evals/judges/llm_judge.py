@@ -180,6 +180,32 @@ REASONING: [Your explanation]"""
 
         return await self._evaluate(prompt, "relevancy")
 
+    async def evaluate_context_relevance(
+        self,
+        question: str,
+        context: str,
+    ) -> JudgeResult:
+        """Evaluate what fraction of the context is relevant to the question."""
+        prompt = f"""You are evaluating how relevant the provided context is to a question.
+Context relevance measures what proportion of the context is useful for answering the question.
+
+Question:
+{question}
+
+Context:
+{context}
+
+Evaluate the context relevance on a scale of 0 to 1:
+- 1.0: All of the context is directly useful for answering the question
+- 0.5: About half of the context is useful; the rest is unrelated
+- 0.0: None of the context is useful for answering the question
+
+Provide your response in the following format:
+SCORE: [0.0-1.0]
+REASONING: [Your explanation]"""
+
+        return await self._evaluate(prompt, "context_relevance")
+
     async def _evaluate(self, prompt: str, metric_name: str) -> JudgeResult:
         """Run evaluation with retry logic using async LLM call."""
         for attempt in range(self.config.max_retries):

@@ -1110,6 +1110,150 @@ class TestRAGBenchLoader:
         assert ids1 == ids2
 
 
+class TestRAGBenchConversion:
+    """Unit tests for RAGBench TRACe-aware item conversion (no network)."""
+
+    @staticmethod
+    def _make_item(**overrides):
+        item = {
+            "id": "677",
+            "question": "When was the first case of COVID-19 identified?",
+            "response": "The first cases were identified in December 2019.",
+            "documents": ["Doc zero text about Wuhan.", "Doc one text about Europe.", "Doc two unrelated text."],
+            "all_relevant_sentence_keys": ["0a", "1c"],
+            "adherence_score": True,
+            "relevance_score": 0.27,
+            "utilization_score": 0.08,
+            "completeness_score": 0.29,
+        }
+        item.update(overrides)
+        return item
+
+    def test_relevant_docs_become_gold_others_context(self):
+        from evals.datasets.ragbench import RAGBenchLoader
+
+        q = RAGBenchLoader()._convert_item(self._make_item(), "covidqa", "medical", 0)
+
+        assert len(q.gold_passages) == 2
+        assert len(q.context_passages) == 1
+        assert all(gp.relevance_score == 1.0 for gp in q.gold_passages)
+        assert all(cp.relevance_score == 0.0 for cp in q.context_passages)
+        assert q.context_passages[0].text == "Doc two unrelated text."
+
+    def test_no_annotations_falls_back_to_all_gold(self):
+        from evals.datasets.ragbench import RAGBenchLoader
+
+        item = self._make_item(all_relevant_sentence_keys=[])
+        q = RAGBenchLoader()._convert_item(item, "covidqa", "medical", 0)
+
+        assert len(q.gold_passages) == 3
+        assert len(q.context_passages) == 0
+
+    def test_trace_scores_in_metadata(self):
+        from evals.datasets.ragbench import RAGBenchLoader
+
+        q = RAGBenchLoader()._convert_item(self._make_item(), "covidqa", "medical", 0)
+
+        assert q.metadata["adherence_score"] is True
+        assert q.metadata["relevance_score"] == 0.27
+        assert q.metadata["utilization_score"] == 0.08
+        assert q.metadata["completeness_score"] == 0.29
+        assert q.metadata["has_relevance_annotations"] is True
+
+    def test_doc_ids_are_content_hashed_for_dedup(self):
+        from evals.datasets.ragbench import RAGBenchLoader
+
+        loader = RAGBenchLoader()
+        q1 = loader._convert_item(self._make_item(id="1"), "covidqa", "medical", 0)
+        q2 = loader._convert_item(self._make_item(id="2"), "covidqa", "medical", 1)
+
+        # Identical documents across questions share the same doc_id
+        assert q1.gold_passages[0].doc_id == q2.gold_passages[0].doc_id
+        # Different documents get different ids
+        assert q1.gold_passages[0].doc_id != q1.gold_passages[1].doc_id
+
+    def test_multi_digit_doc_index_keys(self):
+        from evals.datasets.ragbench import relevant_doc_indices
+
+        item = {"all_relevant_sentence_keys": ["0a", "12b", "3c"]}
+        assert relevant_doc_indices(item) == {0, 12, 3}
+
+    def test_registry_roundtrip_preserves_context_passages(self):
+        from evals.datasets.ragbench import RAGBenchLoader
+        from evals.datasets.registry import _dataset_to_dict, _dataset_from_dict
+        from evals.schemas import EvalDataset
+
+        q = RAGBenchLoader()._convert_item(self._make_item(), "covidqa", "medical", 0)
+        ds = EvalDataset(name="ragbench", version="2.0", questions=[q])
+
+        restored = _dataset_from_dict(_dataset_to_dict(ds))
+
+        rq = restored.questions[0]
+        assert len(rq.gold_passages) == 2
+        assert len(rq.context_passages) == 1
+        assert rq.context_passages[0].doc_id == q.context_passages[0].doc_id
+        assert rq.context_passages[0].relevance_score == 0.0
+
+
+class TestJudgeCalibration:
+    """Unit tests for judge calibration aggregation (judge is stubbed)."""
+
+    def test_rmse(self):
+        from evals.calibration import _rmse
+
+        assert _rmse([]) is None
+        assert _rmse([(1.0, 1.0), (0.0, 0.0)]) == 0.0
+        assert abs(_rmse([(1.0, 0.0)]) - 1.0) < 1e-9
+
+    def test_calibrate_judge_aggregation(self, monkeypatch):
+        import asyncio
+        from evals import calibration
+        from evals.judges.llm_judge import JudgeResult
+
+        class StubJudge:
+            def __init__(self, config=None):
+                from evals.config import JudgeConfig
+                self.config = JudgeConfig(model="stub-model")
+
+            async def evaluate_faithfulness(self, answer, context):
+                return JudgeResult(metric_name="faithfulness", score=0.9)
+
+            async def evaluate_context_relevance(self, question, context):
+                return JudgeResult(metric_name="context_relevance", score=0.5)
+
+        monkeypatch.setattr(calibration, "LLMJudge", StubJudge)
+
+        items = [
+            {
+                "id": "1",
+                "subset": "covidqa",
+                "question": "q?",
+                "response": "a",
+                "documents": ["doc"],
+                "adherence_score": True,
+                "relevance_score": 0.5,
+            },
+            {
+                "id": "2",
+                "subset": "covidqa",
+                "question": "q2?",
+                "response": "a2",
+                "documents": ["doc2"],
+                "adherence_score": False,
+                "relevance_score": 0.0,
+            },
+        ]
+
+        result = asyncio.run(calibration.calibrate_judge(items))
+
+        assert result.sample_count == 2
+        assert result.judge_model == "stub-model"
+        # Judge says faithful (0.9) for both; ground truth True/False → 50% agreement
+        assert result.adherence_accuracy == 0.5
+        # Relevance RMSE: judge 0.5 vs gt 0.5 and 0.0 → sqrt((0 + 0.25)/2)
+        assert abs(result.relevance_rmse - (0.125 ** 0.5)) < 1e-9
+
+
 @pytest.mark.eval
 class TestQasperLoader:
     """Tests for Qasper dataset loader."""

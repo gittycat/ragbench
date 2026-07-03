@@ -56,6 +56,9 @@ class EvalQuestion:
         question: The question text
         expected_answer: The ground truth answer (may be None for unanswerable)
         gold_passages: List of passages that contain the answer
+        context_passages: Non-gold passages that accompany the question (distractors).
+            Ingested alongside gold passages in END_TO_END tier and injected as
+            context in GENERATION tier, but not counted as relevant by retrieval metrics.
         query_type: Type of query (factoid, multi_hop, etc.)
         difficulty: Difficulty level
         domain: Domain/category of the question (e.g., "legal", "technical")
@@ -67,6 +70,7 @@ class EvalQuestion:
     question: str
     expected_answer: str | None
     gold_passages: list[GoldPassage] = field(default_factory=list)
+    context_passages: list[GoldPassage] = field(default_factory=list)
     query_type: QueryType = QueryType.FACTOID
     difficulty: Difficulty = Difficulty.MEDIUM
     domain: str = "general"

@@ -408,7 +408,7 @@ class EvaluationRunner:
         if self.config.tier == EvalTier.END_TO_END:
             doc_id_map = await self._ingest_documents(all_questions_to_run)
             for q in all_questions_to_run:
-                for gp in q.gold_passages:
+                for gp in q.gold_passages + q.context_passages:
                     gp.doc_id = doc_id_map.get(gp.doc_id, gp.doc_id)
 
         # Run queries concurrently and collect responses
@@ -429,8 +429,11 @@ class EvaluationRunner:
                     try:
                         start_time = time.perf_counter()
                         if self.config.tier == EvalTier.GENERATION:
+                            # Inject the full original document set (gold + distractors)
+                            # so generation is evaluated under realistic noisy context
                             raw_response = await self.client.query_with_context(
-                                question.question, question.gold_passages
+                                question.question,
+                                question.gold_passages + question.context_passages,
                             )
                         else:
                             raw_response = await self.client.query(
@@ -515,10 +518,14 @@ class EvaluationRunner:
         return eval_run
 
     async def _ingest_documents(self, questions: list[EvalQuestion]) -> dict[str, str]:
-        """Upload gold passage texts to the RAG server for END_TO_END eval."""
+        """Upload gold + distractor passage texts to the RAG server for END_TO_END eval.
+
+        Distractor (context) passages are ingested too so retrieval metrics are
+        measured against a corpus that contains irrelevant documents.
+        """
         doc_texts: dict[str, list[str]] = {}
         for q in questions:
-            for gp in q.gold_passages:
+            for gp in q.gold_passages + q.context_passages:
                 if gp.doc_id not in doc_texts:
                     doc_texts[gp.doc_id] = []
                 if gp.text not in doc_texts[gp.doc_id]:

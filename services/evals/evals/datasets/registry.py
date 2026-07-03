@@ -68,8 +68,12 @@ def _register_default_loaders() -> None:
 _register_default_loaders()
 
 
+# Bump when the cached dataset schema changes (invalidates old cache files)
+_CACHE_SCHEMA_VERSION = 2
+
+
 def _cache_key(name: str, split: str, max_samples: int | None, seed: int | None) -> str:
-    raw = f"{name}|{split}|{max_samples}|{seed}"
+    raw = f"v{_CACHE_SCHEMA_VERSION}|{name}|{split}|{max_samples}|{seed}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
@@ -100,6 +104,15 @@ def _dataset_to_dict(ds: EvalDataset) -> dict[str, Any]:
                     }
                     for gp in q.gold_passages
                 ],
+                "context_passages": [
+                    {
+                        "doc_id": cp.doc_id,
+                        "chunk_id": cp.chunk_id,
+                        "text": cp.text,
+                        "relevance_score": cp.relevance_score,
+                    }
+                    for cp in q.context_passages
+                ],
             }
             for q in ds.questions
         ],
@@ -118,11 +131,21 @@ def _dataset_from_dict(d: dict[str, Any]) -> EvalDataset:
             )
             for gp in q.get("gold_passages", [])
         ]
+        context_passages = [
+            GoldPassage(
+                doc_id=cp["doc_id"],
+                chunk_id=cp["chunk_id"],
+                text=cp["text"],
+                relevance_score=cp.get("relevance_score", 0.0),
+            )
+            for cp in q.get("context_passages", [])
+        ]
         questions.append(EvalQuestion(
             id=q["id"],
             question=q["question"],
             expected_answer=q.get("expected_answer"),
             gold_passages=gold_passages,
+            context_passages=context_passages,
             query_type=QueryType(q.get("query_type", "factoid")),
             difficulty=Difficulty(q.get("difficulty", "medium")),
             domain=q.get("domain", "general"),

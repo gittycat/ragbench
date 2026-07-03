@@ -1,11 +1,3 @@
-# CLAUDE.md
-
-
-# Global Software Coding Guidelines
-
-## Communication Style
-- Keep responses direct and concise without unnecessary affirmations or agreement phrases. Be blunt.
-- Dont be a sycophant. Avoid phrases like "You're absolutely right" or "I agree" unless I explicitely ask "Suck up to me".
 
 ## Libraries
 - When adding libraries or packages, search online and use the most current released version.
@@ -16,9 +8,6 @@
 - Use **query builders** for most queries, not ORM.
 - Optionally, lightweight mappings (dataclasses / pydantic models) without relying on ORM relationship loading for critical paths.
 - Keep tricky SQL as explicit SQL (views, CTEs, window functions) and call it directly.
-
-### git usage
-- Use short one liners for git commit messages.
 
 
 ## Library and Tool documentation
@@ -42,21 +31,6 @@ For DaisyUI doc, use context7 with id: websites/daisyui
 - Avoid singleton pattern (`_instance = None` + `get_instance()`) - just use functions
 - Classes are appropriate for: stateful objects, resource lifecycle management, framework integration
 
-### Anti-Patterns to Avoid
-```python
-# BAD: Stateless class with singleton
-class FooService:
-    def do_thing(self, x): return x * 2
-
-_service = None
-def get_foo_service():
-    global _service
-    if _service is None: _service = FooService()
-    return _service
-
-# GOOD: Just a function
-def do_thing(x): return x * 2
-```
 
 ### Documentation
 - Skip docstrings on private helpers - use inline comments if non-obvious

@@ -112,6 +112,9 @@ python -m evals.cli export --run-id abc123 --format csv
 
 # Compare runs (with Pareto analysis)
 python -m evals.cli compare run1 run2 --pareto
+
+# Calibrate the LLM judge against RAGBench TRACe ground-truth labels
+python -m evals.cli calibrate --samples 20
 ```
 
 ### Programmatic
@@ -160,7 +163,7 @@ Each dataset targets specific evaluation aspects:
 
 | Dataset | Aspects | Source | Notes |
 |---|---|---|---|
-| `ragbench` | generation, retrieval | HuggingFace: rungalileo/ragbench | Multi-domain (legal, finance, medical, tech) |
+| `ragbench` | generation, retrieval | HuggingFace: galileo-ai/ragbench | Multi-domain with TRACe annotations. Default: curated mix (covidqa, finqa, cuad, techqa). Relevance-annotated docs become gold passages; the rest are ingested as distractors |
 | `qasper` | citation, generation | HuggingFace: allenai/qasper | Long-document evidence grounding. Broken with `datasets>=4.0` |
 | `squad_v2` | abstention | HuggingFace: rajpurkar/SQuAD_v2.0 | ~50% unanswerable questions |
 | `hotpotqa` | retrieval, generation | HuggingFace: hotpot_qa | Multi-hop reasoning |
@@ -173,9 +176,10 @@ Each dataset targets specific evaluation aspects:
 evals/
 ├── __init__.py              Re-exports public API (EvalConfig, run_evaluation, etc.)
 ├── __main__.py              Entry point for `python -m evals`
-├── cli.py                   CLI commands: eval, stats, datasets, export, compare
+├── cli.py                   CLI commands: eval, stats, datasets, export, compare, calibrate
 ├── config.py                EvalConfig, DatasetName enum, model cost table, weights
 ├── runner.py                EvaluationRunner + RAGClient (HTTP client to RAG server)
+├── calibration.py           Judge calibration vs RAGBench TRACe ground-truth labels
 ├── export.py                Export results to JSON/CSV/Markdown for manual review
 │
 ├── schemas/
@@ -198,7 +202,7 @@ evals/
 ├── datasets/
 │   ├── base.py              BaseDatasetLoader ABC
 │   ├── registry.py          Dataset registry (register, get_loader, list_available)
-│   ├── ragbench.py          RAGBench loader (15 subsets across 5 domains)
+│   ├── ragbench.py          RAGBench loader (12 subsets, TRACe-aware gold/distractor split)
 │   ├── qasper.py            Qasper loader
 │   ├── squad_v2.py          SQuAD v2 loader
 │   ├── hotpotqa.py          HotpotQA loader
