@@ -8,6 +8,7 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*validate_default.*")
 
 import asyncio
+import functools
 import logging
 import shutil
 import time
@@ -59,21 +60,19 @@ async def process_document_async(file_path: str, filename: str, batch_id: str, t
         # Get vector index
         index = get_vector_index()
 
-        # Create progress callback for embedding tracking
+        # ingest_document() runs in an executor thread (see below), so this
+        # callback fires from that thread — schedule its async DB updates back
+        # onto the main event loop thread-safely rather than using
+        # asyncio.get_running_loop()/asyncio.run(), neither of which is safe here.
+        main_loop = asyncio.get_running_loop()
+
         def embedding_progress(current: int, total: int):
-            # Run async operations in the current event loop
-            # Note: This is called from sync context (LlamaIndex), so we need asyncio.run
-            try:
-                loop = asyncio.get_running_loop()
-                # We're in an async context, create a task
+            async def _update():
                 if current == 1:
-                    asyncio.create_task(_set_task_total_chunks(task_id, total))
-                asyncio.create_task(_increment_task_chunk_progress(task_id))
-            except RuntimeError:
-                # No running loop - create one (shouldn't happen in async function)
-                if current == 1:
-                    asyncio.run(_set_task_total_chunks(task_id, total))
-                asyncio.run(_increment_task_chunk_progress(task_id))
+                    await _set_task_total_chunks(task_id, total)
+                await _increment_task_chunk_progress(task_id)
+
+            asyncio.run_coroutine_threadsafe(_update(), main_loop)
 
         # Extract file metadata for Document record
         metadata = extract_file_metadata(file_path)
@@ -94,14 +93,23 @@ async def process_document_async(file_path: str, filename: str, batch_id: str, t
             )
         logger.info(f"[TASK {task_id}] Document record prepared successfully")
 
-        # Run ingestion pipeline (creates chunks with document_id foreign key)
+        # Run ingestion pipeline (creates chunks with document_id foreign key).
+        # Offloaded to an executor thread: ingest_document() is synchronous and
+        # would otherwise block the event loop (and every other concurrent
+        # claim loop — see infrastructure/tasks/task_worker.py) for its full
+        # duration. This also lets it safely use asyncio.run() internally for
+        # concurrent contextual-retrieval LLM calls.
         logger.info(f"[TASK {task_id}] Running ingestion pipeline...")
-        result = ingest_document(
-            file_path=file_path,
-            index=index,
-            document_id=doc_id,
-            filename=filename,
-            progress_callback=embedding_progress
+        result = await main_loop.run_in_executor(
+            None,
+            functools.partial(
+                ingest_document,
+                file_path=file_path,
+                index=index,
+                document_id=doc_id,
+                filename=filename,
+                progress_callback=embedding_progress,
+            ),
         )
 
         # Persist chunk text/metadata in PostgreSQL for BM25 and document introspection

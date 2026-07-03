@@ -181,6 +181,7 @@ class RetrievalConfig(BaseModel):
     enable_hybrid_search: bool = True
     rrf_k: int = 60
     enable_contextual_retrieval: bool = True
+    contextual_concurrency: int = 8
 
 
 class ChromaDBConfig(BaseModel):

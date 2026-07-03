@@ -12,6 +12,7 @@ Complete flow for processing documents from upload to indexing:
 from pathlib import Path
 from typing import List, Dict, Any, Callable, Optional
 from datetime import datetime, timezone
+import asyncio
 import time
 import hashlib
 import logging
@@ -282,14 +283,73 @@ def add_contextual_prefix_to_chunk(node: TextNode, document_name: str, document_
         return node
 
 
+async def add_contextual_prefix_to_chunk_async(node: TextNode, document_name: str, document_type: str) -> TextNode:
+    """Async variant of add_contextual_prefix_to_chunk, using llm.acomplete()."""
+    from infrastructure.llm import get_contextual_prefix_prompt
+
+    logger.info(f"[CONTEXTUAL] Generating contextual prefix for chunk via LLM...")
+    start_time = time.time()
+
+    chunk_preview = node.get_content()[:400]
+    prompt = get_contextual_prefix_prompt(document_name, document_type, chunk_preview)
+
+    try:
+        llm = get_llm_client()
+        llm_start = time.time()
+        response = await llm.acomplete(prompt)
+        llm_duration = time.time() - llm_start
+
+        context = response.text.strip()
+
+        # Prepend context to original text
+        enhanced_text = f"{context}\n\n{node.text}"
+        node.text = enhanced_text
+
+        total_duration = time.time() - start_time
+        logger.info(f"[CONTEXTUAL] LLM call completed in {llm_duration:.2f}s (total: {total_duration:.2f}s)")
+        logger.debug(f"[CONTEXTUAL] Added prefix: {context[:80]}...")
+        return node
+
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.warning(f"[CONTEXTUAL] Failed to generate context after {duration:.2f}s: {e}")
+        # Return original node if context generation fails
+        return node
+
+
+async def _add_contextual_retrieval_async(nodes: List[TextNode], file_path: str, concurrency: int) -> List[TextNode]:
+    file_path_obj = Path(file_path)
+    extension = file_path_obj.suffix.lower()
+    total = len(nodes)
+
+    sem = asyncio.Semaphore(concurrency)
+    contextual_start = time.time()
+    completed = 0
+
+    async def _process(node: TextNode) -> TextNode:
+        nonlocal completed
+        async with sem:
+            result = await add_contextual_prefix_to_chunk_async(node, file_path_obj.name, extension)
+            completed += 1
+            if completed % 10 == 0:
+                elapsed = time.time() - contextual_start
+                avg_per_node = elapsed / completed
+                est_remaining = avg_per_node * (total - completed)
+                logger.info(f"[CONTEXTUAL] Progress: {completed}/{total} - Elapsed: {elapsed:.1f}s, Est. remaining: {est_remaining:.1f}s")
+            return result
+
+    # gather preserves input order in the returned list
+    return list(await asyncio.gather(*(_process(node) for node in nodes)))
+
+
 def add_contextual_retrieval(nodes: List[TextNode], file_path: str) -> List[TextNode]:
     """
     Add contextual prefixes to all chunks using LLM (if enabled).
 
-    This is the most time-consuming step (~85% of processing time).
-    Each chunk requires a separate LLM call.
+    Runs LLM calls concurrently (bounded by retrieval.contextual_concurrency) instead
+    of sequentially. This is the most time-consuming step when enabled.
 
-    Returns enhanced nodes with contextual prefixes prepended.
+    Returns enhanced nodes with contextual prefixes prepended, in original order.
     """
     config = get_ingestion_config()
 
@@ -300,25 +360,14 @@ def add_contextual_retrieval(nodes: List[TextNode], file_path: str) -> List[Text
     if not nodes:
         return nodes
 
-    file_path_obj = Path(file_path)
-    extension = file_path_obj.suffix.lower()
+    concurrency = get_models_config().retrieval.contextual_concurrency
 
-    logger.info(f"[CONTEXTUAL] Starting contextual prefix generation for {len(nodes)} chunks")
-    logger.info(f"[CONTEXTUAL] This will make {len(nodes)} LLM calls - estimated time: ~{len(nodes) * 2}s")
+    logger.info(f"[CONTEXTUAL] Starting contextual prefix generation for {len(nodes)} chunks (concurrency={concurrency})")
 
     contextual_start = time.time()
-    enhanced_nodes = []
-
-    for i, node in enumerate(nodes):
-        # Log progress every 10 chunks
-        if i % 10 == 0 and i > 0:
-            elapsed = time.time() - contextual_start
-            avg_per_node = elapsed / i
-            est_remaining = avg_per_node * (len(nodes) - i)
-            logger.info(f"[CONTEXTUAL] Progress: {i}/{len(nodes)} - Elapsed: {elapsed:.1f}s, Est. remaining: {est_remaining:.1f}s")
-
-        enhanced_node = add_contextual_prefix_to_chunk(node, file_path_obj.name, extension)
-        enhanced_nodes.append(enhanced_node)
+    # Safe: this function only runs inside the task-worker's executor thread
+    # (see infrastructure/tasks/worker.py), which has no running event loop.
+    enhanced_nodes = asyncio.run(_add_contextual_retrieval_async(nodes, file_path, concurrency))
 
     contextual_duration = time.time() - contextual_start
     avg_per_node = contextual_duration / len(nodes)
