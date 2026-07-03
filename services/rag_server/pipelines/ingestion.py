@@ -18,9 +18,9 @@ import logging
 
 from llama_index.readers.docling import DoclingReader
 from llama_index.node_parser.docling import DoclingNodeParser
-from llama_index.core import SimpleDirectoryReader
+from llama_index.core import SimpleDirectoryReader, Settings
 from llama_index.core.node_parser import SentenceSplitter
-from llama_index.core.schema import TextNode
+from llama_index.core.schema import TextNode, MetadataMode
 from llama_index.core import VectorStoreIndex
 
 from infrastructure.config.models_config import get_models_config
@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
+
+INGEST_BATCH_SIZE = 32
 
 SUPPORTED_EXTENSIONS = {
     '.txt', '.md', '.pdf', '.docx', '.pptx', '.xlsx',
@@ -370,14 +372,14 @@ def embed_and_index_chunks(
     progress_callback: Optional[Callable[[int, int], None]] = None
 ) -> None:
     """
-    Generate embeddings and index chunks in ChromaDB.
+    Generate embeddings and index chunks in ChromaDB, in batches.
 
     Flow:
-    - For each chunk:
-      - Generate embedding via Ollama (or configured provider)
-      - Insert into ChromaDB vector store
+    - For each batch of INGEST_BATCH_SIZE chunks:
+      - Generate embeddings in a single batched call
+      - Bulk insert into ChromaDB vector store
       - Call progress callback for tracking
-    - Includes retry logic for Ollama connection errors
+    - Includes retry logic for Ollama connection errors, at batch granularity
 
     This is the second most time-consuming step (~15% of processing time).
     """
@@ -390,41 +392,49 @@ def embed_and_index_chunks(
 
     embedding_start = time.time()
     total_nodes = len(nodes)
+    processed = 0
 
-    for i, node in enumerate(nodes, 1):
-        node_start = time.time()
-        logger.info(f"[EMBEDDING] Embedding chunk {i}/{total_nodes}...")
+    for batch_start in range(0, total_nodes, INGEST_BATCH_SIZE):
+        batch = nodes[batch_start:batch_start + INGEST_BATCH_SIZE]
+        batch_num = batch_start // INGEST_BATCH_SIZE + 1
+        batch_start_time = time.time()
+
+        logger.info(f"[EMBEDDING] Embedding batch {batch_num} ({len(batch)} chunks, {batch_start + 1}-{batch_start + len(batch)}/{total_nodes})...")
 
         try:
-            # Retry logic for Ollama connection errors
-            _insert_node_with_retry(index, node, max_retries=3, base_delay=2.0)
+            _process_batch_with_retry(index, batch, max_retries=3, base_delay=2.0)
         except Exception as e:
-            raise Exception(f"Failed to embed chunk {i}/{total_nodes}: {str(e)}") from e
+            raise Exception(f"Failed to embed batch {batch_num} (chunks {batch_start + 1}-{batch_start + len(batch)}/{total_nodes}): {str(e)}") from e
 
-        node_duration = time.time() - node_start
+        processed += len(batch)
+        batch_duration = time.time() - batch_start_time
         elapsed = time.time() - embedding_start
-        avg_per_node = elapsed / i
-        est_remaining = avg_per_node * (total_nodes - i)
+        avg_per_node = elapsed / processed
+        est_remaining = avg_per_node * (total_nodes - processed)
 
-        logger.info(f"[EMBEDDING] Chunk {i}/{total_nodes} embedded ({node_duration:.2f}s) - Elapsed: {elapsed:.1f}s, Est. remaining: {est_remaining:.1f}s")
+        logger.info(f"[EMBEDDING] Batch {batch_num} embedded ({batch_duration:.2f}s) - Elapsed: {elapsed:.1f}s, Est. remaining: {est_remaining:.1f}s")
 
         if progress_callback:
-            progress_callback(i, total_nodes)
+            progress_callback(processed, total_nodes)
 
     total_duration = time.time() - embedding_start
     avg_per_node = total_duration / len(nodes)
     logger.info(f"[EMBEDDING] Embedding complete ({total_duration:.2f}s, avg: {avg_per_node:.2f}s per chunk)")
 
 
-def _insert_node_with_retry(index: VectorStoreIndex, node: TextNode, max_retries: int = 3, base_delay: float = 2.0):
+def _process_batch_with_retry(index: VectorStoreIndex, batch: List[TextNode], max_retries: int = 3, base_delay: float = 2.0):
     """
-    Insert a node with exponential backoff retry for Ollama connection errors.
+    Embed and insert a batch of nodes with exponential backoff retry for connection errors.
     """
     last_error = None
 
     for attempt in range(max_retries):
         try:
-            index.insert_nodes([node])
+            texts = [node.get_content(metadata_mode=MetadataMode.EMBED) for node in batch]
+            embeddings = Settings.embed_model.get_text_embedding_batch(texts)
+            for node, embedding in zip(batch, embeddings):
+                node.embedding = embedding
+            index.insert_nodes(batch)
             return  # Success
         except Exception as e:
             last_error = e
@@ -445,7 +455,7 @@ def _insert_node_with_retry(index: VectorStoreIndex, node: TextNode, max_retries
                 raise
 
     # All retries failed
-    raise Exception(f"Failed to embed node after {max_retries} attempts. Last error: {str(last_error)}") from last_error
+    raise Exception(f"Failed to embed batch after {max_retries} attempts. Last error: {str(last_error)}") from last_error
 
 
 # ============================================================================
