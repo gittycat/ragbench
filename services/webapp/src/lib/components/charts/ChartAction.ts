@@ -1,6 +1,7 @@
 /**
- * Svelte action for Chart.js integration
- * Follows the same pattern as Sparkline.svelte but for full Chart.js charts
+ * Svelte action for Chart.js integration + theme-derived chart colors.
+ * Colors are resolved from DaisyUI CSS variables at config-build time; config
+ * builders read themeSignal() (theme.svelte.ts) so charts rebuild on theme change.
  */
 import {
 	Chart,
@@ -8,19 +9,27 @@ import {
 	LinearScale,
 	BarElement,
 	BarController,
+	LineElement,
+	LineController,
+	PointElement,
 	Title,
 	Tooltip,
 	Legend,
-	type ChartConfiguration
+	type ChartConfiguration,
+	type ScaleOptionsByType,
+	type TooltipOptions
 } from 'chart.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
 
-// Register Chart.js components
+// Register Chart.js components (bar + line charts)
 Chart.register(
 	CategoryScale,
 	LinearScale,
 	BarElement,
 	BarController,
+	LineElement,
+	LineController,
+	PointElement,
 	Title,
 	Tooltip,
 	Legend,
@@ -33,12 +42,12 @@ Chart.register(
  */
 export function chartAction(
 	canvas: HTMLCanvasElement,
-	config: ChartConfiguration<'bar'>
-): { update: (newConfig: ChartConfiguration<'bar'>) => void; destroy: () => void } {
+	config: ChartConfiguration
+): { update: (newConfig: ChartConfiguration) => void; destroy: () => void } {
 	let chart = new Chart(canvas, config);
 
 	return {
-		update(newConfig: ChartConfiguration<'bar'>) {
+		update(newConfig: ChartConfiguration) {
 			// Update data and options without recreating the chart
 			if (newConfig.data) {
 				chart.data = newConfig.data;
@@ -54,45 +63,84 @@ export function chartAction(
 	};
 }
 
-/**
- * Generate a color palette for chart datasets
- * Uses DaisyUI-compatible colors with varying opacity
- */
-export function getChartColors(count: number): { background: string[]; border: string[] } {
-	// Color palette that works well in both light and dark themes
-	const baseColors = [
-		'59, 130, 246', // Blue
-		'34, 197, 94', // Green
-		'249, 115, 22', // Orange
-		'168, 85, 247', // Purple
-		'236, 72, 153', // Pink
-		'14, 165, 233', // Sky
-		'245, 158, 11', // Amber
-		'99, 102, 241' // Indigo
-	];
+export const CHART_FONT_FAMILY =
+	'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace';
 
-	const background: string[] = [];
-	const border: string[] = [];
+// 1x1 scratch canvas: lets the browser parse any CSS color (DaisyUI vars are
+// oklch) and hands back concrete RGB we can attach an alpha to.
+let scratch: CanvasRenderingContext2D | null = null;
 
-	for (let i = 0; i < count; i++) {
-		const color = baseColors[i % baseColors.length];
-		background.push(`rgba(${color}, 0.6)`);
-		border.push(`rgba(${color}, 1)`);
-	}
+/** Resolve a DaisyUI color token (e.g. 'primary', 'base-content') to an rgba() string. */
+export function themeColor(token: string, alpha = 1): string {
+	if (typeof document === 'undefined') return `rgba(128, 128, 128, ${alpha})`;
+	const css = getComputedStyle(document.documentElement)
+		.getPropertyValue(`--color-${token}`)
+		.trim();
+	if (!css) return `rgba(128, 128, 128, ${alpha})`;
+	scratch ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+	if (!scratch) return css;
+	scratch.clearRect(0, 0, 1, 1);
+	scratch.fillStyle = css;
+	scratch.fillRect(0, 0, 1, 1);
+	const [r, g, b] = scratch.getImageData(0, 0, 1, 1).data;
+	return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
-	return { background, border };
+/** Recessive ink/grid colors for chart scaffolding, derived from the active theme. */
+export function chartInk() {
+	return {
+		ink: themeColor('base-content', 0.7),
+		inkMuted: themeColor('base-content', 0.45),
+		grid: themeColor('base-content', 0.08)
+	};
 }
 
 /**
- * Format a run label from model name and timestamp
- * Example: "gemma3:4b" + "2024-01-15T14:30:00Z" → "gemma3 14:30"
+ * Series colors for up to `count` datasets: an ordered lightness ramp of the
+ * theme's primary hue (fill alpha steps). Single-hue + big lightness steps keeps
+ * run identity legible under CVD and works in both nord/dim without a fixed palette.
  */
-export function formatRunLabel(model: string | undefined, timestamp: string): string {
-	const modelName = model?.split(':')[0] || 'Unknown';
-	const time = new Date(timestamp).toLocaleTimeString('en-US', {
-		hour: '2-digit',
-		minute: '2-digit',
-		hour12: false
-	});
-	return `${modelName} ${time}`;
+export function getChartColors(count: number): { background: string[]; border: string[] } {
+	const fillAlphas = [0.9, 0.62, 0.4, 0.22];
+	const background: string[] = [];
+	const border: string[] = [];
+	for (let i = 0; i < count; i++) {
+		const a = fillAlphas[i % fillAlphas.length];
+		background.push(themeColor('primary', a));
+		border.push(themeColor('primary', Math.min(1, a + 0.1)));
+	}
+	return { background, border };
+}
+
+/** Dense monospace scale options (recessive grid, muted ticks) for a linear/category axis. */
+export function denseScale(
+	overrides: Record<string, unknown> = {}
+): Partial<ScaleOptionsByType<'linear'>> {
+	const { inkMuted, grid } = chartInk();
+	return {
+		grid: { color: grid },
+		border: { color: grid },
+		ticks: {
+			color: inkMuted,
+			font: { family: CHART_FONT_FAMILY, size: 10 }
+		},
+		...overrides
+	} as Partial<ScaleOptionsByType<'linear'>>;
+}
+
+/** Theme-surface tooltip styling (Chart.js default is a hardcoded dark box). */
+export function denseTooltip(): Partial<TooltipOptions> {
+	const { ink, grid } = chartInk();
+	return {
+		backgroundColor: themeColor('base-100', 0.95),
+		titleColor: ink,
+		bodyColor: ink,
+		borderColor: grid,
+		borderWidth: 1,
+		titleFont: { family: CHART_FONT_FAMILY, size: 10 },
+		bodyFont: { family: CHART_FONT_FAMILY, size: 10 },
+		padding: 6,
+		cornerRadius: 2,
+		displayColors: false
+	} as Partial<TooltipOptions>;
 }

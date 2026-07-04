@@ -2,37 +2,34 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
-	import {
-		fetchSystemMetrics,
-		fetchEvaluationSummary,
-		type SystemMetrics,
-		type EvaluationSummary
-	} from '$lib/api';
+	import { fetchSystemMetrics, type SystemMetrics } from '$lib/api';
+	import { fetchEvalDashboard, fetchActiveEvalJob, type EvalDashboardResponse, type ActiveEvalJob } from '$lib/api/evals';
 	import AnalyticsTabs from '$lib/components/analytics/AnalyticsTabs.svelte';
+	import ScorecardTab from '$lib/components/analytics/ScorecardTab.svelte';
+	import TrendsTab from '$lib/components/analytics/TrendsTab.svelte';
 	import ComparisonTab from '$lib/components/analytics/ComparisonTab.svelte';
-	import HistoryTab from '$lib/components/analytics/HistoryTab.svelte';
-	import ConfigTab from '$lib/components/analytics/ConfigTab.svelte';
 	import SystemHealthTab from '$lib/components/analytics/SystemHealthTab.svelte';
 
 	let metrics = $state<SystemMetrics | null>(null);
-	let evalSummary = $state<EvaluationSummary | null>(null);
+	let evalDashboard = $state<EvalDashboardResponse | null>(null);
+	let activeJob = $state<ActiveEvalJob | null>(null);
 	let isLoading = $state(true);
 	let error = $state<string | null>(null);
 	let autoRefresh = $state(true);
 	let refreshInterval: number | null = null;
+	let activeJobInterval: number | null = null;
 
-	// Tab state - read from URL or default to 'comparison'
-	let activeTab = $state<string>('comparison');
+	// Tab state - read from URL or default to 'scorecard'
+	let activeTab = $state<string>('scorecard');
 
 	const tabs = [
-		{ id: 'comparison', label: 'Comparison', icon: 'chart' },
-		{ id: 'history', label: 'History', icon: 'history' },
-		{ id: 'config', label: 'Config', icon: 'config' },
-		{ id: 'health', label: 'System Health', icon: 'health' }
+		{ id: 'scorecard', label: 'Scorecard', icon: 'scorecard' },
+		{ id: 'trends', label: 'Trends', icon: 'trends' },
+		{ id: 'compare', label: 'Compare', icon: 'compare' },
+		{ id: 'system', label: 'System', icon: 'system' }
 	];
 
 	onMount(() => {
-		// Read tab from URL
 		const urlTab = $page.url.searchParams.get('tab');
 		if (urlTab && tabs.some((t) => t.id === urlTab)) {
 			activeTab = urlTab;
@@ -40,12 +37,15 @@
 
 		loadAll();
 		startAutoRefresh();
-		return () => stopAutoRefresh();
+		startActiveJobPolling();
+		return () => {
+			stopAutoRefresh();
+			stopActiveJobPolling();
+		};
 	});
 
 	function handleTabChange(tabId: string) {
 		activeTab = tabId;
-		// Update URL without navigation
 		const url = new URL(window.location.href);
 		url.searchParams.set('tab', tabId);
 		goto(url.pathname + url.search, { replaceState: true, keepFocus: true });
@@ -73,16 +73,39 @@
 		}
 	}
 
+	function startActiveJobPolling() {
+		if (!activeJobInterval) {
+			activeJobInterval = window.setInterval(pollActiveJob, 5000);
+		}
+	}
+
+	function stopActiveJobPolling() {
+		if (activeJobInterval) {
+			clearInterval(activeJobInterval);
+			activeJobInterval = null;
+		}
+	}
+
+	async function pollActiveJob() {
+		try {
+			activeJob = await fetchActiveEvalJob();
+		} catch {
+			// Ignore transient polling errors
+		}
+	}
+
 	async function loadAll() {
 		if (!autoRefresh && !isLoading) isLoading = true;
 		error = null;
 		try {
-			const [m, e] = await Promise.all([
+			const [m, e, a] = await Promise.all([
 				fetchSystemMetrics(),
-				fetchEvaluationSummary().catch(() => null)
+				fetchEvalDashboard().catch(() => null),
+				fetchActiveEvalJob().catch(() => null)
 			]);
 			metrics = m;
-			evalSummary = e;
+			evalDashboard = e;
+			activeJob = a;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load data';
 		} finally {
@@ -119,8 +142,8 @@
 {:else if metrics}
 	<div class="flex flex-col gap-3">
 		<!-- Header Bar -->
-		<div class="bg-base-200 rounded px-3 py-2 flex items-center justify-between text-xs">
-			<div class="flex items-center gap-3">
+		<div class="bg-base-200 border border-base-content/10 rounded-sm px-3 py-2 flex items-center justify-between text-xs font-mono tabular-nums flex-wrap gap-y-1">
+			<div class="flex items-center gap-3 flex-wrap">
 				<span class="font-bold text-sm">{metrics.system_name}</span>
 				<span class="text-base-content/50">v{metrics.version}</span>
 				<div class="divider divider-horizontal mx-0 h-4"></div>
@@ -135,10 +158,34 @@
 				<div class="divider divider-horizontal mx-0 h-4"></div>
 				<span><strong>{metrics.document_count}</strong> docs</span>
 				<span><strong>{metrics.chunk_count.toLocaleString()}</strong> chunks</span>
+				{#if evalDashboard?.latest_run}
+					<div class="divider divider-horizontal mx-0 h-4"></div>
+					<span class="badge badge-ghost badge-sm">{evalDashboard.latest_run.name}</span>
+					<span class="badge badge-ghost badge-sm">{evalDashboard.latest_run.tier}</span>
+					{#each evalDashboard.latest_run.datasets as ds}
+						<span class="badge badge-ghost badge-sm">{ds}</span>
+					{/each}
+					{#if evalDashboard.latest_run.error_count > 0}
+						<span class="badge badge-error badge-sm">{evalDashboard.latest_run.error_count} errors</span>
+					{/if}
+				{/if}
+				{#if activeJob}
+					<div class="divider divider-horizontal mx-0 h-4"></div>
+					<span class="flex items-center gap-1.5">
+						<span class="loading loading-spinner loading-xs text-warning"></span>
+						<span class="text-warning">
+							{activeJob.progress.phase}
+							{#if activeJob.progress.total_questions > 0}
+								({activeJob.progress.current_question}/{activeJob.progress.total_questions})
+							{/if}
+							— {activeJob.progress.elapsed_seconds.toFixed(0)}s
+						</span>
+					</span>
+				{/if}
 			</div>
 			<div class="flex items-center gap-1">
 				<span class="text-base-content/50"
-					>{new Date(metrics.timestamp).toLocaleTimeString()}</span
+					>{new Date().toLocaleTimeString()}</span
 				>
 				<button
 					class="btn btn-ghost btn-xs"
@@ -204,11 +251,11 @@
 		<!-- Services Status (compact) -->
 		{#if Object.keys(metrics.component_status).length > 0}
 			<div class="flex items-center gap-2 px-1">
-				<span class="text-xs text-base-content/50">Services:</span>
+				<span class="term-label">Services:</span>
 				{#each Object.entries(metrics.component_status) as [name, status]}
 					<div class="tooltip tooltip-bottom" data-tip="{name}: {status}">
 						<span
-							class="flex items-center gap-1 text-xs bg-base-200 rounded px-1.5 py-0.5"
+							class="flex items-center gap-1 text-xs font-mono bg-base-200 border border-base-content/10 rounded-sm px-1.5 py-0.5"
 						>
 							<span
 								class="h-1.5 w-1.5 rounded-full {status === 'healthy' ||
@@ -225,13 +272,13 @@
 
 		<!-- Tabbed Content -->
 		<AnalyticsTabs {activeTab} onTabChange={handleTabChange} {tabs}>
-			{#if activeTab === 'comparison'}
-				<ComparisonTab {evalSummary} onRefresh={loadAll} />
-			{:else if activeTab === 'history'}
-				<HistoryTab />
-			{:else if activeTab === 'config'}
-				<ConfigTab />
-			{:else if activeTab === 'health'}
+			{#if activeTab === 'scorecard'}
+				<ScorecardTab />
+			{:else if activeTab === 'trends'}
+				<TrendsTab />
+			{:else if activeTab === 'compare'}
+				<ComparisonTab onRefresh={loadAll} />
+			{:else if activeTab === 'system'}
 				<SystemHealthTab {metrics} />
 			{/if}
 		</AnalyticsTabs>

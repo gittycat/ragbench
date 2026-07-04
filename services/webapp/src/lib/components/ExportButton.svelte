@@ -1,14 +1,14 @@
 <script lang="ts">
-	import type { EvaluationRun, GoldenBaseline } from '$lib/api';
+	import type { EvalRunSummary, EvalCompareResponse } from '$lib/api/evals';
 	import { exportToCSV, exportToJSON } from '$lib/utils/export';
 
 	interface Props {
-		runs: EvaluationRun[];
-		baseline: GoldenBaseline | null;
+		runs: EvalRunSummary[];
+		compare?: EvalCompareResponse;
 		disabled?: boolean;
 	}
 
-	let { runs, baseline, disabled = false }: Props = $props();
+	let { runs, compare, disabled = false }: Props = $props();
 
 	let isOpen = $state(false);
 
@@ -20,7 +20,7 @@
 		} else {
 			exportToJSON({
 				runs,
-				baseline,
+				compare,
 				exportedAt: new Date().toISOString()
 			});
 		}

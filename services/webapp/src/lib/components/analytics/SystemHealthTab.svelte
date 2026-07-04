@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { SystemMetrics } from '$lib/api';
-	import RecommendationPanel from '$lib/components/RecommendationPanel.svelte';
 
 	interface Props {
 		metrics: SystemMetrics | null;
@@ -29,13 +28,13 @@
 {:else}
 	<div class="flex flex-col gap-3">
 		<!-- Component Status -->
-		<div class="bg-base-200 rounded p-2">
-			<div class="text-xs font-semibold mb-2 text-base-content/70">
+		<div class="term-panel">
+			<div class="term-label mb-2">
 				Component Status
 			</div>
 			<div class="flex flex-wrap gap-2">
 				{#each Object.entries(metrics.component_status) as [component, status]}
-					<div class="flex items-center gap-1.5 bg-base-100 rounded px-2 py-1">
+					<div class="flex items-center gap-1.5 bg-base-100 border border-base-content/10 rounded-sm px-2 py-1">
 						<span class="h-2 w-2 rounded-full {getStatusBadge(status).replace('badge-', 'bg-')}"></span>
 						<span class="text-xs capitalize">{component}</span>
 						<span class="badge badge-xs {getStatusBadge(status)}">{status}</span>
@@ -45,12 +44,12 @@
 		</div>
 
 		<!-- Models Table -->
-		<div class="bg-base-200 rounded p-2">
-			<div class="text-xs font-semibold mb-2 text-base-content/70">
+		<div class="term-panel">
+			<div class="term-label mb-2">
 				Models Configuration
 			</div>
 			<div class="overflow-x-auto">
-				<table class="table table-xs">
+				<table class="table table-xs term-table">
 					<thead>
 						<tr>
 							<th>Type</th>
@@ -128,8 +127,8 @@
 		</div>
 
 		<!-- Retrieval Pipeline -->
-		<div class="bg-base-200 rounded p-2">
-			<div class="text-xs font-semibold mb-2 text-base-content/70">
+		<div class="term-panel">
+			<div class="term-label mb-2">
 				Retrieval Pipeline
 			</div>
 			<div class="flex items-center gap-1 flex-wrap text-xs">
@@ -169,31 +168,28 @@
 		</div>
 
 		<!-- Document Stats -->
-		<div class="bg-base-200 rounded p-2">
-			<div class="text-xs font-semibold mb-2 text-base-content/70">
+		<div class="term-panel">
+			<div class="term-label mb-2">
 				Index Statistics
 			</div>
 			<div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
-				<div class="bg-base-100 rounded p-2">
-					<div class="text-2xl font-bold">{metrics.document_count}</div>
-					<div class="text-xs text-base-content/50">Documents</div>
+				<div class="term-tile">
+					<div class="text-2xl font-semibold font-mono tabular-nums">{metrics.document_count}</div>
+					<div class="term-label">Documents</div>
 				</div>
-				<div class="bg-base-100 rounded p-2">
-					<div class="text-2xl font-bold">{metrics.chunk_count}</div>
-					<div class="text-xs text-base-content/50">Chunks</div>
+				<div class="term-tile">
+					<div class="text-2xl font-semibold font-mono tabular-nums">{metrics.chunk_count}</div>
+					<div class="term-label">Chunks</div>
 				</div>
-				<div class="bg-base-100 rounded p-2">
-					<div class="text-2xl font-bold">{metrics.retrieval.retrieval_top_k}</div>
-					<div class="text-xs text-base-content/50">Top-K Retrieved</div>
+				<div class="term-tile">
+					<div class="text-2xl font-semibold font-mono tabular-nums">{metrics.retrieval.retrieval_top_k}</div>
+					<div class="term-label">Top-K Retrieved</div>
 				</div>
-				<div class="bg-base-100 rounded p-2">
-					<div class="text-2xl font-bold">{metrics.retrieval.final_top_n}</div>
-					<div class="text-xs text-base-content/50">Final Top-N</div>
+				<div class="term-tile">
+					<div class="text-2xl font-semibold font-mono tabular-nums">{metrics.retrieval.final_top_n}</div>
+					<div class="term-label">Final Top-N</div>
 				</div>
 			</div>
 		</div>
-
-		<!-- Recommendation Panel -->
-		<RecommendationPanel />
 	</div>
 {/if}

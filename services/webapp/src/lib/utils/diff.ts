@@ -1,7 +1,7 @@
 /**
- * Configuration diff utilities for comparing ConfigSnapshot objects
+ * Configuration diff utilities for comparing eval run configs
  */
-import type { ConfigSnapshot } from '$lib/api';
+import type { EvalRunConfig } from '$lib/api/evals';
 
 export interface DiffLine {
 	key: string;
@@ -10,13 +10,23 @@ export interface DiffLine {
 	type: 'same' | 'added' | 'removed' | 'changed';
 }
 
+const CONFIG_KEYS: (keyof EvalRunConfig)[] = [
+	'llm_provider',
+	'llm_model',
+	'embedding_model',
+	'reranker_model',
+	'retrieval_top_k',
+	'hybrid_search_enabled',
+	'contextual_retrieval_enabled'
+];
+
 /**
- * Compare two ConfigSnapshot objects and return diff lines
+ * Compare two eval run configs and return diff lines
  * Produces a git-style diff with additions, removals, and changes
  */
 export function diffConfigs(
-	configA: ConfigSnapshot | null | undefined,
-	configB: ConfigSnapshot | null | undefined
+	configA: EvalRunConfig | null | undefined,
+	configB: EvalRunConfig | null | undefined
 ): DiffLine[] {
 	if (!configA && !configB) return [];
 	if (!configA) return objectToDiff(configB!, 'added');
@@ -24,28 +34,11 @@ export function diffConfigs(
 
 	const results: DiffLine[] = [];
 
-	// Define the keys to compare in order
-	const configKeys: (keyof ConfigSnapshot)[] = [
-		'llm_provider',
-		'llm_model',
-		'llm_base_url',
-		'embedding_provider',
-		'embedding_model',
-		'retrieval_top_k',
-		'hybrid_search_enabled',
-		'rrf_k',
-		'contextual_retrieval_enabled',
-		'reranker_enabled',
-		'reranker_model',
-		'reranker_top_n'
-	];
-
-	for (const key of configKeys) {
+	for (const key of CONFIG_KEYS) {
 		const aVal = formatValue(configA[key]);
 		const bVal = formatValue(configB[key]);
 
 		if (aVal === '' && bVal === '') {
-			// Both undefined, skip
 			continue;
 		} else if (aVal === '') {
 			results.push({ key: formatKey(key), value: bVal, type: 'added' });
@@ -64,24 +57,9 @@ export function diffConfigs(
 /**
  * Convert a single config to diff lines (all added or all removed)
  */
-function objectToDiff(config: ConfigSnapshot, type: 'added' | 'removed'): DiffLine[] {
-	const configKeys: (keyof ConfigSnapshot)[] = [
-		'llm_provider',
-		'llm_model',
-		'llm_base_url',
-		'embedding_provider',
-		'embedding_model',
-		'retrieval_top_k',
-		'hybrid_search_enabled',
-		'rrf_k',
-		'contextual_retrieval_enabled',
-		'reranker_enabled',
-		'reranker_model',
-		'reranker_top_n'
-	];
-
+function objectToDiff(config: EvalRunConfig, type: 'added' | 'removed'): DiffLine[] {
 	const results: DiffLine[] = [];
-	for (const key of configKeys) {
+	for (const key of CONFIG_KEYS) {
 		const value = formatValue(config[key]);
 		if (value !== '') {
 			results.push({ key: formatKey(key), value, type });
@@ -97,8 +75,7 @@ function formatKey(key: string): string {
 	return key
 		.replace(/_/g, ' ')
 		.replace(/\b\w/g, (c) => c.toUpperCase())
-		.replace(/Llm/g, 'LLM')
-		.replace(/Rrf/g, 'RRF');
+		.replace(/Llm/g, 'LLM');
 }
 
 /**

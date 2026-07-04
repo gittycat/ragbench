@@ -1,69 +1,67 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { EvaluationRun, GoldenBaseline, EvaluationSummary } from '$lib/api';
-	import { fetchEvaluationHistory, fetchGoldenBaseline, setGoldenBaseline, clearGoldenBaseline } from '$lib/api';
+	import { fetchEvalRuns, compareEvalRuns, type EvalRunSummary, type EvalCompareResponse } from '$lib/api/evals';
 	import MetricsBarChart from '$lib/components/charts/MetricsBarChart.svelte';
 	import RunSelector from '$lib/components/RunSelector.svelte';
 	import ExportButton from '$lib/components/ExportButton.svelte';
-	import BaselineIndicator from '$lib/components/BaselineIndicator.svelte';
+	import ConfigDiff from '$lib/components/ConfigDiff.svelte';
+	import MetricValue from './MetricValue.svelte';
+	import { deltaColorClass } from '$lib/utils/thresholds';
 
 	interface Props {
-		evalSummary: EvaluationSummary | null;
 		onRefresh?: () => void;
 	}
 
-	let { evalSummary, onRefresh }: Props = $props();
+	let { onRefresh }: Props = $props();
 
-	let runs = $state<EvaluationRun[]>([]);
-	let baseline = $state<GoldenBaseline | null>(null);
+	let runs = $state<EvalRunSummary[]>([]);
 	let selectedRunIds = $state<string[]>([]);
+	let compareResult = $state<EvalCompareResponse | null>(null);
 	let isLoading = $state(true);
+	let isComparing = $state(false);
 	let error = $state<string | null>(null);
-	let previousRunIds = $state<Set<string>>(new Set());
-	let autoAppend = $state(true);
 
-	// Selected runs for chart
-	let selectedRuns = $derived(
-		runs.filter((r) => selectedRunIds.includes(r.run_id))
-	);
+	let selectedSummaries = $derived(runs.filter((r) => selectedRunIds.includes(r.id)));
 
-	// Latest run for baseline indicator
-	let latestRun = $derived(runs.length > 0 ? runs[0] : null);
-
-	onMount(() => {
-		loadData();
-	});
-
-	async function loadData() {
-		isLoading = true;
-		error = null;
-
-		try {
-			const [runsData, baselineData] = await Promise.all([
-				fetchEvaluationHistory(20),
-				fetchGoldenBaseline().catch(() => null)
-			]);
-
-			// Detect new runs for auto-append
-			const currentIds = new Set(runsData.map((r) => r.run_id));
-			if (autoAppend && previousRunIds.size > 0) {
-				const newRuns = runsData.filter((r) => !previousRunIds.has(r.run_id));
-				if (newRuns.length > 0) {
-					// Add new runs to selection (respecting max limit of 8)
-					const newIds = newRuns.map((r) => r.run_id);
-					selectedRunIds = [...newIds, ...selectedRunIds].slice(0, 8);
+	let allGroupedMetrics = $derived.by(() => {
+		if (!compareResult) return [];
+		const names = new Set<string>();
+		const groupOf: Record<string, string> = {};
+		for (const run of compareResult.runs) {
+			for (const [group, metricNames] of Object.entries(run.scorecard?.by_group ?? {})) {
+				if (group === 'performance') continue;
+				for (const n of metricNames) {
+					names.add(n);
+					groupOf[n] = group;
 				}
 			}
-			previousRunIds = currentIds;
+		}
+		return Array.from(names)
+			.sort((a, b) => (groupOf[a] || '').localeCompare(groupOf[b] || '') || a.localeCompare(b))
+			.map((name) => ({ name, group: groupOf[name] }));
+	});
 
-			runs = runsData;
-			baseline = baselineData;
+	function metricValue(runId: string, metric: string): number | null {
+		const run = compareResult?.runs.find((r) => r.id === runId);
+		const m = run?.scorecard?.metrics.find((mm) => mm.name === metric);
+		return m?.value ?? null;
+	}
 
-			// Auto-select first 2 runs if nothing selected
+	onMount(() => {
+		loadRuns();
+	});
+
+	async function loadRuns() {
+		isLoading = true;
+		error = null;
+		try {
+			const res = await fetchEvalRuns(50);
+			runs = res.runs;
 			if (selectedRunIds.length === 0 && runs.length >= 2) {
-				selectedRunIds = runs.slice(0, 2).map((r) => r.run_id);
-			} else if (selectedRunIds.length === 0 && runs.length === 1) {
-				selectedRunIds = [runs[0].run_id];
+				selectedRunIds = runs.slice(0, 2).map((r) => r.id);
+			}
+			if (selectedRunIds.length >= 2) {
+				await loadComparison();
 			}
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load data';
@@ -72,18 +70,28 @@
 		}
 	}
 
-	async function handleBaselineChange() {
-		// Reload baseline after change
+	async function loadComparison() {
+		if (selectedRunIds.length < 2) {
+			compareResult = null;
+			return;
+		}
+		isComparing = true;
 		try {
-			baseline = await fetchGoldenBaseline().catch(() => null);
-			if (onRefresh) onRefresh();
-		} catch {
-			// Ignore errors
+			compareResult = await compareEvalRuns(selectedRunIds);
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to compare runs';
+		} finally {
+			isComparing = false;
 		}
 	}
 
 	function handleSelectionChange(ids: string[]) {
 		selectedRunIds = ids;
+		loadComparison();
+	}
+
+	function formatMetricName(metric: string): string {
+		return metric.replace(/_/g, ' ');
 	}
 </script>
 
@@ -95,23 +103,18 @@
 	{:else if error}
 		<div class="alert alert-error">
 			<span>{error}</span>
-			<button class="btn btn-sm" onclick={loadData}>Retry</button>
+			<button class="btn btn-sm" onclick={loadRuns}>Retry</button>
+		</div>
+	{:else if runs.length === 0}
+		<div class="text-center py-8 text-base-content/50">
+			No evaluation runs found. Run an evaluation to compare configurations.
 		</div>
 	{:else}
 		<!-- Controls Row -->
 		<div class="flex items-center gap-3 flex-wrap">
-			<div class="flex-1 min-w-0">
-				<label class="flex items-center gap-2 text-xs text-base-content/70">
-					<input
-						type="checkbox"
-						class="checkbox checkbox-xs"
-						bind:checked={autoAppend}
-					/>
-					Auto-append new runs
-				</label>
-			</div>
-			<ExportButton {runs} {baseline} disabled={selectedRuns.length === 0} />
-			<button class="btn btn-sm btn-ghost" onclick={loadData}>
+			<div class="flex-1 min-w-0"></div>
+			<ExportButton runs={selectedSummaries} compare={compareResult ?? undefined} disabled={selectedSummaries.length === 0} />
+			<button class="btn btn-sm btn-ghost" onclick={loadRuns}>
 				<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
 				</svg>
@@ -121,37 +124,145 @@
 
 		<!-- Main Content Grid -->
 		<div class="grid grid-cols-1 lg:grid-cols-4 gap-3">
-			<!-- Run Selector (Left Column) -->
 			<div class="lg:col-span-1">
-				<RunSelector
-					{runs}
-					selected={selectedRunIds}
-					onSelectionChange={handleSelectionChange}
-					maxSelection={8}
-				/>
+				<RunSelector runs={runs} selected={selectedRunIds} onSelectionChange={handleSelectionChange} maxSelection={4} />
 			</div>
 
-			<!-- Chart (Right Column) -->
 			<div class="lg:col-span-3">
-				<div class="bg-base-200 rounded p-3">
-					<div class="text-xs font-semibold mb-2 text-base-content/70">
+				<div class="term-panel p-3">
+					<div class="term-label mb-2">
 						Metrics Comparison
-						{#if baseline}
-							<span class="badge badge-xs badge-warning ml-2">Baseline shown</span>
-						{/if}
 					</div>
-					<MetricsBarChart runs={selectedRuns} {baseline} height={320} />
+					<MetricsBarChart runs={selectedSummaries} height={300} />
 				</div>
 			</div>
 		</div>
 
-		<!-- Baseline Indicator -->
-		{#if latestRun}
-			<BaselineIndicator
-				currentRun={latestRun}
-				{baseline}
-				onBaselineChange={handleBaselineChange}
-			/>
+		{#if isComparing}
+			<div class="flex items-center justify-center h-32">
+				<span class="loading loading-spinner loading-md"></span>
+			</div>
+		{:else if compareResult}
+			<!-- Dense comparison table -->
+			<div class="term-panel overflow-x-auto">
+				<div class="term-label mb-2">
+					Metric Comparison
+				</div>
+				<table class="table table-xs term-table">
+					<thead>
+						<tr>
+							<th>Metric</th>
+							{#each compareResult.runs as run}
+								<th class="text-right font-mono">{run.name}</th>
+							{/each}
+							{#if compareResult.runs.length === 2}
+								<th class="text-right">Δ</th>
+							{/if}
+						</tr>
+					</thead>
+					<tbody>
+						<tr class="font-semibold">
+							<td>weighted_score</td>
+							{#each compareResult.runs as run}
+								<td class="text-right">
+									<MetricValue metricName="weighted_score" value={run.weighted_score?.score ?? null} />
+								</td>
+							{/each}
+							{#if compareResult.runs.length === 2}
+								<td class="text-right term-num {deltaColorClass('weighted_score', compareResult.deltas['weighted_score'])}">
+									{compareResult.deltas['weighted_score'] !== undefined && compareResult.deltas['weighted_score'] !== null
+										? (compareResult.deltas['weighted_score'] * 100).toFixed(1) + '%'
+										: '—'}
+								</td>
+							{/if}
+						</tr>
+						{#each allGroupedMetrics as { name, group }}
+							<tr class="hover">
+								<td class="capitalize" title={group}>{formatMetricName(name)}</td>
+								{#each compareResult.runs as run}
+									<td class="text-right">
+										<MetricValue metricName={name} value={metricValue(run.id, name)} />
+									</td>
+								{/each}
+								{#if compareResult.runs.length === 2}
+									<td class="text-right term-num {deltaColorClass(name, compareResult.deltas[name])}">
+										{compareResult.deltas[name] !== undefined && compareResult.deltas[name] !== null
+											? (compareResult.deltas[name] * 100).toFixed(1) + '%'
+											: '—'}
+									</td>
+								{/if}
+							</tr>
+						{/each}
+						<tr>
+							<td>duration_seconds</td>
+							{#each compareResult.runs as run}
+								<td class="text-right term-num">{run.duration_seconds?.toFixed(1) ?? '—'}s</td>
+							{/each}
+							{#if compareResult.runs.length === 2}
+								<td class="text-right term-num {deltaColorClass('duration_seconds', compareResult.deltas['duration_seconds'])}">
+									{compareResult.deltas['duration_seconds'] !== undefined && compareResult.deltas['duration_seconds'] !== null
+										? compareResult.deltas['duration_seconds'] + 's'
+										: '—'}
+								</td>
+							{/if}
+						</tr>
+					</tbody>
+				</table>
+			</div>
+
+			<!-- Telemetry comparison -->
+			<div class="term-panel overflow-x-auto">
+				<div class="term-label mb-2">
+					Telemetry
+				</div>
+				<table class="table table-xs term-table">
+					<thead>
+						<tr>
+							<th>Metric</th>
+							{#each compareResult.runs as run}
+								<th class="text-right font-mono">{run.name}</th>
+							{/each}
+						</tr>
+					</thead>
+					<tbody>
+						<tr>
+							<td>avg_cost_usd</td>
+							{#each compareResult.runs as run}
+								<td class="text-right"><MetricValue metricName="avg_cost_usd" value={run.dashboard_metrics?.avg_cost_usd} format="usd" /></td>
+							{/each}
+						</tr>
+						<tr>
+							<td>latency_p95_seconds</td>
+							{#each compareResult.runs as run}
+								<td class="text-right"><MetricValue metricName="latency_p95_seconds" value={run.dashboard_metrics?.latency_p95_seconds} format="seconds" /></td>
+							{/each}
+						</tr>
+						<tr>
+							<td>total_prompt_tokens</td>
+							{#each compareResult.runs as run}
+								<td class="text-right"><MetricValue metricName="total_prompt_tokens" value={run.dashboard_metrics?.total_prompt_tokens} format="int" /></td>
+							{/each}
+						</tr>
+						<tr>
+							<td>total_completion_tokens</td>
+							{#each compareResult.runs as run}
+								<td class="text-right"><MetricValue metricName="total_completion_tokens" value={run.dashboard_metrics?.total_completion_tokens} format="int" /></td>
+							{/each}
+						</tr>
+					</tbody>
+				</table>
+			</div>
+
+			<!-- Config diff (first two selected runs) -->
+			{#if compareResult.runs.length >= 2}
+				<ConfigDiff
+					configA={compareResult.runs[0].config}
+					configB={compareResult.runs[1].config}
+					labelA={compareResult.runs[0].name}
+					labelB={compareResult.runs[1].name}
+					showUnchanged={false}
+				/>
+			{/if}
 		{/if}
 	{/if}
 </div>

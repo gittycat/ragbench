@@ -1,19 +1,19 @@
 /**
- * Export utilities for evaluation data
+ * Export utilities for eval run data
  * Client-side CSV and JSON generation
  */
-import type { EvaluationRun, GoldenBaseline } from '$lib/api';
+import type { EvalRunSummary, EvalCompareResponse } from '$lib/api/evals';
 
 export interface ExportData {
-	runs: EvaluationRun[];
-	baseline: GoldenBaseline | null;
+	runs: EvalRunSummary[];
+	compare?: EvalCompareResponse;
 	exportedAt: string;
 }
 
 /**
- * Export evaluation runs to CSV format
+ * Export eval run summaries to CSV format
  */
-export function exportToCSV(runs: EvaluationRun[]): void {
+export function exportToCSV(runs: EvalRunSummary[]): void {
 	if (runs.length === 0) {
 		console.warn('No runs to export');
 		return;
@@ -22,47 +22,41 @@ export function exportToCSV(runs: EvaluationRun[]): void {
 	// Get all unique metric names across all runs
 	const allMetrics = new Set<string>();
 	for (const run of runs) {
-		for (const metric of Object.keys(run.metric_averages)) {
+		for (const metric of Object.keys(run.metrics)) {
 			allMetrics.add(metric);
 		}
 	}
 	const metrics = Array.from(allMetrics).sort();
 
-	// Build CSV headers
 	const headers = [
 		'run_id',
-		'timestamp',
-		'model',
-		'provider',
-		'framework',
-		'eval_model',
-		'total_tests',
-		'passed_tests',
-		'pass_rate',
-		'avg_latency_ms',
-		'p95_latency_ms',
-		'cost_per_query_usd',
-		...metrics.map((m) => `metric_${m}`),
-		...metrics.map((m) => `pass_rate_${m}`)
+		'name',
+		'created_at',
+		'tier',
+		'datasets',
+		'question_count',
+		'error_count',
+		'duration_seconds',
+		'weighted_score',
+		'avg_cost_usd',
+		'total_cost_usd',
+		...metrics.map((m) => `metric_${m}`)
 	];
 
-	// Build CSV rows
 	const rows = runs.map((run) => {
 		const values = [
-			run.run_id,
-			run.timestamp,
-			run.config_snapshot?.llm_model || '',
-			run.config_snapshot?.llm_provider || '',
-			run.framework,
-			run.eval_model,
-			run.total_tests.toString(),
-			run.passed_tests.toString(),
-			(run.pass_rate * 100).toFixed(1),
-			run.latency?.avg_query_time_ms?.toFixed(0) || '',
-			run.latency?.p95_query_time_ms?.toFixed(0) || '',
-			run.cost?.cost_per_query_usd?.toFixed(4) || '',
-			...metrics.map((m) => ((run.metric_averages[m] ?? 0) * 100).toFixed(1)),
-			...metrics.map((m) => ((run.metric_pass_rates[m] ?? 0) * 100).toFixed(1))
+			run.id,
+			run.name,
+			run.created_at,
+			run.tier,
+			run.datasets.join('|'),
+			run.question_count.toString(),
+			run.error_count.toString(),
+			run.duration_seconds?.toFixed(1) ?? '',
+			run.weighted_score !== null ? (run.weighted_score * 100).toFixed(1) : '',
+			run.dashboard_metrics?.avg_cost_usd?.toFixed(4) ?? '',
+			run.dashboard_metrics?.total_cost_usd?.toFixed(4) ?? '',
+			...metrics.map((m) => (run.metrics[m] !== undefined ? run.metrics[m].toFixed(4) : ''))
 		];
 		return values.map(escapeCSV).join(',');
 	});
@@ -72,7 +66,7 @@ export function exportToCSV(runs: EvaluationRun[]): void {
 }
 
 /**
- * Export evaluation data to JSON format
+ * Export eval run data (and optional compare result) to JSON format
  */
 export function exportToJSON(data: ExportData): void {
 	const json = JSON.stringify(data, null, 2);

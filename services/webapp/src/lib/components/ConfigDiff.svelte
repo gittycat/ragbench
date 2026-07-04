@@ -1,10 +1,10 @@
 <script lang="ts">
-	import type { ConfigSnapshot } from '$lib/api';
+	import type { EvalRunConfig } from '$lib/api/evals';
 	import { diffConfigs, getDiffLineClasses, getDiffPrefix } from '$lib/utils/diff';
 
 	interface Props {
-		configA: ConfigSnapshot | null | undefined;
-		configB: ConfigSnapshot | null | undefined;
+		configA: EvalRunConfig | null | undefined;
+		configB: EvalRunConfig | null | undefined;
 		labelA?: string;
 		labelB?: string;
 		showUnchanged?: boolean;
@@ -27,7 +27,7 @@
 	let hasChanges = $derived(diff.some((line) => line.type !== 'same'));
 </script>
 
-<div class="bg-base-200 rounded p-2">
+<div class="term-panel">
 	<div class="flex items-center gap-2 mb-2 text-xs text-base-content/70">
 		<span class="badge badge-ghost badge-sm">{labelA}</span>
 		<span>→</span>

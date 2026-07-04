@@ -44,3 +44,45 @@
 .tooltips-hidden .tooltip .tooltip-content {
   display: none !important;
 }
+
+/* =============================================================================
+   Analytics dashboard — dense terminal look (analytics page only)
+   Panels, labels and tables for a Grafana-like observability aesthetic:
+   monospace numerics, muted grays, 1px hairline borders, minimal rounding.
+   Colors are DaisyUI semantic tokens so both nord and dim themes work.
+   ============================================================================= */
+
+@layer components {
+  /* Panel: the standard analytics card */
+  .term-panel {
+    @apply bg-base-200 border border-base-content/10 rounded-sm p-2;
+  }
+
+  /* Tile: a stat cell nested inside a panel */
+  .term-tile {
+    @apply bg-base-100 border border-base-content/10 rounded-sm p-2;
+  }
+
+  /* Section / stat label: small uppercase tracked caption */
+  .term-label {
+    @apply font-mono text-[10px] font-semibold uppercase tracking-wider text-base-content/50;
+  }
+
+  /* Numeric text: monospace with lining tabular figures */
+  .term-num {
+    @apply font-mono tabular-nums;
+  }
+
+  /* Dense data table: use with DaisyUI `table table-xs` */
+  .term-table {
+    @apply font-mono tabular-nums;
+  }
+  .term-table th,
+  .term-table td {
+    padding-top: 0.125rem;
+    padding-bottom: 0.125rem;
+  }
+  .term-table thead th {
+    @apply text-[10px] font-semibold uppercase tracking-wider text-base-content/50;
+  }
+}

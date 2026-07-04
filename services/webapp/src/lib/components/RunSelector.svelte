@@ -1,14 +1,14 @@
 <script lang="ts">
-	import type { EvaluationRun } from '$lib/api';
+	import type { EvalRunSummary } from '$lib/api/evals';
 
 	interface Props {
-		runs: EvaluationRun[];
+		runs: EvalRunSummary[];
 		selected: string[];
 		onSelectionChange: (ids: string[]) => void;
 		maxSelection?: number;
 	}
 
-	let { runs, selected, onSelectionChange, maxSelection = 8 }: Props = $props();
+	let { runs, selected, onSelectionChange, maxSelection = 4 }: Props = $props();
 
 	function toggleRun(runId: string) {
 		if (selected.includes(runId)) {
@@ -19,7 +19,7 @@
 	}
 
 	function selectAll() {
-		const toSelect = runs.slice(0, maxSelection).map((r) => r.run_id);
+		const toSelect = runs.slice(0, maxSelection).map((r) => r.id);
 		onSelectionChange(toSelect);
 	}
 
@@ -27,21 +27,16 @@
 		onSelectionChange([]);
 	}
 
-	function getRunLabel(run: EvaluationRun): string {
-		const model = run.config_snapshot?.llm_model || 'Unknown';
-		return model;
-	}
-
-	function getRunTime(run: EvaluationRun): string {
-		return new Date(run.timestamp).toLocaleTimeString('en-US', {
+	function getRunTime(run: EvalRunSummary): string {
+		return new Date(run.created_at).toLocaleTimeString('en-US', {
 			hour: '2-digit',
 			minute: '2-digit',
 			hour12: false
 		});
 	}
 
-	function getRunDate(run: EvaluationRun): string {
-		return new Date(run.timestamp).toLocaleDateString('en-US', {
+	function getRunDate(run: EvalRunSummary): string {
+		return new Date(run.created_at).toLocaleDateString('en-US', {
 			month: 'short',
 			day: 'numeric'
 		});
@@ -57,16 +52,17 @@
 		return `${days}d ago`;
 	}
 
-	function getPassRateColor(rate: number): string {
-		if (rate >= 0.8) return 'badge-success';
-		if (rate >= 0.6) return 'badge-warning';
+	function getScoreColor(score: number | null): string {
+		if (score === null) return 'badge-ghost';
+		if (score >= 0.8) return 'badge-success';
+		if (score >= 0.6) return 'badge-warning';
 		return 'badge-error';
 	}
 </script>
 
-<div class="bg-base-200 rounded p-2">
+<div class="term-panel">
 	<div class="flex items-center justify-between mb-2">
-		<span class="text-xs font-semibold text-base-content/70">
+		<span class="term-label">
 			Select Runs ({selected.length}/{maxSelection})
 		</span>
 		<div class="flex gap-1">
@@ -90,7 +86,7 @@
 	{:else}
 		<div class="max-h-56 overflow-y-auto space-y-1">
 			{#each runs as run}
-				{@const isSelected = selected.includes(run.run_id)}
+				{@const isSelected = selected.includes(run.id)}
 				{@const isDisabled = !isSelected && selected.length >= maxSelection}
 				<label
 					class="flex items-center gap-2 p-1.5 rounded cursor-pointer text-xs
@@ -102,24 +98,24 @@
 						class="checkbox checkbox-xs checkbox-primary"
 						checked={isSelected}
 						disabled={isDisabled}
-						onchange={() => toggleRun(run.run_id)}
+						onchange={() => toggleRun(run.id)}
 					/>
 					<div class="flex-1 min-w-0">
-						<div class="font-mono truncate" title={getRunLabel(run)}>
-							{getRunLabel(run)}
+						<div class="font-mono truncate" title={run.name}>
+							{run.name}
 						</div>
 						<div class="text-base-content/50 flex items-center gap-2">
 							<span>{getRunDate(run)} {getRunTime(run)}</span>
-							<span class="badge badge-xs {getPassRateColor(run.pass_rate)}">
-								{(run.pass_rate * 100).toFixed(0)}%
+							<span class="badge badge-xs {getScoreColor(run.weighted_score)}">
+								{run.weighted_score !== null ? `${(run.weighted_score * 100).toFixed(0)}%` : '—'}
 							</span>
 						</div>
 					</div>
 					<div class="text-base-content/40 text-right whitespace-nowrap">
-						{timeAgo(run.timestamp)}
+						{timeAgo(run.created_at)}
 					</div>
-					{#if run.is_golden_baseline}
-						<span class="badge badge-xs badge-warning">baseline</span>
+					{#if run.error_count > 0}
+						<span class="badge badge-xs badge-error">{run.error_count} err</span>
 					{/if}
 				</label>
 			{/each}

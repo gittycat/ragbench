@@ -1,86 +1,72 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
-	import { chartAction, getChartColors, formatRunLabel } from './ChartAction';
-	import type { EvaluationRun, GoldenBaseline } from '$lib/api';
+	import {
+		chartAction,
+		getChartColors,
+		chartInk,
+		denseScale,
+		denseTooltip,
+		CHART_FONT_FAMILY
+	} from './ChartAction';
+	import { themeSignal } from './theme.svelte';
+	import type { EvalRunSummary } from '$lib/api/evals';
 	import type { ChartConfiguration } from 'chart.js';
 
 	interface Props {
-		runs: EvaluationRun[];
-		baseline: GoldenBaseline | null;
+		runs: EvalRunSummary[];
 		height?: number;
 	}
 
-	let { runs, baseline, height = 300 }: Props = $props();
+	let { runs, height = 300 }: Props = $props();
 
-	let canvasElement: HTMLCanvasElement | null = $state(null);
 	let mounted = $state(false);
 
 	onMount(() => {
 		mounted = true;
 	});
 
-	// Get all unique metrics across all runs
+	// Quality metrics only (exclude the "performance" group — ms/usd scale doesn't fit a 0-100% axis)
 	let metrics = $derived.by(() => {
 		const allMetrics = new Set<string>();
 		for (const run of runs) {
-			for (const metric of Object.keys(run.metric_averages)) {
-				allMetrics.add(metric);
+			for (const [group, names] of Object.entries(run.groups)) {
+				if (group === 'performance') continue;
+				for (const n of names) allMetrics.add(n);
 			}
 		}
 		return Array.from(allMetrics).sort();
 	});
 
-	// Format metric names for display
 	function formatMetricName(metric: string): string {
-		return metric
-			.replace(/_/g, ' ')
-			.replace(/\b\w/g, (c) => c.toUpperCase());
+		return metric.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 	}
 
-	// Build Chart.js configuration
+	function formatRunLabel(run: EvalRunSummary): string {
+		const time = new Date(run.created_at).toLocaleTimeString('en-US', {
+			hour: '2-digit',
+			minute: '2-digit',
+			hour12: false
+		});
+		return `${run.name} ${time}`;
+	}
+
 	let chartConfig = $derived.by((): ChartConfiguration<'bar'> => {
+		// Read the theme signal so colors re-resolve when data-theme changes
+		themeSignal();
 		const labels = metrics.map(formatMetricName);
 		const colors = getChartColors(runs.length);
+		const { inkMuted } = chartInk();
 
-		// Each run becomes a dataset
 		const datasets = runs.map((run, i) => ({
-			label: formatRunLabel(run.config_snapshot?.llm_model, run.timestamp),
-			data: metrics.map((m) => (run.metric_averages[m] ?? 0) * 100),
+			label: formatRunLabel(run),
+			data: metrics.map((m) => (run.metrics[m] !== undefined ? run.metrics[m] * 100 : NaN)),
 			backgroundColor: colors.background[i],
 			borderColor: colors.border[i],
-			borderWidth: 1
+			borderWidth: 1,
+			borderRadius: 3,
+			maxBarThickness: 22
 		}));
-
-		// Baseline annotations (horizontal dashed lines)
-		const annotations: Record<string, object> = {};
-		if (baseline && baseline.target_metrics) {
-			// Create a single baseline line at the average of all target metrics
-			// Or create per-metric lines with annotation plugin
-			let baselineIndex = 0;
-			for (const metric of metrics) {
-				const targetValue = baseline.target_metrics[metric];
-				if (targetValue !== undefined) {
-					annotations[`baseline-${metric}`] = {
-						type: 'line',
-						yMin: targetValue * 100,
-						yMax: targetValue * 100,
-						borderColor: 'rgba(251, 191, 36, 0.8)', // Amber/warning color
-						borderWidth: 2,
-						borderDash: [6, 4],
-						label: {
-							display: baselineIndex === 0,
-							content: 'Baseline',
-							position: 'start',
-							backgroundColor: 'rgba(251, 191, 36, 0.9)',
-							color: '#000',
-							font: { size: 10 }
-						}
-					};
-					baselineIndex++;
-				}
-			}
-		}
 
 		return {
 			type: 'bar',
@@ -89,42 +75,44 @@
 				responsive: true,
 				maintainAspectRatio: false,
 				scales: {
-					y: {
+					y: denseScale({
 						beginAtZero: true,
 						max: 100,
 						title: {
 							display: true,
 							text: 'Score (%)',
-							font: { size: 11 }
-						},
-						ticks: {
-							font: { size: 10 }
+							color: inkMuted,
+							font: { family: CHART_FONT_FAMILY, size: 10 }
 						}
-					},
+					}),
 					x: {
+						...denseScale(),
+						grid: { display: false },
 						ticks: {
-							font: { size: 10 },
+							color: inkMuted,
+							font: { family: CHART_FONT_FAMILY, size: 10 },
 							maxRotation: 45,
 							minRotation: 0
 						}
 					}
 				},
 				plugins: {
-					annotation: {
-						annotations
-					},
 					legend: {
 						position: 'bottom',
 						labels: {
-							boxWidth: 12,
-							font: { size: 11 },
+							boxWidth: 10,
+							boxHeight: 10,
+							color: inkMuted,
+							font: { family: CHART_FONT_FAMILY, size: 10 },
 							padding: 8
 						}
 					},
 					tooltip: {
+						...denseTooltip(),
+						displayColors: true,
 						callbacks: {
 							label: (ctx) => {
-								const value = typeof ctx.raw === 'number' ? ctx.raw.toFixed(1) : '0';
+								const value = typeof ctx.raw === 'number' ? ctx.raw.toFixed(1) : '—';
 								return `${ctx.dataset.label}: ${value}%`;
 							}
 						}
@@ -137,7 +125,7 @@
 
 {#if browser && mounted && runs.length > 0}
 	<div class="w-full" style="height: {height}px;">
-		<canvas bind:this={canvasElement} use:chartAction={chartConfig}></canvas>
+		<canvas use:chartAction={chartConfig}></canvas>
 	</div>
 {:else if runs.length === 0}
 	<div class="flex items-center justify-center h-48 text-base-content/50 text-sm">
