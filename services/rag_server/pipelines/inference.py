@@ -328,6 +328,10 @@ def ensure_reranker_model_cached() -> None:
 # STEP 4: CHAT ENGINE CREATION
 # ============================================================================
 
+# Task 1.5: verified the installed llama-index-core's
+# CondensePlusContextChatEngine._condense_question / _acondense_question
+# already short-circuit to the raw query when chat_history is empty — no
+# wrapper needed for the first-message-in-session case.
 class _AsyncSafeCondensePlusContextChatEngine(CondensePlusContextChatEngine):
     """CondensePlusContextChatEngine variant safe to `await` directly on the
     main event loop.
