@@ -26,37 +26,40 @@ Development docs are split by topic under [`docs/dev/`](docs/dev/INDEX.md). Use 
 
 ### Recently Completed
 
+- **Eval Dashboard UI** (Jul 2026): Fable-based dashboard for triggering evals, viewing results, and comparing runs; 5 headline metrics, run comparison, telemetry
+- **PII Masking** (Feb 2026): Reversible Presidio + spaCy token masking of query/context/history/title on the cloud generation path, with corpus-local guardrail and audit logging (see [dev/pii-masking.md](docs/dev/pii-masking.md))
 - **Eval Service API** (Feb 2026): Standalone FastAPI service (port 8002) for triggering evals, tracking progress, and serving results with 5 dashboard metrics. Webapp proxy routing for `/api/eval/*`
 - **PostgreSQL-backed Chat Memory** (Oct 2025): Session-based conversation history with persistent storage
 - **Hybrid Search** (Oct 2025): BM25 + Vector + RRF fusion with ~48% retrieval improvement
 - **Contextual Retrieval** (Oct 2025): LLM-generated chunk context with ~49% fewer retrieval failures
-- **DeepEval Framework** (Dec 2025): Anthropic Claude Sonnet 4 as LLM judge with pytest integration
+- **DeepEval Framework** (Dec 2025): Anthropic Claude as LLM judge with pytest integration
 - **Forgejo CI/CD** (Dec 2025): Self-hosted Git + CI/CD with GitHub Actions-compatible workflows
 - **Metrics & Observability API** (Dec 2025): System health monitoring and evaluation history tracking
 
 ### In Planning
 
-- **Eval Dashboard UI**: Frontend pages for triggering evals, viewing results, and comparing runs
-- **PII Masking**: Anonymize sensitive data for cloud LLM providers (see [implementation plan](docs/PII_MASKING_IMPLEMENTATION_PLAN.md))
 - **Centralized Logging**: Grafana Loki + Promtail + structlog (see [implementation plan](docs/LOGGING_IMPLEMENTATION_PLAN.md))
+- **Model Leaderboard & Recommendations**: Curated model suggestions per pipeline component (MTEB/BEIR/LMSys)
 - **Parent Document Retrieval**: Sentence window method for better context
 - **Query Fusion**: Multi-query generation for improved recall
 
-For detailed feature roadmap including implementation tasks and effort estimates, see [ROADMAP.md](docs/ROADMAP.md).
+For the detailed feature roadmap including implementation tasks and effort estimates, see [ROADMAP.md](docs/ROADMAP.md).
 
 ## Documentation Index
 
+Topic-split development docs live under [`docs/dev/`](docs/dev/INDEX.md) (see the table above). The documents below are top-level guides, references, and plans.
+
 | Document | Purpose |
 |----------|---------|
+| [README.md](README.md) | Project overview, quick start, and setup |
 | [FRONT_END.md](FRONT_END.md) | Frontend/UI development |
 | [CLAUDE.md](CLAUDE.md) | Project instructions for Claude Code |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Feature roadmap with tasks and effort estimates |
-| [docs/FORGEJO_CI_SETUP.md](docs/FORGEJO_CI_SETUP.md) | CI/CD setup guide |
-| [docs/DEEPEVAL_IMPLEMENTATION_SUMMARY.md](docs/DEEPEVAL_IMPLEMENTATION_SUMMARY.md) | Evaluation framework |
-| [docs/CONVERSATIONAL_RAG.md](docs/CONVERSATIONAL_RAG.md) | Session management |
-| [docs/PERFORMANCE_OPTIMIZATIONS_SUMMARY.md](docs/PERFORMANCE_OPTIMIZATIONS_SUMMARY.md) | Performance tuning |
-| [docs/PHASE1_IMPLEMENTATION_SUMMARY.md](docs/PHASE1_IMPLEMENTATION_SUMMARY.md) | Phase 1 details |
-| [docs/PHASE2_IMPLEMENTATION_SUMMARY.md](docs/PHASE2_IMPLEMENTATION_SUMMARY.md) | Phase 2 details |
-| [docs/RAG_ACCURACY_IMPROVEMENT_PLAN_2025.md](docs/RAG_ACCURACY_IMPROVEMENT_PLAN_2025.md) | Future optimizations |
-| [docs/PII_MASKING_IMPLEMENTATION_PLAN.md](docs/PII_MASKING_IMPLEMENTATION_PLAN.md) | PII masking for cloud LLMs |
-| [docs/LOGGING_IMPLEMENTATION_PLAN.md](docs/LOGGING_IMPLEMENTATION_PLAN.md) | Centralized logging with Grafana Loki |
+| [docs/EVALS_README.md](docs/EVALS_README.md) | Eval framework CLI/API, metrics, and datasets |
+| [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | Pipeline benchmark results |
+| [docs/TODO.md](docs/TODO.md) | Active near-term tasks (e.g. contextual retrieval speedup) |
+| [docs/ASYNC_POSTMORTEM.md](docs/ASYNC_POSTMORTEM.md) | Post-mortem: async event loop contamination |
+| [docs/LOGGING_IMPLEMENTATION_PLAN.md](docs/LOGGING_IMPLEMENTATION_PLAN.md) | Planned centralized logging with Grafana Loki |
+| [docs/evals_articles.md](docs/evals_articles.md) | RAG evaluation learning watchlist (reference) |
+
+Superseded research and completed-feature plans are retained under `docs/archives/`.

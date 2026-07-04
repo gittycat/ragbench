@@ -8,9 +8,7 @@ This document outlines planned features and enhancements for the RAG system, org
 - [Testing & CI Improvements](#testing--ci-improvements)
 - [Planned Features](#planned-features)
   - [Centralized Logging Infrastructure](#centralized-logging-infrastructure)
-  - [Metrics Visualization](#metrics-visualization)
   - [Model Leaderboard & Recommendations](#model-leaderboard--recommendations)
-  - [PII Masking for Cloud LLM Providers](#pii-masking-for-cloud-llm-providers)
   - [GraphRAG](#graph-rag)
   - [Parent Document Retrieval](#parent-document-retrieval)
   - [Query Fusion](#query-fusion)
@@ -27,9 +25,14 @@ This document outlines planned features and enhancements for the RAG system, org
 - Persistent storage with no TTL
 - Progress tracking for async uploads
 
-### PostgreSQL Migration (Jan 2026)
-- Consolidated vector storage, full-text search, and queueing into PostgreSQL
-- pgvector for embeddings, pg_search for BM25, pgmq for async tasks
+### PII Masking for Cloud LLMs (Feb 2026)
+- Microsoft Presidio + spaCy reversible token masking before cloud LLM calls
+- Masks query, retrieved context, chat history, and session titles on the cloud generation path
+- Corpus-local guardrail + audit logging (see [dev/pii-masking.md](dev/pii-masking.md))
+
+### Eval Service + Dashboard (Feb–Jul 2026)
+- Standalone `evals` FastAPI service (port 8002) with multi-dataset support
+- 5-metric dashboard, run comparison, telemetry (Fable-based UI refactor)
 
 ### Reranker Optimization (Oct 2025)
 - Cross-encoder reranking with ms-marco-MiniLM-L-6-v2
@@ -213,40 +216,6 @@ Improvements to the integration test suite and CI pipeline. The current 25 integ
    - Create error tracking dashboard
    - Add alerting for critical errors
 
-### Metrics Visualization
-
-**Description:** Integrate evaluation metrics and system health monitoring into the webapp frontend. Provides visual dashboards for performance tracking and configuration tuning.
-
-**Why Important:** Current metrics API is backend-only. Frontend visualization makes metrics accessible to non-technical users and enables data-driven configuration decisions.
-
-**Effort Estimate:** Medium (3-4 sessions)
-
-#### Tasks
-
-1. **Planning & Design**
-   - Review existing metrics API endpoints
-   - Design dashboard layouts (system health, evaluation trends, comparison)
-   - Choose charting library (Chart.js, D3, or Recharts)
-   - Plan real-time update strategy (polling vs. SSE)
-
-2. **System Health Dashboard**
-   - Create component health status display
-   - Add model configuration summary
-   - Add retrieval pipeline settings
-   - Implement auto-refresh
-
-3. **Evaluation Metrics Dashboard**
-   - Display evaluation history timeline
-   - Show metric trends over time
-   - Add baseline comparison view
-   - Implement run-to-run comparison
-
-4. **Configuration Tuning Interface**
-   - Display recommendation API results
-   - Add interactive configuration editor
-   - Implement what-if scenario analysis
-   - Add export/import for configurations
-
 ### Model Leaderboard & Recommendations
 
 **Description:** Implement an intelligent model recommendation system that provides curated, up-to-date recommendations for the top-performing models across all RAG pipeline components (embeddings, reranking, inference, retrieval). Recommendations are sourced from authoritative leaderboards (MTEB, BEIR, LMSys Chatbot Arena) and continuously updated to reflect the latest releases and benchmarks.
@@ -282,46 +251,6 @@ Improvements to the integration test suite and CI pipeline. The current 25 integ
    - Add "Compare Current vs. Recommended" view showing potential improvements
    - Implement notification system for significant new model releases (e.g., 10%+ performance gain)
    - Add one-click configuration export for recommended models
-
-### PII Masking for Cloud LLM Providers
-
-PII (Personally Identifiable Information)
-
-**Description:** Anonymize sensitive data (names, emails, SSNs, etc.) before sending to cloud LLM providers using Microsoft Presidio. Implements reversible token-based masking with validation and output guardrails.
-
-**Why Important:** Enables safe use of cloud LLMs with sensitive documents. Critical for GDPR, HIPAA, and enterprise compliance requirements.
-
-**Effort Estimate:** Medium (3-4 sessions)
-
-**Implementation Plan:** See [PII_MASKING_IMPLEMENTATION_PLAN.md](PII_MASKING_IMPLEMENTATION_PLAN.md)
-
-#### Tasks
-
-1. **Planning & Architecture Review**
-   - Review implementation plan
-   - Identify integration points (query pipeline, contextual retrieval, session titles, evaluation)
-   - Define configuration schema
-   - Set up test fixtures
-
-2. **Presidio Integration & Core Masking**
-   - Install Microsoft Presidio dependencies
-   - Implement `PIIMasker` class with entity detection
-   - Create token-based masking/unmasking logic
-   - Add session-scoped token mapping storage
-   - Unit tests for masking operations
-
-3. **Pipeline Integration**
-   - Integrate into query pipeline (user queries, chat history, retrieved context)
-   - Integrate into contextual retrieval (document chunks sent to LLM)
-   - Integrate into session title generation
-   - Integration tests for all data flow points
-
-4. **Validation & Guardrails**
-   - Implement token validation (detect LLM-altered tokens)
-   - Add fuzzy recovery for corrupted tokens
-   - Add output guardrails (scan final response for leaked PII)
-   - Audit logging for masking/unmasking operations
-   - End-to-end tests with real LLM calls
 
 ### Graph RAG
 
