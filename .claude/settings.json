@@ -1,5 +1,11 @@
 {
   "permissions": {
+    "allow": [
+      "Bash(just test-unit*)",
+      "Bash(curl -s http://localhost:8001/documents*)",
+      "Bash(.venv/bin/pytest tests/*)",
+      "Bash(curl -s http://localhost:8001/health*)"
+    ],
     "deny": [
       "Read(./archives/**)",
       "Read(./docs/archives/**)",
