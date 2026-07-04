@@ -62,6 +62,28 @@ just deploy-down local
 - `docker-compose.local.yml`: Local overrides (debug logging)
 - `docker-compose.cloud.yml`: Cloud overrides (registry images)
 - `docker-compose.ci.yml`: CI/CD infrastructure
+- `docker-compose.server.yml`: Confidential-compute VM / thin-client tier overlay (see below)
+
+### Server Tier (Caddy TLS + Bearer Auth)
+
+For the confidential-compute VM tier, thin clients connect over a network
+instead of localhost, so transport security and auth are needed:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.server.yml up
+# or: just deploy server
+```
+
+- Puts [Caddy](https://caddyserver.com) in front of the webapp with automatic
+  HTTPS (`services/caddy/Caddyfile`). Set `SERVER_DOMAIN` for a real domain +
+  Let's Encrypt, otherwise Caddy's internal CA self-signs for `localhost`/LAN
+  IPs. Only Caddy publishes ports in this overlay — webapp/rag-server/evals
+  stop publishing to the host.
+- Enables bearer-token auth on `rag-server` (`infrastructure/auth.py`): mount
+  a token at `secrets/RAG_SERVER_AUTH_TOKEN` and every route except `/health`
+  requires `Authorization: Bearer <token>`. The webapp reads the same secret
+  and forwards it on proxied `/api/*` requests. Unset in the base/local
+  compose file, so local-tier behavior is unchanged.
 
 ### Version Management
 

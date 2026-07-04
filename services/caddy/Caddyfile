@@ -1,0 +1,11 @@
+# Server tier reverse proxy (docker-compose.server.yml overlay).
+#
+# Default: Caddy's internal CA issues a self-signed cert for `localhost` /
+# LAN IPs — fine when there's no public DNS name (clients must trust the
+# cert once). For a real domain with automatic Let's Encrypt HTTPS, set
+# SERVER_DOMAIN and delete the `tls internal` line below.
+{$SERVER_DOMAIN:localhost} {
+	tls internal
+
+	reverse_proxy webapp:3000
+}

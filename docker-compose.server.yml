@@ -1,0 +1,57 @@
+# Server deployment tier overlay (confidential-compute VM / thin-client tier).
+# Usage: docker compose -f docker-compose.yml -f docker-compose.server.yml up
+#
+# Puts Caddy in front of the webapp with automatic HTTPS and stops
+# webapp/rag-server/evals from publishing ports directly to the host — only
+# Caddy is reachable from outside the `public` network. Also wires up
+# bearer-token auth on rag-server (see infrastructure/auth.py); mount a real
+# secret at secrets/RAG_SERVER_AUTH_TOKEN before deploying.
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - SERVER_DOMAIN=${SERVER_DOMAIN:-localhost}
+    volumes:
+      - ./services/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      webapp:
+        condition: service_started
+    networks:
+      - public
+
+  webapp:
+    ports: !reset []
+    secrets:
+      - RAG_SERVER_AUTH_TOKEN
+    environment:
+      - RAG_SERVER_AUTH_TOKEN_FILE=/run/secrets/RAG_SERVER_AUTH_TOKEN
+
+  rag-server:
+    ports: !reset []
+    secrets:
+      - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY
+      - RAG_SERVER_DB_USER
+      - RAG_SERVER_DB_PASSWORD
+      - RAG_SERVER_AUTH_TOKEN
+    environment:
+      - RAG_SERVER_AUTH_TOKEN_FILE=/run/secrets/RAG_SERVER_AUTH_TOKEN
+
+  evals:
+    ports: !reset []
+
+volumes:
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+
+secrets:
+  RAG_SERVER_AUTH_TOKEN:
+    file: secrets/RAG_SERVER_AUTH_TOKEN

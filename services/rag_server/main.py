@@ -4,7 +4,7 @@ warnings.filterwarnings("ignore", category=UserWarning, message=".*validate_defa
 import logging
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from core.logging import configure_logging
 from core.config import initialize_settings
@@ -156,12 +156,17 @@ app = FastAPI(title="RAG Bench", lifespan=lifespan)
 
 # Include routers
 from api.routes import health, query, documents, chat, metrics, sessions, api_keys, settings
+from infrastructure.auth import require_bearer_token
+
+# /health stays unauthenticated (used by orchestrators/load balancers); every
+# other route requires the bearer token when RAG_SERVER_AUTH_TOKEN_FILE is set.
+_auth_dep = [Depends(require_bearer_token)]
 
 app.include_router(health.router, tags=["health"])
-app.include_router(query.router, tags=["query"])
-app.include_router(documents.router, tags=["documents"])
-app.include_router(chat.router, tags=["chat"])
-app.include_router(sessions.router, tags=["sessions"])
-app.include_router(metrics.router, tags=["metrics"])
-app.include_router(api_keys.router, tags=["api-keys"])
-app.include_router(settings.router, tags=["settings"])
+app.include_router(query.router, tags=["query"], dependencies=_auth_dep)
+app.include_router(documents.router, tags=["documents"], dependencies=_auth_dep)
+app.include_router(chat.router, tags=["chat"], dependencies=_auth_dep)
+app.include_router(sessions.router, tags=["sessions"], dependencies=_auth_dep)
+app.include_router(metrics.router, tags=["metrics"], dependencies=_auth_dep)
+app.include_router(api_keys.router, tags=["api-keys"], dependencies=_auth_dep)
+app.include_router(settings.router, tags=["settings"], dependencies=_auth_dep)
