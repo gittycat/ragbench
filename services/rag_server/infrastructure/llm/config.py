@@ -23,6 +23,7 @@ class LLMProvider(str, Enum):
     GOOGLE = "google"
     DEEPSEEK = "deepseek"
     MOONSHOT = "moonshot"
+    VLLM = "vllm"
 
 
 @dataclass

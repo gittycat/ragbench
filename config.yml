@@ -67,6 +67,14 @@ models:
       timeout: 120
       requires_api_key: true
 
+    # vLLM (confidential-compute VM tier — open-weight models served
+    # OpenAI-compatible, no API key needed behind the network boundary)
+    # qwen-vllm:
+    #   provider: vllm
+    #   model: Qwen/Qwen2.5-14B-Instruct
+    #   base_url: http://vllm:8000/v1
+    #   timeout: 120
+
   embedding:
     # Ollama embeddings (local)
     nomic-embed:

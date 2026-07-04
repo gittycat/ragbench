@@ -54,6 +54,11 @@ _PROVIDER_CONFIG: dict[LLMProvider, tuple[str, str, dict[str, str | None]]] = {
         "OpenAI",  # Moonshot uses OpenAI-compatible API
         {"model": None, "api_key": None, "base_url": "api_base", "timeout": None},
     ),
+    LLMProvider.VLLM: (
+        "llama_index.llms.openai_like",
+        "OpenAILike",
+        {"model": None, "api_key": None, "base_url": "api_base", "timeout": None},
+    ),
 }
 
 
@@ -79,6 +84,12 @@ def create_llm_client(config: LLMConfig) -> LLM:
             # Use mapped name or original field name
             key = param_name if param_name else config_field
             kwargs[key] = value
+
+    if config.provider == LLMProvider.VLLM:
+        # vLLM often runs keyless behind the network boundary; OpenAILike
+        # still requires a non-empty api_key string.
+        kwargs.setdefault("api_key", "none")
+        kwargs["is_chat_model"] = True
 
     return llm_class(**kwargs)
 
