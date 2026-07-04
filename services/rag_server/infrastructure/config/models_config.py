@@ -190,6 +190,21 @@ class ChromaDBConfig(BaseModel):
     collection: str = "document_chunks"
 
 
+# Embedding providers that never leave the local/VM trust boundary. Cloud
+# generation (pii.enabled) is only safe to combine with one of these.
+LOCAL_EMBEDDING_PROVIDERS = {"ollama"}
+
+
+class PiiConfig(BaseModel):
+    """PII masking configuration for the opt-in cloud generation tier.
+
+    Stub for Task 2.4's corpus-local guardrail; Task 2.3 fills in the rest
+    (entity list, threshold, masking implementation).
+    """
+
+    enabled: bool = False
+
+
 class CitationInstructions(BaseModel):
     """Citation instruction templates by format."""
 
@@ -263,7 +278,23 @@ class ModelsConfig(BaseModel):
     chromadb: ChromaDBConfig = Field(default_factory=ChromaDBConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     prompts: PromptConfig = Field(default_factory=PromptConfig)
+    pii: PiiConfig = Field(default_factory=PiiConfig)
     _source_path: Path | None = None
+
+    def validate_privacy_posture(self) -> None:
+        """Enforce that cloud generation (pii.enabled) never pairs with a cloud embedder.
+
+        Masking only covers the generation path (Task 2.3 scope); embeddings,
+        contextual enrichment, and reranking stay local/VM-side by product
+        decision. Sending the corpus to a cloud embedder would defeat that.
+        """
+        if self.pii.enabled and self.embedding.provider not in LOCAL_EMBEDDING_PROVIDERS:
+            raise ValueError(
+                f"pii.enabled is true but embedding provider '{self.embedding.provider}' "
+                f"is not local. The cloud generation tier requires a local embedding "
+                f"provider ({', '.join(sorted(LOCAL_EMBEDDING_PROVIDERS))}) — masking "
+                f"does not cover the embedding path."
+            )
 
     @classmethod
     def load(cls, config_path: str | Path | None = None, *, validate_secrets: bool = True) -> "ModelsConfig":
@@ -329,6 +360,7 @@ class ModelsConfig(BaseModel):
             config.llm.validate_provider_requirements()
             config.embedding.validate_provider_requirements()
             config.eval.validate_provider_requirements()
+            config.validate_privacy_posture()
 
         return config
 
@@ -417,6 +449,10 @@ class ModelsConfig(BaseModel):
         # Copy prompts unchanged
         if "prompts" in data:
             resolved["prompts"] = data["prompts"]
+
+        # Copy PII settings unchanged
+        if "pii" in data:
+            resolved["pii"] = data["pii"]
 
         return resolved
 

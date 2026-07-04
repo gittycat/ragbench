@@ -191,6 +191,12 @@ retrieval:
   contextual_concurrency: 8            # Max concurrent LLM calls during contextual prefix generation
 
 # ============================================================================
+# PII Masking Settings (opt-in cloud generation tier — Task 2.3 stub)
+# ============================================================================
+pii:
+  enabled: false   # When true, embedding provider must be local (enforced at startup)
+
+# ============================================================================
 # ChromaDB Vector Store
 # ============================================================================
 chromadb:
