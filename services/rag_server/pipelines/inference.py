@@ -20,13 +20,18 @@ import uuid
 from llama_index.core import VectorStoreIndex
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core import Settings
-from llama_index.core.schema import NodeWithScore, QueryBundle
+from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
+from llama_index.core.llms import ChatMessage, MessageRole
 from llama_index.postprocessor.sbert_rerank import SentenceTransformerRerank
 from llama_index.core.chat_engine import CondensePlusContextChatEngine
 from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
 
 from infrastructure.config.models_config import get_models_config
 from infrastructure.llm.prompts import get_system_prompt, get_context_prompt, get_condense_prompt
+from infrastructure.pii.config import get_pii_config
+from infrastructure.pii.service import get_pii_service, mask_text, unmask_text, TokenMapping
+from infrastructure.pii.postprocessor import PIIMaskingPostprocessor, get_session_token_mapping
+from infrastructure.pii.streaming import buffer_and_unmask_stream, buffer_and_unmask_stream_async
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +330,146 @@ def ensure_reranker_model_cached() -> None:
 
 
 # ============================================================================
+# PII MASKING (opt-in cloud generation tier — see infrastructure/pii/)
+# ============================================================================
+#
+# Masking only ever touches what is sent to the generation LLM. The
+# persisted chat history (PostgresChatStore) and the sources returned to the
+# user always keep the original, unmasked text — masking happens on
+# throwaway copies built for a single call and discarded afterward.
+
+
+class _PIIMaskingContext:
+    """Per-request masking state: shared token mapping, masked query, a
+    throwaway memory seeded with masked history (fed to the chat engine
+    instead of the real one), and a handle to the real memory so the
+    original turn can be persisted after the call completes."""
+
+    def __init__(self, token_mapping: TokenMapping, masked_query: str, scratch_memory: ChatMemoryBuffer, real_memory: ChatMemoryBuffer):
+        self.token_mapping = token_mapping
+        self.masked_query = masked_query
+        self.scratch_memory = scratch_memory
+        self.real_memory = real_memory
+
+
+def _prepare_pii_masking(
+    session_id: str,
+    is_temporary: bool,
+    ensure_metadata: bool,
+    query_text: str,
+) -> Optional[_PIIMaskingContext]:
+    """Build masked query + masked chat history for this call. Returns None if PII masking is disabled."""
+    if not get_pii_config().enabled:
+        return None
+
+    token_mapping = get_session_token_mapping(session_id)
+    real_memory = get_or_create_chat_memory(session_id, is_temporary=is_temporary, ensure_metadata=ensure_metadata)
+
+    masked_history = []
+    for msg in real_memory.get_all():
+        result = mask_text(str(msg.content), existing_mapping=token_mapping, context_id=session_id)
+        masked_history.append(ChatMessage(role=msg.role, content=result.masked_text))
+
+    masked_query = mask_text(query_text, existing_mapping=token_mapping, context_id=session_id).masked_text
+
+    scratch_memory = ChatMemoryBuffer.from_defaults(
+        chat_history=masked_history,
+        token_limit=_get_token_limit_for_chat_history(),
+    )
+    return _PIIMaskingContext(token_mapping, masked_query, scratch_memory, real_memory)
+
+
+def _unmask_pii_response(pii_ctx: _PIIMaskingContext, response_text: str, session_id: str) -> str:
+    """Validate + fuzzy-recover + unmask the LLM response, then run the output guardrail scan."""
+    service = get_pii_service()
+    config = get_pii_config()
+    token_mapping = pii_ctx.token_mapping
+
+    text = response_text
+    if config.validation.enabled:
+        valid, altered = service.validate_tokens_preserved(token_mapping, text)
+        if not valid:
+            logger.warning(f"[PII] {len(altered)} tokens altered by LLM, attempting fuzzy recovery")
+            text = service.attempt_fuzzy_recovery(text, token_mapping)
+
+    unmask_result = service.unmask(text, token_mapping, context_id=session_id)
+    final_answer = unmask_result.unmasked_text
+    if not unmask_result.validation_passed:
+        logger.warning(f"[PII] Unmasking incomplete: {len(unmask_result.tokens_missing)} tokens not found")
+
+    if config.output_guardrails.enabled:
+        leaked = service.scan_for_leaked_pii(final_answer, context_id=session_id)
+        if leaked:
+            logger.warning(f"[PII] Output guardrail: {len(leaked)} PII entities detected in response")
+            if config.output_guardrails.block_on_detection:
+                from infrastructure.pii.service import PIILeakageError
+                raise PIILeakageError(f"PII detected in response: {len(leaked)} entities")
+
+    return final_answer
+
+
+def _finalize_pii_masking(pii_ctx: _PIIMaskingContext, query_text: str, response_text: str, session_id: str) -> str:
+    """Unmask the response, then persist the real (unmasked) turn to the real chat memory —
+    the scratch memory used for the call is discarded."""
+    final_answer = _unmask_pii_response(pii_ctx, response_text, session_id)
+    pii_ctx.real_memory.put(ChatMessage(role=MessageRole.USER, content=query_text))
+    pii_ctx.real_memory.put(ChatMessage(role=MessageRole.ASSISTANT, content=final_answer))
+    return final_answer
+
+
+async def _prepare_pii_masking_async(
+    session_id: str,
+    is_temporary: bool,
+    ensure_metadata: bool,
+    query_text: str,
+) -> Optional[_PIIMaskingContext]:
+    """Async variant of _prepare_pii_masking: uses aget_all() for the real memory's chat
+    store (the sync get_all() bridges to asyncio via run_async_safely, which deadlocks when
+    called from a thread that already has a running loop — see Task 1.6), and offloads the
+    CPU-bound Presidio analysis to a thread so it doesn't block the event loop."""
+    if not get_pii_config().enabled:
+        return None
+
+    token_mapping = get_session_token_mapping(session_id)
+    real_memory = get_or_create_chat_memory(session_id, is_temporary=is_temporary, ensure_metadata=ensure_metadata)
+    history = await real_memory.aget_all()
+
+    def _mask_all() -> tuple[list[ChatMessage], str]:
+        masked_history = [
+            ChatMessage(role=msg.role, content=mask_text(str(msg.content), existing_mapping=token_mapping, context_id=session_id).masked_text)
+            for msg in history
+        ]
+        masked_query = mask_text(query_text, existing_mapping=token_mapping, context_id=session_id).masked_text
+        return masked_history, masked_query
+
+    masked_history, masked_query = await asyncio.to_thread(_mask_all)
+    scratch_memory = ChatMemoryBuffer.from_defaults(
+        chat_history=masked_history,
+        token_limit=_get_token_limit_for_chat_history(),
+    )
+    return _PIIMaskingContext(token_mapping, masked_query, scratch_memory, real_memory)
+
+
+async def _afinalize_pii_masking(pii_ctx: _PIIMaskingContext, query_text: str, response_text: str, session_id: str) -> str:
+    """Async variant of _finalize_pii_masking — offloads the CPU-bound unmask work to a
+    thread and uses aput() for the real memory's chat store."""
+    final_answer = await asyncio.to_thread(_unmask_pii_response, pii_ctx, response_text, session_id)
+    await pii_ctx.real_memory.aput(ChatMessage(role=MessageRole.USER, content=query_text))
+    await pii_ctx.real_memory.aput(ChatMessage(role=MessageRole.ASSISTANT, content=final_answer))
+    return final_answer
+
+
+def _unmask_source_nodes(source_nodes: List[NodeWithScore], token_mapping: TokenMapping) -> List[NodeWithScore]:
+    """Sources shown to the user must never contain mask tokens — only the LLM-facing copy is masked."""
+    unmasked = []
+    for nws in source_nodes:
+        text = unmask_text(nws.node.get_content(), token_mapping).unmasked_text
+        node = TextNode(text=text, metadata=nws.node.metadata)
+        unmasked.append(NodeWithScore(node=node, score=nws.score))
+    return unmasked
+
+
+# ============================================================================
 # STEP 4: CHAT ENGINE CREATION
 # ============================================================================
 
@@ -358,15 +503,20 @@ def create_chat_engine(
     is_temporary: bool = False,
     ensure_metadata: bool = True,
     async_safe: bool = False,
+    memory_override: Optional[ChatMemoryBuffer] = None,
+    pii_token_mapping: Optional[TokenMapping] = None,
 ) -> CondensePlusContextChatEngine:
     """
     Create chat engine with hybrid search, reranking, and conversational memory.
 
     Flow:
     1. Load LlamaIndex native prompts (system, context, condense)
-    2. Get or create chat memory for session
+    2. Get or create chat memory for session (or use memory_override, a
+       throwaway memory pre-seeded with masked history for the PII tier)
     3. Create hybrid retriever (or None for vector-only fallback)
-    4. Create reranker postprocessor (if enabled)
+    4. Create reranker postprocessor (if enabled), then PII masking
+       postprocessor (if pii_token_mapping given) — masking always runs
+       after reranking, since the reranker needs original text for quality
     5. Build CondensePlusContextChatEngine with all components
 
     CondensePlusContextChatEngine mode:
@@ -398,8 +548,8 @@ def create_chat_engine(
     )
     condense_prompt = get_condense_prompt()  # None = use LlamaIndex default
 
-    # Get chat memory (with temporary support)
-    memory = get_or_create_chat_memory(
+    # Get chat memory (with temporary support), unless a masked scratch memory was provided
+    memory = memory_override or get_or_create_chat_memory(
         session_id,
         is_temporary=is_temporary,
         ensure_metadata=ensure_metadata,
@@ -408,6 +558,12 @@ def create_chat_engine(
     # Create retriever (hybrid or vector-only)
     retriever = create_hybrid_retriever(index, similarity_top_k=retrieval_top_k)
 
+    # Reranker first, PII masking last (must see reranked, pre-mask node text)
+    node_postprocessors = list(create_reranker_postprocessor() or [])
+    if pii_token_mapping is not None:
+        node_postprocessors.append(PIIMaskingPostprocessor(token_mapping=pii_token_mapping, context_id=session_id))
+    node_postprocessors = node_postprocessors or None
+
     # Create chat engine
     if retriever is not None:
         logger.info("[CHAT_ENGINE] Using hybrid retriever (pg_textsearch BM25 + ChromaDB + RRF)")
@@ -415,7 +571,7 @@ def create_chat_engine(
         chat_engine = engine_class.from_defaults(
             retriever=retriever,
             memory=memory,
-            node_postprocessors=create_reranker_postprocessor(),
+            node_postprocessors=node_postprocessors,
             system_prompt=system_prompt,
             context_prompt=context_prompt,
             condense_prompt=condense_prompt,
@@ -427,7 +583,7 @@ def create_chat_engine(
             chat_mode="condense_plus_context",
             memory=memory,
             similarity_top_k=retrieval_top_k,
-            node_postprocessors=create_reranker_postprocessor(),
+            node_postprocessors=node_postprocessors,
             system_prompt=system_prompt,
             context_prompt=context_prompt,
             condense_prompt=condense_prompt,
@@ -593,6 +749,10 @@ def query_rag(
 
     logger.info(f"[QUERY] Config: top_k={config['retrieval_top_k']}, reranker={config['reranker_enabled']}, hybrid={config['hybrid_search_enabled']}")
 
+    # PII masking (no-op if pii.enabled is false): builds a masked query + a throwaway
+    # memory pre-seeded with masked history, so the chat engine never sees the real store.
+    pii_ctx = _prepare_pii_masking(session_id, is_temporary, ensure_metadata, query_text)
+
     # Create chat engine
     chat_engine = create_chat_engine(
         index,
@@ -600,36 +760,46 @@ def query_rag(
         retrieval_top_k=config['retrieval_top_k'],
         is_temporary=is_temporary,
         ensure_metadata=ensure_metadata,
+        memory_override=pii_ctx.scratch_memory if pii_ctx else None,
+        pii_token_mapping=pii_ctx.token_mapping if pii_ctx else None,
     )
 
     # Execute query
     logger.info(f"[QUERY] Executing RAG query...")
-    response = chat_engine.chat(query_text)
+    response = chat_engine.chat(pii_ctx.masked_query if pii_ctx else query_text)
 
     # Capture token usage immediately after query
     token_counts = get_token_counts()
 
-    # Log retrieved nodes
-    logger.info(f"[QUERY] Retrieved {len(response.source_nodes)} nodes for context")
+    # Sources shown to the user must be unmasked, even though the LLM saw masked context
+    source_nodes = _unmask_source_nodes(response.source_nodes, pii_ctx.token_mapping) if pii_ctx else response.source_nodes
 
-    if response.source_nodes:
+    # Log retrieved nodes
+    logger.info(f"[QUERY] Retrieved {len(source_nodes)} nodes for context")
+
+    if source_nodes:
         total_context_length = 0
-        for i, node in enumerate(response.source_nodes):
+        for i, node in enumerate(source_nodes):
             node_text = node.get_content()
             total_context_length += len(node_text)
             score_info = f" (score: {node.score:.4f})" if hasattr(node, 'score') and node.score else ""
             logger.debug(f"[QUERY] Node {i+1}{score_info}: {node_text[:150]}...")
 
-        logger.info(f"[QUERY] Total context length: {total_context_length} chars ({len(response.source_nodes)} nodes)")
+        logger.info(f"[QUERY] Total context length: {total_context_length} chars ({len(source_nodes)} nodes)")
     else:
         logger.warning("[QUERY] No context nodes retrieved - LLM will respond without context")
 
     # Extract sources
     sources = extract_sources(
-        response.source_nodes,
+        source_nodes,
         include_chunks=include_chunks,
         dedupe_by_document=not include_chunks,
     )
+
+    # Unmask the answer (validation + fuzzy recovery + output guardrail) and persist the
+    # real turn to chat history — the scratch memory used above is discarded here.
+    answer = _finalize_pii_masking(pii_ctx, query_text, str(response), session_id) if pii_ctx else str(response)
+
     citations = None
     if include_chunks:
         try:
@@ -637,7 +807,7 @@ def query_rag(
 
             models_config = get_models_config()
             if models_config.eval.citation_format == "numeric":
-                citations = extract_numeric_citations(str(response), sources)
+                citations = extract_numeric_citations(answer, sources)
         except Exception:
             citations = None
 
@@ -657,7 +827,7 @@ def query_rag(
     logger.info(f"[QUERY] Token usage: {token_counts}")
 
     return {
-        'answer': str(response),
+        'answer': answer,
         'sources': sources,
         'query': query_text,
         'session_id': session_id,
@@ -700,6 +870,8 @@ async def query_rag_async(
 
     logger.info(f"[QUERY] Config: top_k={config['retrieval_top_k']}, reranker={config['reranker_enabled']}, hybrid={config['hybrid_search_enabled']}")
 
+    pii_ctx = await _prepare_pii_masking_async(session_id, is_temporary, ensure_metadata, query_text)
+
     chat_engine = create_chat_engine(
         index,
         session_id,
@@ -707,26 +879,36 @@ async def query_rag_async(
         is_temporary=is_temporary,
         ensure_metadata=ensure_metadata,
         async_safe=True,
+        memory_override=pii_ctx.scratch_memory if pii_ctx else None,
+        pii_token_mapping=pii_ctx.token_mapping if pii_ctx else None,
     )
 
     logger.info(f"[QUERY] Executing async RAG query...")
-    response = await chat_engine.achat(query_text)
+    response = await chat_engine.achat(pii_ctx.masked_query if pii_ctx else query_text)
 
     token_counts = get_token_counts()
 
-    logger.info(f"[QUERY] Retrieved {len(response.source_nodes)} nodes for context")
+    source_nodes = _unmask_source_nodes(response.source_nodes, pii_ctx.token_mapping) if pii_ctx else response.source_nodes
+    logger.info(f"[QUERY] Retrieved {len(source_nodes)} nodes for context")
 
     sources = extract_sources(
-        response.source_nodes,
+        source_nodes,
         include_chunks=include_chunks,
         dedupe_by_document=not include_chunks,
     )
+
+    answer = (
+        await _afinalize_pii_masking(pii_ctx, query_text, str(response), session_id)
+        if pii_ctx
+        else str(response)
+    )
+
     citations = None
     if include_chunks:
         try:
             models_config = get_models_config()
             if models_config.eval.citation_format == "numeric":
-                citations = extract_numeric_citations(str(response), sources)
+                citations = extract_numeric_citations(answer, sources)
         except Exception:
             citations = None
 
@@ -744,7 +926,7 @@ async def query_rag_async(
     logger.info(f"[QUERY] Token usage: {token_counts}")
 
     return {
-        'answer': str(response),
+        'answer': answer,
         'sources': sources,
         'query': query_text,
         'session_id': session_id,
@@ -862,27 +1044,61 @@ def query_rag_stream(
         # Get index and create chat engine
         index = get_vector_index()
         config = get_inference_config()
+        pii_ctx = _prepare_pii_masking(session_id, is_temporary, ensure_metadata, query_text)
         chat_engine = create_chat_engine(
             index,
             session_id,
             retrieval_top_k=config['retrieval_top_k'],
             is_temporary=is_temporary,
             ensure_metadata=ensure_metadata,
+            memory_override=pii_ctx.scratch_memory if pii_ctx else None,
+            pii_token_mapping=pii_ctx.token_mapping if pii_ctx else None,
         )
 
         # Stream response tokens
         logger.info(f"[QUERY_STREAM] Executing streaming RAG query...")
-        streaming_response = chat_engine.stream_chat(query_text)
+        streaming_response = chat_engine.stream_chat(pii_ctx.masked_query if pii_ctx else query_text)
 
-        for token in streaming_response.response_gen:
-            yield f"event: token\ndata: {json.dumps({'token': token})}\n\n"
+        full_answer_parts = []
+        if pii_ctx:
+            # Sentence-buffered unmasking (see infrastructure/pii/streaming.py) — a
+            # [[[PERSON_0]]] token can straddle two raw deltas, so we can't unmask per-token.
+            for chunk in buffer_and_unmask_stream(
+                streaming_response.response_gen, get_pii_service(), pii_ctx.token_mapping, context_id=session_id
+            ):
+                full_answer_parts.append(chunk)
+                yield f"event: token\ndata: {json.dumps({'token': chunk})}\n\n"
+        else:
+            for token in streaming_response.response_gen:
+                full_answer_parts.append(token)
+                yield f"event: token\ndata: {json.dumps({'token': token})}\n\n"
+        full_answer = "".join(full_answer_parts)
+
+        # Sources shown to the user must be unmasked, even though the LLM saw masked context
+        source_nodes = (
+            _unmask_source_nodes(streaming_response.source_nodes, pii_ctx.token_mapping)
+            if pii_ctx
+            else streaming_response.source_nodes
+        )
 
         # After streaming completes, send sources
         sources = extract_sources(
-            streaming_response.source_nodes,
+            source_nodes,
             include_chunks=include_chunks,
             dedupe_by_document=not include_chunks,
         )
+
+        if pii_ctx:
+            # Output guardrail (audit-only for streaming: tokens are already on the
+            # wire by the time we can scan the full answer, so we can't block here).
+            pii_config = get_pii_config()
+            if pii_config.output_guardrails.enabled:
+                leaked = get_pii_service().scan_for_leaked_pii(full_answer, context_id=session_id)
+                if leaked:
+                    logger.warning(f"[PII] Output guardrail: {len(leaked)} PII entities detected in streamed response")
+            pii_ctx.real_memory.put(ChatMessage(role=MessageRole.USER, content=query_text))
+            pii_ctx.real_memory.put(ChatMessage(role=MessageRole.ASSISTANT, content=full_answer))
+
         citations = None
         if include_chunks:
             try:
@@ -890,7 +1106,7 @@ def query_rag_stream(
 
                 models_config = get_models_config()
                 if models_config.eval.citation_format == "numeric":
-                    citations = extract_numeric_citations(str(streaming_response), sources)
+                    citations = extract_numeric_citations(full_answer, sources)
             except Exception:
                 citations = None
         logger.info(f"[QUERY_STREAM] Streaming complete - {len(sources)} sources")
@@ -938,6 +1154,7 @@ async def query_rag_stream_async(
 
         index = get_vector_index()
         config = get_inference_config()
+        pii_ctx = await _prepare_pii_masking_async(session_id, is_temporary, ensure_metadata, query_text)
         chat_engine = create_chat_engine(
             index,
             session_id,
@@ -945,25 +1162,52 @@ async def query_rag_stream_async(
             is_temporary=is_temporary,
             ensure_metadata=ensure_metadata,
             async_safe=True,
+            memory_override=pii_ctx.scratch_memory if pii_ctx else None,
+            pii_token_mapping=pii_ctx.token_mapping if pii_ctx else None,
         )
 
         logger.info(f"[QUERY_STREAM] Executing async streaming RAG query...")
-        streaming_response = await chat_engine.astream_chat(query_text)
+        streaming_response = await chat_engine.astream_chat(pii_ctx.masked_query if pii_ctx else query_text)
 
-        async for token in streaming_response.async_response_gen():
-            yield f"event: token\ndata: {json.dumps({'token': token})}\n\n"
+        full_answer_parts = []
+        if pii_ctx:
+            async for chunk in buffer_and_unmask_stream_async(
+                streaming_response.async_response_gen(), get_pii_service(), pii_ctx.token_mapping, context_id=session_id
+            ):
+                full_answer_parts.append(chunk)
+                yield f"event: token\ndata: {json.dumps({'token': chunk})}\n\n"
+        else:
+            async for token in streaming_response.async_response_gen():
+                full_answer_parts.append(token)
+                yield f"event: token\ndata: {json.dumps({'token': token})}\n\n"
+        full_answer = "".join(full_answer_parts)
 
+        source_nodes = (
+            _unmask_source_nodes(streaming_response.source_nodes, pii_ctx.token_mapping)
+            if pii_ctx
+            else streaming_response.source_nodes
+        )
         sources = extract_sources(
-            streaming_response.source_nodes,
+            source_nodes,
             include_chunks=include_chunks,
             dedupe_by_document=not include_chunks,
         )
+
+        if pii_ctx:
+            pii_config = get_pii_config()
+            if pii_config.output_guardrails.enabled:
+                leaked = await asyncio.to_thread(get_pii_service().scan_for_leaked_pii, full_answer, session_id)
+                if leaked:
+                    logger.warning(f"[PII] Output guardrail: {len(leaked)} PII entities detected in streamed response")
+            await pii_ctx.real_memory.aput(ChatMessage(role=MessageRole.USER, content=query_text))
+            await pii_ctx.real_memory.aput(ChatMessage(role=MessageRole.ASSISTANT, content=full_answer))
+
         citations = None
         if include_chunks:
             try:
                 models_config = get_models_config()
                 if models_config.eval.citation_format == "numeric":
-                    citations = extract_numeric_citations(str(streaming_response), sources)
+                    citations = extract_numeric_citations(full_answer, sources)
             except Exception:
                 citations = None
         logger.info(f"[QUERY_STREAM] Async streaming complete - {len(sources)} sources")

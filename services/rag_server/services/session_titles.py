@@ -47,13 +47,19 @@ def generate_ai_title(first_user_message: str, max_length: int = 40) -> str:
 
     try:
         from infrastructure.llm.factory import get_llm_client
+        from infrastructure.pii.config import get_pii_config
+        from infrastructure.pii.service import mask_text
 
         llm = get_llm_client()
+
+        message_for_llm = first_user_message[:500]
+        if get_pii_config().enabled:
+            message_for_llm = mask_text(message_for_llm).masked_text
 
         prompt = f"""Generate a very short title (3-6 words max) for a chat that starts with this message.
 Reply with ONLY the title, no quotes, no explanation, no punctuation at the end.
 
-User message: {first_user_message[:500]}
+User message: {message_for_llm}
 
 Title:"""
 
