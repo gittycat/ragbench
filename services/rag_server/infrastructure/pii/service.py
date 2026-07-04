@@ -10,10 +10,13 @@ token across multiple mask() calls that share a mapping.
 """
 
 import logging
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
+import tldextract
 from presidio_analyzer import AnalyzerEngine, RecognizerResult
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
@@ -23,6 +26,15 @@ from .config import get_pii_config
 from infrastructure.config.models_config import PiiConfig
 
 logger = logging.getLogger(__name__)
+
+# Presidio's EmailRecognizer validates TLDs via tldextract, which by default fetches
+# the public suffix list from the network on first use and caches it under ~/.cache
+# (root-owned in the Docker image — see Docker Volume Permissions notes). Both are
+# wrong for a privacy/offline-first product: force the snapshot bundled with the
+# tldextract package, cached under a directory guaranteed writable in every tier.
+tldextract.tldextract.TLD_EXTRACTOR = tldextract.TLDExtract(
+    suffix_list_urls=(), cache_dir=str(Path(tempfile.gettempdir()) / "tldextract_cache")
+)
 
 
 @dataclass
