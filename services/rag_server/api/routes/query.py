@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from schemas.query import QueryRequest, QueryResponse, QueryMetrics, TokenUsage, QueryWithContextRequest
-from pipelines.inference import query_rag, query_rag_stream, query_rag_with_context
+from pipelines.inference import query_rag_async, query_rag_stream_async, query_rag_with_context
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -26,19 +26,13 @@ async def query(request: QueryRequest):
             if not metadata:
                 await create_session_metadata_async(session_id, is_temporary=False)
 
-        # Run in executor to keep the main event loop free for async DB operations
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(
-            None,
-            partial(
-                query_rag,
-                request.query,
-                session_id=session_id,
-                is_temporary=request.is_temporary,
-                include_chunks=request.include_chunks,
-                ensure_metadata=False,
-                update_session_metadata=False,
-            ),
+        result = await query_rag_async(
+            request.query,
+            session_id=session_id,
+            is_temporary=request.is_temporary,
+            include_chunks=request.include_chunks,
+            ensure_metadata=False,
+            update_session_metadata=False,
         )
 
         # Update session metadata after query (non-temporary sessions only)
@@ -146,30 +140,14 @@ async def query_stream(request: QueryRequest):
             await create_session_metadata_async(session_id, is_temporary=False)
 
     async def stream_wrapper():
-        """Run sync generator in a thread, feed chunks via async queue."""
-        loop = asyncio.get_running_loop()
-        queue: asyncio.Queue = asyncio.Queue()
-        sentinel = object()
-
-        def sync_producer():
-            try:
-                for chunk in query_rag_stream(
-                    request.query,
-                    session_id,
-                    is_temporary=request.is_temporary,
-                    include_chunks=request.include_chunks,
-                    ensure_metadata=False,
-                ):
-                    asyncio.run_coroutine_threadsafe(queue.put(chunk), loop).result()
-            finally:
-                asyncio.run_coroutine_threadsafe(queue.put(sentinel), loop).result()
-
-        loop.run_in_executor(None, sync_producer)
-        while True:
-            item = await queue.get()
-            if item is sentinel:
-                break
-            yield item
+        async for chunk in query_rag_stream_async(
+            request.query,
+            session_id,
+            is_temporary=request.is_temporary,
+            include_chunks=request.include_chunks,
+            ensure_metadata=False,
+        ):
+            yield chunk
 
     return StreamingResponse(
         stream_wrapper(),

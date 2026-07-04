@@ -10,7 +10,8 @@ Complete flow for query processing and answer generation:
 6. Source extraction and response formatting
 """
 
-from typing import Dict, List, Optional, Generator
+from typing import AsyncGenerator, Dict, List, Optional, Generator
+import asyncio
 import json
 import logging
 import time
@@ -19,6 +20,7 @@ import uuid
 from llama_index.core import VectorStoreIndex
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core import Settings
+from llama_index.core.schema import NodeWithScore, QueryBundle
 from llama_index.postprocessor.sbert_rerank import SentenceTransformerRerank
 from llama_index.core.chat_engine import CondensePlusContextChatEngine
 from llama_index.core.callbacks import CallbackManager, TokenCountingHandler
@@ -326,12 +328,32 @@ def ensure_reranker_model_cached() -> None:
 # STEP 4: CHAT ENGINE CREATION
 # ============================================================================
 
+class _AsyncSafeCondensePlusContextChatEngine(CondensePlusContextChatEngine):
+    """CondensePlusContextChatEngine variant safe to `await` directly on the
+    main event loop.
+
+    The base class's `_aget_nodes()` calls node_postprocessors (e.g. the
+    cross-encoder reranker) synchronously inline inside the coroutine, which
+    would block the event loop for the CPU-bound reranking duration. This
+    override runs postprocessing in a thread instead.
+    """
+
+    async def _aget_nodes(self, message: str) -> List[NodeWithScore]:
+        nodes = await self._retriever.aretrieve(message)
+        for postprocessor in self._node_postprocessors:
+            nodes = await asyncio.to_thread(
+                postprocessor.postprocess_nodes, nodes, query_bundle=QueryBundle(message)
+            )
+        return nodes
+
+
 def create_chat_engine(
     index: VectorStoreIndex,
     session_id: str,
     retrieval_top_k: int = 10,
     is_temporary: bool = False,
     ensure_metadata: bool = True,
+    async_safe: bool = False,
 ) -> CondensePlusContextChatEngine:
     """
     Create chat engine with hybrid search, reranking, and conversational memory.
@@ -385,7 +407,8 @@ def create_chat_engine(
     # Create chat engine
     if retriever is not None:
         logger.info("[CHAT_ENGINE] Using hybrid retriever (pg_textsearch BM25 + ChromaDB + RRF)")
-        chat_engine = CondensePlusContextChatEngine.from_defaults(
+        engine_class = _AsyncSafeCondensePlusContextChatEngine if async_safe else CondensePlusContextChatEngine
+        chat_engine = engine_class.from_defaults(
             retriever=retriever,
             memory=memory,
             node_postprocessors=create_reranker_postprocessor(),
@@ -642,6 +665,93 @@ def query_rag(
     }
 
 
+async def query_rag_async(
+    query_text: str,
+    session_id: str,
+    is_temporary: bool = False,
+    include_chunks: bool = False,
+    ensure_metadata: bool = True,
+    update_session_metadata: bool = True,
+) -> Dict:
+    """
+    Async variant of query_rag(): awaits chat_engine.achat() directly instead
+    of going through an executor thread. Same return shape as query_rag().
+
+    Session metadata updates use the `_async` repository functions directly
+    (touch_session_async, etc.) rather than the sync ones, since those sync
+    functions block via run_async_safely() and are only safe to call from a
+    thread other than the main event loop's — which this coroutine runs on.
+    """
+    from infrastructure.search.vector_store import get_vector_index
+    from services.session import touch_session_async, get_session_metadata_async, update_session_title_async
+    from services.session_titles import generate_session_title
+
+    logger.info(f"[QUERY] Processing async query for session: {session_id} (temporary={is_temporary})")
+    query_start = time.time()
+
+    reset_token_counter()
+
+    index = get_vector_index()
+    config = get_inference_config()
+
+    logger.info(f"[QUERY] Config: top_k={config['retrieval_top_k']}, reranker={config['reranker_enabled']}, hybrid={config['hybrid_search_enabled']}")
+
+    chat_engine = create_chat_engine(
+        index,
+        session_id,
+        retrieval_top_k=config['retrieval_top_k'],
+        is_temporary=is_temporary,
+        ensure_metadata=ensure_metadata,
+        async_safe=True,
+    )
+
+    logger.info(f"[QUERY] Executing async RAG query...")
+    response = await chat_engine.achat(query_text)
+
+    token_counts = get_token_counts()
+
+    logger.info(f"[QUERY] Retrieved {len(response.source_nodes)} nodes for context")
+
+    sources = extract_sources(
+        response.source_nodes,
+        include_chunks=include_chunks,
+        dedupe_by_document=not include_chunks,
+    )
+    citations = None
+    if include_chunks:
+        try:
+            models_config = get_models_config()
+            if models_config.eval.citation_format == "numeric":
+                citations = extract_numeric_citations(str(response), sources)
+        except Exception:
+            citations = None
+
+    if update_session_metadata and not is_temporary:
+        await touch_session_async(session_id)
+
+        metadata = await get_session_metadata_async(session_id)
+        if metadata and metadata.title == "New Chat":
+            title = generate_session_title(query_text)
+            await update_session_title_async(session_id, title)
+
+    query_duration = time.time() - query_start
+    latency_ms = query_duration * 1000
+    logger.info(f"[QUERY] Async query complete ({query_duration:.2f}s) - {len(sources)} sources returned")
+    logger.info(f"[QUERY] Token usage: {token_counts}")
+
+    return {
+        'answer': str(response),
+        'sources': sources,
+        'query': query_text,
+        'session_id': session_id,
+        'citations': citations,
+        'metrics': {
+            'latency_ms': latency_ms,
+            'token_usage': token_counts if token_counts['total_tokens'] > 0 else None,
+        },
+    }
+
+
 def query_rag_with_context(
     query_text: str,
     context_passages: List[Dict],
@@ -798,6 +908,76 @@ def query_rag_stream(
 
     except Exception as e:
         logger.error(f"[QUERY_STREAM] Error during streaming: {str(e)}")
+        yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+
+
+async def query_rag_stream_async(
+    query_text: str,
+    session_id: str,
+    is_temporary: bool = False,
+    include_chunks: bool = False,
+    ensure_metadata: bool = True,
+    update_session_metadata: bool = True,
+) -> AsyncGenerator[str, None]:
+    """
+    Async variant of query_rag_stream(): awaits chat_engine.astream_chat()
+    directly and iterates response.async_response_gen(), instead of running
+    the sync generator in a thread with a queue bridge. Same SSE event shape
+    as query_rag_stream().
+    """
+    from infrastructure.search.vector_store import get_vector_index
+    from services.session import touch_session_async, get_session_metadata_async, update_session_title_async
+    from services.session_titles import generate_session_title
+
+    try:
+        logger.info(f"[QUERY_STREAM] Starting async streaming query for session: {session_id} (temporary={is_temporary})")
+
+        index = get_vector_index()
+        config = get_inference_config()
+        chat_engine = create_chat_engine(
+            index,
+            session_id,
+            retrieval_top_k=config['retrieval_top_k'],
+            is_temporary=is_temporary,
+            ensure_metadata=ensure_metadata,
+            async_safe=True,
+        )
+
+        logger.info(f"[QUERY_STREAM] Executing async streaming RAG query...")
+        streaming_response = await chat_engine.astream_chat(query_text)
+
+        async for token in streaming_response.async_response_gen():
+            yield f"event: token\ndata: {json.dumps({'token': token})}\n\n"
+
+        sources = extract_sources(
+            streaming_response.source_nodes,
+            include_chunks=include_chunks,
+            dedupe_by_document=not include_chunks,
+        )
+        citations = None
+        if include_chunks:
+            try:
+                models_config = get_models_config()
+                if models_config.eval.citation_format == "numeric":
+                    citations = extract_numeric_citations(str(streaming_response), sources)
+            except Exception:
+                citations = None
+        logger.info(f"[QUERY_STREAM] Async streaming complete - {len(sources)} sources")
+
+        if update_session_metadata and not is_temporary:
+            await touch_session_async(session_id)
+
+            metadata = await get_session_metadata_async(session_id)
+            if metadata and metadata.title == "New Chat":
+                title = generate_session_title(query_text)
+                await update_session_title_async(session_id, title)
+
+        yield f"event: sources\ndata: {json.dumps({'sources': sources, 'citations': citations, 'session_id': session_id})}\n\n"
+
+        yield f"event: done\ndata: {{}}\n\n"
+
+    except Exception as e:
+        logger.error(f"[QUERY_STREAM] Error during async streaming: {str(e)}")
         yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
 
 
