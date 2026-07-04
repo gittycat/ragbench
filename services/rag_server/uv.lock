@@ -981,6 +981,14 @@ wheels = [
 ]
 
 [[package]]
+name = "en-core-web-md"
+version = "3.8.0"
+source = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.8.0/en_core_web_md-3.8.0-py3-none-any.whl" }
+wheels = [
+    { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.8.0/en_core_web_md-3.8.0-py3-none-any.whl", hash = "sha256:5e6329fe3fecedb1d1a02c3ea2172ee0fede6cea6e4aefb6a02d832dba78a310" },
+]
+
+[[package]]
 name = "et-xmlfile"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3540,6 +3548,7 @@ dependencies = [
     { name = "asyncpg" },
     { name = "chromadb" },
     { name = "docling" },
+    { name = "en-core-web-md" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "llama-index-core" },
@@ -3590,6 +3599,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "chromadb", specifier = ">=1.5.0" },
     { name = "docling", specifier = ">=2.53.0" },
+    { name = "en-core-web-md", url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.8.0/en_core_web_md-3.8.0-py3-none-any.whl" },
     { name = "fastapi", specifier = ">=0.118.3" },
     { name = "httpx", specifier = ">=0.27.2" },
     { name = "llama-index-core", specifier = ">=0.14.4" },

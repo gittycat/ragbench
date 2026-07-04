@@ -266,3 +266,57 @@ prompts:
     Format: "This section from [document/topic] discusses [specific topic/concept]."
 
     Context (1-2 sentences only):
+
+# ============================================================================
+# PII Masking - opt-in cloud generation tier only (Task 2.3)
+# ============================================================================
+# Reversible PII masking for the generation path (user query, retrieved
+# context, chat history, session-title generation) when using a cloud LLM
+# provider (openai/anthropic/google/deepseek). Embeddings, contextual
+# enrichment, and the reranker are never masked and stay local/VM-side by
+# product decision — see validate_privacy_posture() in models_config.py,
+# which refuses to boot if pii.enabled is true with a non-local embedding
+# provider.
+#
+# Masked text is pseudonymized, not anonymized: it reduces exposure to the
+# cloud provider but is not a compliance guarantee. For genuinely sensitive
+# corpora, use a local Ollama model instead.
+pii:
+  enabled: false  # Master toggle
+
+  # Entity types to detect and mask. Full list: https://microsoft.github.io/presidio/supported_entities/
+  entities:
+    - PERSON
+    - EMAIL_ADDRESS
+    - PHONE_NUMBER
+    - CREDIT_CARD
+    - US_SSN
+    - IBAN_CODE
+    - IP_ADDRESS
+
+  masking_strategy: tokens  # distinctive bracket tokens, e.g. [[[PERSON_0]]]
+  token_format: "[[[{entity_type}_{index}]]]"
+
+  # Score threshold for PII detection (0.0-1.0)
+  score_threshold: 0.5
+
+  # Language + spaCy NLP model for Presidio's analyzer
+  language: en
+  spacy_model: en_core_web_md  # en_core_web_lg is more accurate but ~15x larger on disk
+
+  # Validate that tokens the LLM was given survive unaltered in its response;
+  # attempt fuzzy recovery (bracket/case/separator repair) if not
+  validation:
+    enabled: true
+    max_retries: 2
+    alert_on_failure: true
+
+  # Scan the unmasked response for verbatim PII leaks (output guardrail)
+  output_guardrails:
+    enabled: true
+    block_on_detection: false  # if true, raise instead of returning the response
+
+  # Audit logging of mask/unmask operations (never logs original PII values at INFO)
+  audit:
+    enabled: true
+    log_level: INFO

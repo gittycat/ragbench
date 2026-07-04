@@ -38,6 +38,7 @@ dependencies = [
     "llama-index-llms-openai-like>=0.5.3",
     "presidio-analyzer>=2.2.363",
     "presidio-anonymizer>=2.2.363",
+    "en-core-web-md",
 ]
 
 [dependency-groups]
@@ -69,3 +70,6 @@ markers = [
     "slow: Tests taking > 30s",
 ]
 addopts = "--strict-markers"
+
+[tool.uv.sources]
+en-core-web-md = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_md-3.8.0/en_core_web_md-3.8.0-py3-none-any.whl" }

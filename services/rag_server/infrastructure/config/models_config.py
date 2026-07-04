@@ -195,14 +195,59 @@ class ChromaDBConfig(BaseModel):
 LOCAL_EMBEDDING_PROVIDERS = {"ollama"}
 
 
+class PiiValidationConfig(BaseModel):
+    """Token-preservation validation settings for the unmask step."""
+
+    enabled: bool = True
+    max_retries: int = 2
+    alert_on_failure: bool = True
+
+
+class PiiGuardrailsConfig(BaseModel):
+    """Output guardrail settings — scan the unmasked LLM response for leaked PII."""
+
+    enabled: bool = True
+    block_on_detection: bool = False
+
+
+class PiiAuditConfig(BaseModel):
+    """Audit logging settings for mask/unmask operations."""
+
+    enabled: bool = True
+    log_level: str = "INFO"
+
+
 class PiiConfig(BaseModel):
     """PII masking configuration for the opt-in cloud generation tier.
 
-    Stub for Task 2.4's corpus-local guardrail; Task 2.3 fills in the rest
-    (entity list, threshold, masking implementation).
+    Scope (Task 2.3, narrowed per ARCHITECTURE_REFACTOR_PLAN.md): masking
+    applies only to the generation path (query, retrieved context, chat
+    history, session-title generation). Embeddings, contextual enrichment,
+    and reranking stay local/VM-side and are never masked — see
+    Task 2.4's validate_privacy_posture() for the enforcement of that
+    boundary.
     """
 
     enabled: bool = False
+    entities: list[str] = Field(
+        default_factory=lambda: [
+            "PERSON",
+            "EMAIL_ADDRESS",
+            "PHONE_NUMBER",
+            "CREDIT_CARD",
+            "US_SSN",
+            "IBAN_CODE",
+            "IP_ADDRESS",
+        ]
+    )
+    masking_strategy: Literal["tokens"] = "tokens"
+    token_format: str = "[[[{entity_type}_{index}]]]"
+    score_threshold: float = 0.5
+    language: str = "en"
+    spacy_model: str = "en_core_web_md"
+    validation: PiiValidationConfig = Field(default_factory=PiiValidationConfig)
+    output_guardrails: PiiGuardrailsConfig = Field(default_factory=PiiGuardrailsConfig)
+    audit: PiiAuditConfig = Field(default_factory=PiiAuditConfig)
 
 
 class CitationInstructions(BaseModel):

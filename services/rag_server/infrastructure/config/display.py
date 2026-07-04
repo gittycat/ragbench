@@ -94,3 +94,12 @@ def _print_full_banner(config) -> None:
         print(f"  Citation Scope:   {config.eval.citation_scope}")
         print(f"  Citation Format:  {config.eval.citation_format}")
         print(f"  API Key:          {'configured' if config.eval.api_key else 'not set'}")
+
+    # PII masking section (opt-in cloud generation tier)
+    print("\nPII Masking:")
+    print(f"  Enabled:          {config.pii.enabled}")
+    if config.pii.enabled:
+        print(f"  Entities:         {', '.join(config.pii.entities)}")
+        print(f"  spaCy Model:      {config.pii.spacy_model}")
+        print(f"  Score Threshold:  {config.pii.score_threshold}")
+        print(f"  Output Guardrail: {config.pii.output_guardrails.enabled}")
