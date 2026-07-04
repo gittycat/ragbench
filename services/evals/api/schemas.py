@@ -47,6 +47,12 @@ class DashboardMetrics(BaseModel):
     answer_relevance: float | None = None
     latency_p50_seconds: float | None = None
     latency_p95_seconds: float | None = None
+    latency_avg_seconds: float | None = None
+    avg_cost_usd: float | None = None
+    total_cost_usd: float | None = None
+    total_prompt_tokens: int | None = None
+    total_completion_tokens: int | None = None
+    cost_model: str | None = None
 
 
 class RunSummary(BaseModel):
@@ -61,6 +67,8 @@ class RunSummary(BaseModel):
     duration_seconds: float | None = None
     weighted_score: float | None = None
     dashboard_metrics: DashboardMetrics | None = None
+    metrics: dict[str, float] = Field(default_factory=dict)
+    groups: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class RunListResponse(BaseModel):

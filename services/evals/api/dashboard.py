@@ -37,6 +37,13 @@ def compute_dashboard_metrics(scorecard: dict | None, tier: str = "") -> Dashboa
 
     latency_p50 = lookup.get("latency_p50_ms")
     latency_p95 = lookup.get("latency_p95_ms")
+    latency_avg = lookup.get("latency_avg_ms")
+
+    cost_details: dict = {}
+    for m in metrics_list:
+        if m["name"] == "cost_per_query":
+            cost_details = m.get("details") or {}
+            break
 
     return DashboardMetrics(
         retrieval_relevance=retrieval_relevance,
@@ -45,4 +52,10 @@ def compute_dashboard_metrics(scorecard: dict | None, tier: str = "") -> Dashboa
         answer_relevance=answer_relevance,
         latency_p50_seconds=latency_p50 / 1000 if latency_p50 is not None else None,
         latency_p95_seconds=latency_p95 / 1000 if latency_p95 is not None else None,
+        latency_avg_seconds=latency_avg / 1000 if latency_avg is not None else None,
+        avg_cost_usd=cost_details.get("avg_cost_usd"),
+        total_cost_usd=cost_details.get("total_cost_usd"),
+        total_prompt_tokens=cost_details.get("total_prompt_tokens"),
+        total_completion_tokens=cost_details.get("total_completion_tokens"),
+        cost_model=cost_details.get("model"),
     )

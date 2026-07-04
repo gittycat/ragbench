@@ -117,40 +117,31 @@ def compare_runs(ids: str = Query(..., description="Comma-separated run IDs")):
         raise HTTPException(422, "At least 2 run IDs required")
 
     details = []
+    summaries = []
     for rid in id_list:
         data = jm.get_run(rid)
         if not data:
             raise HTTPException(404, f"Run {rid} not found")
         details.append(jm.run_to_detail(data))
+        summaries.append(jm.run_to_summary(data))
 
-    # Compute deltas between first and second run's dashboard metrics
+    # Compute deltas between first and second run (second minus first)
     deltas: dict[str, float | None] = {}
     if len(details) >= 2:
-        # Duration delta
         d1 = details[0].duration_seconds
         d2 = details[1].duration_seconds
-        if d1 is not None and d2 is not None:
-            deltas["duration_seconds"] = round(d2 - d1, 1)
-        else:
-            deltas["duration_seconds"] = None
+        deltas["duration_seconds"] = round(d2 - d1, 1) if d1 is not None and d2 is not None else None
 
-        m1 = details[0].dashboard_metrics
-        m2 = details[1].dashboard_metrics
-        if m1 and m2:
-            for field_name in (
-                "retrieval_relevance",
-                "faithfulness",
-                "answer_completeness",
-                "answer_relevance",
-                "latency_p50_seconds",
-                "latency_p95_seconds",
-            ):
-                v1 = getattr(m1, field_name)
-                v2 = getattr(m2, field_name)
-                if v1 is not None and v2 is not None:
-                    deltas[field_name] = round(v2 - v1, 4)
-                else:
-                    deltas[field_name] = None
+        w1 = summaries[0].weighted_score
+        w2 = summaries[1].weighted_score
+        deltas["weighted_score"] = round(w2 - w1, 4) if w1 is not None and w2 is not None else None
+
+        metrics1 = summaries[0].metrics
+        metrics2 = summaries[1].metrics
+        for name in set(metrics1) | set(metrics2):
+            v1 = metrics1.get(name)
+            v2 = metrics2.get(name)
+            deltas[name] = round(v2 - v1, 4) if v1 is not None and v2 is not None else None
 
     return CompareRunsResponse(runs=details, deltas=deltas)
 

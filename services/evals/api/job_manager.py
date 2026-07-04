@@ -228,8 +228,11 @@ class JobManager:
 
     def run_to_summary(self, data: dict) -> RunSummary:
         tier = data.get("metadata", {}).get("tier", "")
-        dm = compute_dashboard_metrics(data.get("scorecard"), tier=tier)
+        scorecard = data.get("scorecard") or {}
+        dm = compute_dashboard_metrics(scorecard, tier=tier)
         ws = data.get("weighted_score", {})
+        metrics = {m["name"]: m["value"] for m in scorecard.get("metrics", [])}
+        groups = scorecard.get("by_group", {})
         return RunSummary(
             id=data["id"],
             name=data.get("name", ""),
@@ -242,6 +245,8 @@ class JobManager:
             duration_seconds=_extract_duration(data),
             weighted_score=ws.get("score") if ws else None,
             dashboard_metrics=dm,
+            metrics=metrics,
+            groups=groups,
         )
 
     def run_to_detail(self, data: dict) -> RunDetailResponse:
