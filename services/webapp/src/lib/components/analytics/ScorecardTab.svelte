@@ -8,6 +8,7 @@
 		type ScorecardMetric
 	} from '$lib/api/evals';
 	import MetricValue from './MetricValue.svelte';
+	import { metricDescription } from '$lib/utils/metricInfo';
 
 	let runs = $state<EvalRunSummary[]>([]);
 	let selectedRunId = $state<string>('');
@@ -37,6 +38,11 @@
 
 	function findMetric(name: string): ScorecardMetric | undefined {
 		return performanceMetrics.find((m) => m.name === name);
+	}
+
+	function latencySeconds(name: string): string {
+		const v = detail?.scorecard?.metrics.find((m) => m.name === name)?.value;
+		return typeof v === 'number' ? (v / 1000).toFixed(2) : '—';
 	}
 
 	let costDetails = $derived.by(() => {
@@ -207,7 +213,7 @@
 								<tbody>
 									{#each groupMetrics as m}
 										<tr class="hover">
-											<td class="capitalize text-xs">{metricLabel(m.name)}</td>
+											<td class="capitalize text-xs" title={metricDescription(m.name)}>{metricLabel(m.name)}</td>
 											<td class="text-right">
 												<MetricValue metricName={m.name} value={m.value} />
 												{#if group === 'generation' && typeof m.details?.std_dev === 'number'}
@@ -230,10 +236,10 @@
 				{/each}
 			</div>
 
-			<!-- Telemetry panel -->
+			<!-- Cost & speed panel -->
 			<div class="term-panel">
 				<div class="term-label mb-2">
-					Telemetry
+					Cost &amp; Speed
 				</div>
 				<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
 					<div class="term-tile">
@@ -252,23 +258,23 @@
 						<div class="term-label">Completion Tokens</div>
 						<MetricValue metricName="total_completion_tokens" value={detail.dashboard_metrics?.total_completion_tokens} format="int" />
 					</div>
-					<div class="term-tile">
-						<div class="term-label">Judge Model</div>
+					<div class="term-tile" title="RAG inference model whose token rates price the cost figures">
+						<div class="term-label">Model (pricing)</div>
 						<span class="font-mono text-xs">{costDetails.model ?? detail.dashboard_metrics?.cost_model ?? '—'}</span>
 					</div>
 					<div class="term-tile">
 						<div class="term-label">Latency p50/p95/avg</div>
 						<span class="font-mono text-xs tabular-nums">
-							{detail.scorecard?.metrics.find((m) => m.name === 'latency_p50_ms')?.value.toFixed(0) ?? '—'}/
-							{detail.scorecard?.metrics.find((m) => m.name === 'latency_p95_ms')?.value.toFixed(0) ?? '—'}/
-							{detail.scorecard?.metrics.find((m) => m.name === 'latency_avg_ms')?.value.toFixed(0) ?? '—'} ms
+							{latencySeconds('latency_p50_ms')}/
+							{latencySeconds('latency_p95_ms')}/
+							{latencySeconds('latency_avg_ms')} s
 						</span>
 					</div>
 					<div class="term-tile">
 						<div class="term-label">Latency min/max</div>
 						<span class="font-mono text-xs tabular-nums">
-							{typeof latencyDetails.min_ms === 'number' ? (latencyDetails.min_ms as number).toFixed(0) : '—'}/
-							{typeof latencyDetails.max_ms === 'number' ? (latencyDetails.max_ms as number).toFixed(0) : '—'} ms
+							{typeof latencyDetails.min_ms === 'number' ? ((latencyDetails.min_ms as number) / 1000).toFixed(2) : '—'}/
+							{typeof latencyDetails.max_ms === 'number' ? ((latencyDetails.max_ms as number) / 1000).toFixed(2) : '—'} s
 						</span>
 					</div>
 				</div>

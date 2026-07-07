@@ -6,11 +6,12 @@
 		value: number | null | undefined;
 		format?: 'percent' | 'decimal' | 'ms' | 'seconds' | 'usd' | 'int' | 'raw';
 		decimals?: number;
+		colored?: boolean;
 	}
 
-	let { metricName, value, format = 'percent', decimals = 1 }: Props = $props();
+	let { metricName, value, format = 'percent', decimals = 1, colored = true }: Props = $props();
 
-	let colorClass = $derived(thresholdColorClass(metricName, value));
+	let colorClass = $derived(colored ? thresholdColorClass(metricName, value) : '');
 
 	let display = $derived.by(() => {
 		if (value === null || value === undefined) return '—';
@@ -22,7 +23,7 @@
 			case 'ms':
 				return `${value.toFixed(0)}ms`;
 			case 'seconds':
-				return `${value.toFixed(3)}s`;
+				return `${value.toFixed(2)}s`;
 			case 'usd':
 				return `$${value.toFixed(4)}`;
 			case 'int':

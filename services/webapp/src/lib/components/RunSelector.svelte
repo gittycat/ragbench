@@ -104,6 +104,11 @@
 						<div class="font-mono truncate" title={run.name}>
 							{run.name}
 						</div>
+						{#if run.llm_model}
+							<div class="font-mono text-base-content/60 truncate" title={run.llm_model}>
+								{run.llm_model}
+							</div>
+						{/if}
 						<div class="text-base-content/50 flex items-center gap-2">
 							<span>{getRunDate(run)} {getRunTime(run)}</span>
 							<span class="badge badge-xs {getScoreColor(run.weighted_score)}">

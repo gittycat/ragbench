@@ -7,8 +7,6 @@ import {
 	Chart,
 	CategoryScale,
 	LinearScale,
-	BarElement,
-	BarController,
 	LineElement,
 	LineController,
 	PointElement,
@@ -21,12 +19,10 @@ import {
 } from 'chart.js';
 import annotationPlugin from 'chartjs-plugin-annotation';
 
-// Register Chart.js components (bar + line charts)
+// Register Chart.js components (line charts)
 Chart.register(
 	CategoryScale,
 	LinearScale,
-	BarElement,
-	BarController,
 	LineElement,
 	LineController,
 	PointElement,
@@ -93,23 +89,6 @@ export function chartInk() {
 		inkMuted: themeColor('base-content', 0.45),
 		grid: themeColor('base-content', 0.08)
 	};
-}
-
-/**
- * Series colors for up to `count` datasets: an ordered lightness ramp of the
- * theme's primary hue (fill alpha steps). Single-hue + big lightness steps keeps
- * run identity legible under CVD and works in both nord/dim without a fixed palette.
- */
-export function getChartColors(count: number): { background: string[]; border: string[] } {
-	const fillAlphas = [0.9, 0.62, 0.4, 0.22];
-	const background: string[] = [];
-	const border: string[] = [];
-	for (let i = 0; i < count; i++) {
-		const a = fillAlphas[i % fillAlphas.length];
-		background.push(themeColor('primary', a));
-		border.push(themeColor('primary', Math.min(1, a + 0.1)));
-	}
-	return { background, border };
 }
 
 /** Dense monospace scale options (recessive grid, muted ticks) for a linear/category axis. */

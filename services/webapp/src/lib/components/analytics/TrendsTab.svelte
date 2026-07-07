@@ -144,8 +144,10 @@
 
 	let latencyP95Series = $derived.by(
 		(): Series => ({
-			title: 'Latency p95 (ms)',
-			values: filteredRuns.map((r) => r.metrics['latency_p95_ms'] ?? null)
+			title: 'Latency p95 (s)',
+			values: filteredRuns.map((r) =>
+				r.metrics['latency_p95_ms'] != null ? r.metrics['latency_p95_ms'] / 1000 : null
+			)
 		})
 	);
 
@@ -219,7 +221,7 @@
 						Latency p95
 					</div>
 					<div style="height: 220px;">
-						<canvas use:chartAction={buildConfig(latencyP95Series, 'ms')}></canvas>
+						<canvas use:chartAction={buildConfig(latencyP95Series, 's')}></canvas>
 					</div>
 				</div>
 				<div class="term-panel lg:col-span-2">

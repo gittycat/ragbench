@@ -98,15 +98,8 @@ def list_runs(
 # ── GET /eval/runs/{run_id} — full run detail ────────────────────────────
 
 
-@router.get("/runs/{run_id}", response_model=RunDetailResponse)
-def get_run(run_id: str):
-    data = _jm().get_run(run_id)
-    if not data:
-        raise HTTPException(404, f"Run {run_id} not found")
-    return _jm().run_to_detail(data)
-
-
 # ── GET /eval/runs/compare — compare runs ────────────────────────────────
+# Must be registered before /runs/{run_id} or "compare" gets captured as a run_id.
 
 
 @router.get("/runs/compare", response_model=CompareRunsResponse)
@@ -144,6 +137,14 @@ def compare_runs(ids: str = Query(..., description="Comma-separated run IDs")):
             deltas[name] = round(v2 - v1, 4) if v1 is not None and v2 is not None else None
 
     return CompareRunsResponse(runs=details, deltas=deltas)
+
+
+@router.get("/runs/{run_id}", response_model=RunDetailResponse)
+def get_run(run_id: str):
+    data = _jm().get_run(run_id)
+    if not data:
+        raise HTTPException(404, f"Run {run_id} not found")
+    return _jm().run_to_detail(data)
 
 
 # ── GET /eval/dashboard — dashboard summary ──────────────────────────────

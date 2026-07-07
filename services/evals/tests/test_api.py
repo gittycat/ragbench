@@ -91,6 +91,11 @@ class TestRunSummaryMetricsMap:
         assert summary.groups == {}
         assert summary.dashboard_metrics is None
 
+    def test_llm_model_from_config(self, jm):
+        summary = jm.run_to_summary(_run_dict(config={"llm_model": "gpt-5-mini"}))
+        assert summary.llm_model == "gpt-5-mini"
+        assert jm.run_to_summary(_run_dict()).llm_model is None
+
 
 class TestTelemetryDerivation:
     def test_cost_and_latency_fields(self):
@@ -136,6 +141,32 @@ class TestCompareDeltas:
     def test_weighted_score_present(self, jm):
         summary = jm.run_to_summary(_run_dict())
         assert summary.weighted_score == 0.82
+
+
+class TestCompareRoute:
+    def test_compare_not_shadowed_by_run_id_route(self, jm):
+        # Regression: /runs/compare must be registered before /runs/{run_id},
+        # otherwise "compare" is captured as a run_id and the endpoint 404s.
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from api import routes
+
+        run_a = _run_dict(run_id="a")
+        run_b = _run_dict(run_id="b", created_at="2026-07-02T00:00:00")
+        jm._run_index["a"] = (jm.runs_dir / "a.json", run_a)
+        jm._run_index["b"] = (jm.runs_dir / "b.json", run_b)
+
+        routes.init_router(jm)
+        app = FastAPI()
+        app.include_router(routes.router)
+        client = TestClient(app)
+
+        resp = client.get("/eval/runs/compare", params={"ids": "a,b"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert [r["id"] for r in body["runs"]] == ["a", "b"]
+        assert body["deltas"]["weighted_score"] == 0.0
 
 
 class TestLegacyRunCompat:

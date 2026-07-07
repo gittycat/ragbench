@@ -66,6 +66,7 @@ class RunSummary(BaseModel):
     error_count: int = 0
     duration_seconds: float | None = None
     weighted_score: float | None = None
+    llm_model: str | None = None
     dashboard_metrics: DashboardMetrics | None = None
     metrics: dict[str, float] = Field(default_factory=dict)
     groups: dict[str, list[str]] = Field(default_factory=dict)

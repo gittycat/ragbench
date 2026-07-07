@@ -161,6 +161,9 @@
 				{#if evalDashboard?.latest_run}
 					<div class="divider divider-horizontal mx-0 h-4"></div>
 					<span class="badge badge-ghost badge-sm">{evalDashboard.latest_run.name}</span>
+					{#if evalDashboard.latest_run.llm_model}
+						<span class="badge badge-ghost badge-sm">{evalDashboard.latest_run.llm_model}</span>
+					{/if}
 					<span class="badge badge-ghost badge-sm">{evalDashboard.latest_run.tier}</span>
 					{#each evalDashboard.latest_run.datasets as ds}
 						<span class="badge badge-ghost badge-sm">{ds}</span>

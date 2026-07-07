@@ -244,6 +244,7 @@ class JobManager:
             error_count=data.get("error_count", 0),
             duration_seconds=_extract_duration(data),
             weighted_score=ws.get("score") if ws else None,
+            llm_model=data.get("config", {}).get("llm_model"),
             dashboard_metrics=dm,
             metrics=metrics,
             groups=groups,

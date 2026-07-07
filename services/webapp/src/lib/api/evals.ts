@@ -46,6 +46,7 @@ export interface EvalRunSummary {
 	error_count: number;
 	duration_seconds: number | null;
 	weighted_score: number | null;
+	llm_model: string | null;
 	dashboard_metrics: EvalDashboardMetrics | null;
 	metrics: Record<string, number>;
 	groups: Record<string, string[]>;
