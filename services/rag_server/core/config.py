@@ -19,6 +19,32 @@ def get_optional_env(var_name: str, default: str = "") -> str:
     return os.getenv(var_name, default)
 
 
+def check_ollama_reachable():
+    """Fail fast with a clear message when a configured Ollama endpoint is down."""
+    import httpx
+    from infrastructure.config.models_config import get_models_config
+
+    config = get_models_config()
+    endpoints = {
+        model_config.base_url
+        for model_config in (config.llm, config.embedding)
+        if model_config.provider == "ollama" and model_config.base_url
+    }
+    for url in endpoints:
+        try:
+            httpx.get(f"{url.rstrip('/')}/api/version", timeout=5)
+        except httpx.HTTPError:
+            print(
+                f"ERROR: Ollama is not reachable at {url} (required by the active "
+                f"llm/embedding provider in config.yml).\n"
+                "Start Ollama on the host (open the Ollama app or run 'ollama serve'), "
+                "then restart the services.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    logger.info("[SETTINGS] Ollama reachable at: %s", ", ".join(sorted(endpoints)) or "n/a")
+
+
 def check_embedding_dimension_match():
     """Guard against silent retrieval corruption from switching embedding models.
 
@@ -64,6 +90,8 @@ def initialize_settings():
     from infrastructure.llm.factory import get_llm_client
 
     logger.info("[SETTINGS] Initializing global LlamaIndex Settings")
+
+    check_ollama_reachable()
 
     Settings.embed_model = get_embedding_function()
     logger.info("[SETTINGS] Embedding model configured")
