@@ -46,20 +46,23 @@ Repository Settings → Secrets and Variables → Actions:
 ### Environment-Based Deployment
 
 ```bash
-# Local (OrbStack/Docker Desktop)
-just deploy local
+# Local (OrbStack/Docker Desktop) — base compose + override
+just up
+
+# Server tier (Caddy TLS + bearer auth)
+just deploy server
 
 # Cloud (configure docker-compose.cloud.yml first)
 just deploy cloud
 
 # Stop
-just deploy-down local
+just deploy-down server
 ```
 
 ### Compose File Structure
 
 - `docker-compose.yml`: Base configuration
-- `docker-compose.local.yml`: Local overrides (debug logging)
+- `docker-compose.override.yml`: Local dev overrides (auto-loaded)
 - `docker-compose.cloud.yml`: Cloud overrides (registry images)
 - `docker-compose.ci.yml`: CI/CD infrastructure
 - `docker-compose.server.yml`: Confidential-compute VM / thin-client tier overlay (see below)
@@ -90,7 +93,5 @@ docker compose -f docker-compose.yml -f docker-compose.server.yml up
 Version derived from git tags:
 
 ```bash
-just show-version          # Display current version
-just inject-version 0.2.0  # Update manifests
-just release 0.2.0         # Tag, inject, commit, push
+just release 0.2.0  # Tag v0.2.0, bump manifests, commit, push
 ```

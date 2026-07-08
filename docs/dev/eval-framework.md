@@ -85,11 +85,11 @@ docker compose exec evals .venv/bin/python -m evals.cli datasets
 
 **Via just**:
 ```bash
-just test-eval              # Quick end-to-end (5 samples)
-just test-eval-generation   # Tier 1 generation test
-just test-eval-end-to-end   # Tier 2 end-to-end test
-just test-eval-full         # Full dataset
+just test-eval              # Quick end-to-end smoke test (5 samples)
+just test-eval-full         # Full end-to-end suite
+just eval --tier generation --datasets ragbench,squad_v2,golden --samples 5   # Custom run
 just eval-datasets          # List datasets
+just eval-calibrate         # Calibrate LLM judge
 just eval-compare id1 id2   # Compare runs
 ```
 

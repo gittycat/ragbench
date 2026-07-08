@@ -52,11 +52,12 @@ This project uses [just](https://just.systems/) for task automation.
 # List all tasks
 just
 
-# Development
-just setup              # Install dependencies
-just docker-up          # Start all services
-just docker-down        # Stop services
-just docker-logs        # View logs
+# Core
+just build              # Build docker images
+just up                 # Start all services
+just down               # Stop services
+just logs               # View logs
+just setup              # Install local dev dependencies (uv)
 
 # Testing
 just test-unit          # Unit tests only
@@ -65,14 +66,11 @@ just test-eval          # Quick evaluation (5 samples)
 just test-eval-full     # Full evaluation
 
 # Deployment
-just deploy local       # Deploy locally
-just deploy cloud       # Deploy to cloud
-just deploy-down local  # Stop deployment
+just deploy server      # Deploy the server-tier overlay (Caddy + auth)
+just deploy-down server # Stop deployment
 
-# Version management
-just show-version       # Show current version
-just inject-version X.Y.Z  # Update version in manifests
-just release X.Y.Z      # Full release workflow
+# Release
+just release X.Y.Z      # Tag, bump manifests, commit, push
 ```
 
 ## Production Considerations
