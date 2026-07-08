@@ -51,7 +51,7 @@
 	</div>
 
 	<!-- Tab Content -->
-	<div class="tab-content">
+	<div>
 		{@render children()}
 	</div>
 </div>
