@@ -11,8 +11,9 @@
 	import ExportButton from '$lib/components/ExportButton.svelte';
 	import ConfigDiff from '$lib/components/ConfigDiff.svelte';
 	import MetricValue from './MetricValue.svelte';
+	import InfoTip from './InfoTip.svelte';
 	import { deltaColorClass } from '$lib/utils/thresholds';
-	import { metricDescription, formatDelta } from '$lib/utils/metricInfo';
+	import { metricDescription, formatDelta, panelDescription } from '$lib/utils/metricInfo';
 
 	interface Props {
 		onRefresh?: () => void;
@@ -230,7 +231,10 @@
 
 			<div class="lg:col-span-3">
 				<div class="term-panel p-3 h-full">
-					<div class="term-label mb-2">Quality / Cost / Speed</div>
+					<div class="term-label mb-2 flex items-center gap-1">
+						Quality / Cost / Speed
+						<InfoTip text={panelDescription('compare_headline')} />
+					</div>
 					{#if isComparing}
 						<div class="flex items-center justify-center h-32">
 							<span class="loading loading-spinner loading-md"></span>
@@ -246,8 +250,11 @@
 									<div class="font-mono text-base-content/60 truncate" title={h.model ?? undefined}>
 										{h.model ?? 'model unknown'}
 									</div>
-									<div class="flex items-baseline justify-between mt-1" title={metricDescription('weighted_score')}>
-										<span class="text-base-content/50">score</span>
+									<div class="flex items-baseline justify-between mt-1">
+										<span class="text-base-content/50 inline-flex items-center gap-1">
+											score
+											<InfoTip text={metricDescription('weighted_score') ?? ''} />
+										</span>
 										<span class="font-mono tabular-nums text-lg">
 											{h.score !== null ? (h.score * 100).toFixed(1) + '%' : '—'}
 										</span>
@@ -257,8 +264,11 @@
 											{formatDelta(h.scoreDelta, 'pts')} vs A
 										</div>
 									{/if}
-									<div class="flex items-baseline justify-between" title={metricDescription('avg_cost_usd')}>
-										<span class="text-base-content/50">cost / query</span>
+									<div class="flex items-baseline justify-between">
+										<span class="text-base-content/50 inline-flex items-center gap-1">
+											cost / query
+											<InfoTip text={metricDescription('avg_cost_usd') ?? ''} />
+										</span>
 										<span class="font-mono tabular-nums">
 											{h.cost !== null ? '$' + h.cost.toFixed(4) : '—'}
 										</span>
@@ -268,8 +278,11 @@
 											{formatDelta(h.costDelta, 'usd')} vs A
 										</div>
 									{/if}
-									<div class="flex items-baseline justify-between" title={metricDescription('latency_p95_ms')}>
-										<span class="text-base-content/50">latency p95</span>
+									<div class="flex items-baseline justify-between">
+										<span class="text-base-content/50 inline-flex items-center gap-1">
+											latency p95
+											<InfoTip text={metricDescription('latency_p95_ms') ?? ''} />
+										</span>
 										<span class="font-mono tabular-nums">
 											{h.p95 !== null ? h.p95.toFixed(2) + 's' : '—'}
 										</span>
@@ -298,7 +311,10 @@
 		{:else if compareResult}
 			<!-- Quality metric comparison -->
 			<div class="term-panel overflow-x-auto">
-				<div class="term-label mb-2">Quality Metrics</div>
+				<div class="term-label mb-2 flex items-center gap-1">
+					Quality Metrics
+					<InfoTip text={panelDescription('compare_quality')} />
+				</div>
 				<table class="table table-xs term-table">
 					<thead>
 						<tr>
@@ -312,15 +328,23 @@
 								</th>
 							{/each}
 							{#if compareResult.runs.length === 2}
-								<th class="text-right" title="Newer run (B) minus baseline (A), in percentage points">
-									Δ (B−A)
+								<th class="text-right">
+									<span class="inline-flex items-center gap-1">
+										Δ (B−A)
+										<InfoTip text={panelDescription('compare_delta')} />
+									</span>
 								</th>
 							{/if}
 						</tr>
 					</thead>
 					<tbody>
 						<tr class="font-semibold">
-							<td title={metricDescription('weighted_score')}>weighted score</td>
+							<td>
+								<span class="inline-flex items-center gap-1">
+									weighted score
+									<InfoTip text={metricDescription('weighted_score') ?? ''} />
+								</span>
+							</td>
 							{#each compareResult.runs as run}
 								<td class="text-right">
 									<MetricValue metricName="weighted_score" value={run.weighted_score?.score ?? null} colored={false} />
@@ -334,6 +358,7 @@
 							{/if}
 						</tr>
 						{#each allGroupedMetrics as { name, group }, i}
+							{@const desc = metricDescription(name)}
 							{#if i === 0 || allGroupedMetrics[i - 1].group !== group}
 								<tr>
 									<td
@@ -345,7 +370,14 @@
 								</tr>
 							{/if}
 							<tr class="hover">
-								<td class="capitalize" title={metricDescription(name)}>{formatMetricName(name)}</td>
+								<td class="capitalize">
+									<span class="inline-flex items-center gap-1">
+										{formatMetricName(name)}
+										{#if desc}
+											<InfoTip text={desc} />
+										{/if}
+									</span>
+								</td>
 								{#each compareResult.runs as run}
 									<td class="text-right">
 										<MetricValue metricName={name} value={metricValue(run.id, name)} colored={false} />
@@ -365,7 +397,10 @@
 
 			<!-- Cost & speed comparison -->
 			<div class="term-panel overflow-x-auto">
-				<div class="term-label mb-2">Cost &amp; Speed</div>
+				<div class="term-label mb-2 flex items-center gap-1">
+					Cost &amp; Speed
+					<InfoTip text={panelDescription('compare_cost_speed')} />
+				</div>
 				<table class="table table-xs term-table">
 					<thead>
 						<tr>
@@ -376,14 +411,27 @@
 								</th>
 							{/each}
 							{#if compareResult.runs.length === 2}
-								<th class="text-right" title="Newer run (B) minus baseline (A)">Δ (B−A)</th>
+								<th class="text-right">
+									<span class="inline-flex items-center gap-1">
+										Δ (B−A)
+										<InfoTip text={panelDescription('compare_delta')} />
+									</span>
+								</th>
 							{/if}
 						</tr>
 					</thead>
 					<tbody>
 						{#each TELEMETRY_ROWS as row}
+							{@const desc = metricDescription(row.key)}
 							<tr class="hover">
-								<td title={metricDescription(row.key)}>{row.label}</td>
+								<td>
+									<span class="inline-flex items-center gap-1">
+										{row.label}
+										{#if desc}
+											<InfoTip text={desc} />
+										{/if}
+									</span>
+								</td>
 								{#each compareResult.runs as run}
 									<td class="text-right">
 										<MetricValue metricName={row.key} value={telemetryValue(run, row.key)} format={row.format} colored={false} />
@@ -398,7 +446,12 @@
 							</tr>
 						{/each}
 						<tr class="hover">
-							<td title={metricDescription('duration_seconds')}>run duration</td>
+							<td>
+								<span class="inline-flex items-center gap-1">
+									run duration
+									<InfoTip text={metricDescription('duration_seconds') ?? ''} />
+								</span>
+							</td>
 							{#each compareResult.runs as run}
 								<td class="text-right term-num">{run.duration_seconds?.toFixed(1) ?? '—'}s</td>
 							{/each}

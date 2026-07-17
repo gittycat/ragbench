@@ -5,6 +5,7 @@
 	import { fetchSystemMetrics, type SystemMetrics } from '$lib/api';
 	import { fetchEvalDashboard, fetchActiveEvalJob, type EvalDashboardResponse, type ActiveEvalJob } from '$lib/api/evals';
 	import AnalyticsTabs from '$lib/components/analytics/AnalyticsTabs.svelte';
+	import OverviewTab from '$lib/components/analytics/OverviewTab.svelte';
 	import ScorecardTab from '$lib/components/analytics/ScorecardTab.svelte';
 	import TrendsTab from '$lib/components/analytics/TrendsTab.svelte';
 	import ComparisonTab from '$lib/components/analytics/ComparisonTab.svelte';
@@ -16,13 +17,15 @@
 	let isLoading = $state(true);
 	let error = $state<string | null>(null);
 	let autoRefresh = $state(true);
+	let refreshTick = $state(0);
 	let refreshInterval: number | null = null;
 	let activeJobInterval: number | null = null;
 
-	// Tab state - read from URL or default to 'scorecard'
-	let activeTab = $state<string>('scorecard');
+	// Tab state - read from URL or default to 'overview'
+	let activeTab = $state<string>('overview');
 
 	const tabs = [
+		{ id: 'overview', label: 'Overview', icon: 'overview' },
 		{ id: 'scorecard', label: 'Scorecard', icon: 'scorecard' },
 		{ id: 'trends', label: 'Trends', icon: 'trends' },
 		{ id: 'compare', label: 'Compare', icon: 'compare' },
@@ -31,9 +34,7 @@
 
 	onMount(() => {
 		const urlTab = $page.url.searchParams.get('tab');
-		if (urlTab && tabs.some((t) => t.id === urlTab)) {
-			activeTab = urlTab;
-		}
+		activeTab = urlTab && tabs.some((t) => t.id === urlTab) ? urlTab : 'overview';
 
 		loadAll();
 		startAutoRefresh();
@@ -106,6 +107,7 @@
 			metrics = m;
 			evalDashboard = e;
 			activeJob = a;
+			refreshTick += 1;
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Failed to load data';
 		} finally {
@@ -275,7 +277,9 @@
 
 		<!-- Tabbed Content -->
 		<AnalyticsTabs {activeTab} onTabChange={handleTabChange} {tabs}>
-			{#if activeTab === 'scorecard'}
+			{#if activeTab === 'overview'}
+				<OverviewTab {metrics} {refreshTick} />
+			{:else if activeTab === 'scorecard'}
 				<ScorecardTab />
 			{:else if activeTab === 'trends'}
 				<TrendsTab />

@@ -11,6 +11,8 @@
 	} from '$lib/components/charts/ChartAction';
 	import { themeSignal } from '$lib/components/charts/theme.svelte';
 	import type { ChartConfiguration } from 'chart.js';
+	import InfoTip from './InfoTip.svelte';
+	import { panelDescription } from '$lib/utils/metricInfo';
 
 	let runs = $state<EvalRunSummary[]>([]);
 	let isLoading = $state(true);
@@ -193,40 +195,45 @@
 		{:else if browser && mounted}
 			<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
 				<div class="term-panel">
-					<div class="term-label mb-2">
+					<div class="term-label mb-2 flex items-center gap-1">
 						Weighted Score
+						<InfoTip text={panelDescription('trend_weighted_score')} />
 					</div>
 					<div style="height: 220px;">
 						<canvas use:chartAction={buildConfig(weightedScoreSeries, 'score')}></canvas>
 					</div>
 				</div>
 				<div class="term-panel">
-					<div class="term-label mb-2">
+					<div class="term-label mb-2 flex items-center gap-1">
 						Faithfulness
+						<InfoTip text={panelDescription('trend_faithfulness')} />
 					</div>
 					<div style="height: 220px;">
 						<canvas use:chartAction={buildConfig(faithfulnessSeries, 'score')}></canvas>
 					</div>
 				</div>
 				<div class="term-panel">
-					<div class="term-label mb-2">
+					<div class="term-label mb-2 flex items-center gap-1">
 						Answer Correctness
+						<InfoTip text={panelDescription('trend_answer_correctness')} />
 					</div>
 					<div style="height: 220px;">
 						<canvas use:chartAction={buildConfig(answerCorrectnessSeries, 'score')}></canvas>
 					</div>
 				</div>
 				<div class="term-panel">
-					<div class="term-label mb-2">
+					<div class="term-label mb-2 flex items-center gap-1">
 						Latency p95
+						<InfoTip text={panelDescription('trend_latency_p95')} />
 					</div>
 					<div style="height: 220px;">
 						<canvas use:chartAction={buildConfig(latencyP95Series, 's')}></canvas>
 					</div>
 				</div>
 				<div class="term-panel lg:col-span-2">
-					<div class="term-label mb-2">
+					<div class="term-label mb-2 flex items-center gap-1">
 						Cost / Query
+						<InfoTip text={panelDescription('trend_cost')} />
 					</div>
 					<div style="height: 220px;">
 						<canvas use:chartAction={buildConfig(costSeries, 'usd')}></canvas>

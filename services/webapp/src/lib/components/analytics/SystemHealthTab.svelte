@@ -126,47 +126,6 @@
 			</div>
 		</div>
 
-		<!-- Retrieval Pipeline -->
-		<div class="term-panel">
-			<div class="term-label mb-2">
-				Retrieval Pipeline
-			</div>
-			<div class="flex items-center gap-1 flex-wrap text-xs">
-				<span class="badge badge-ghost">Query</span>
-				<span class="text-base-content/30">→</span>
-
-				{#if metrics.retrieval.hybrid_search.enabled}
-					<span class="badge badge-info">Hybrid Search</span>
-					<span class="text-base-content/50 text-[10px]">
-						(BM25 + Vector, RRF k={metrics.retrieval.hybrid_search.rrf_k})
-					</span>
-				{:else}
-					<span class="badge badge-ghost">Vector Search</span>
-				{/if}
-				<span class="text-base-content/30">→</span>
-
-				<span class="badge badge-ghost">Top-{metrics.retrieval.retrieval_top_k}</span>
-				<span class="text-base-content/30">→</span>
-
-				{#if metrics.retrieval.reranker.enabled}
-					<span class="badge badge-success">Reranking</span>
-					<span class="text-base-content/50 text-[10px]">
-						(→ Top-{metrics.retrieval.final_top_n})
-					</span>
-					<span class="text-base-content/30">→</span>
-				{/if}
-
-				<span class="badge badge-primary">LLM</span>
-			</div>
-
-			{#if metrics.retrieval.contextual_retrieval.enabled}
-				<div class="mt-2 text-xs text-base-content/70">
-					<span class="badge badge-xs badge-accent">Contextual Retrieval</span>
-					<span class="ml-1">{metrics.retrieval.contextual_retrieval.description}</span>
-				</div>
-			{/if}
-		</div>
-
 		<!-- Document Stats -->
 		<div class="term-panel">
 			<div class="term-label mb-2">

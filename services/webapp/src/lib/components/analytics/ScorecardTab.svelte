@@ -8,7 +8,8 @@
 		type ScorecardMetric
 	} from '$lib/api/evals';
 	import MetricValue from './MetricValue.svelte';
-	import { metricDescription } from '$lib/utils/metricInfo';
+	import InfoTip from './InfoTip.svelte';
+	import { metricDescription, panelDescription, metricLabel } from '$lib/utils/metricInfo';
 
 	let runs = $state<EvalRunSummary[]>([]);
 	let selectedRunId = $state<string>('');
@@ -28,10 +29,6 @@
 	function metricsByGroup(group: string): ScorecardMetric[] {
 		if (!detail?.scorecard) return [];
 		return detail.scorecard.metrics.filter((m) => m.group === group);
-	}
-
-	function metricLabel(name: string): string {
-		return name.replace(/_/g, ' ');
 	}
 
 	let performanceMetrics = $derived.by(() => metricsByGroup('performance'));
@@ -149,6 +146,7 @@
 		{#if detail}
 			<!-- Run meta line -->
 			<div class="term-panel px-3 flex items-center gap-3 flex-wrap text-xs font-mono tabular-nums">
+				<InfoTip text={panelDescription('run_meta')} />
 				<span class="badge badge-ghost badge-sm">{detail.tier}</span>
 				{#each detail.datasets as ds}
 					<span class="badge badge-ghost badge-sm">{ds}</span>
@@ -166,7 +164,10 @@
 			{#if detail.weighted_score}
 				<div class="term-panel p-3">
 					<div class="flex items-center justify-between mb-2">
-						<span class="term-label">Weighted Score</span>
+						<span class="term-label flex items-center gap-1">
+							Weighted Score
+							<InfoTip text={panelDescription('weighted_score')} />
+						</span>
 						<span class="text-2xl font-mono tabular-nums">
 							{(detail.weighted_score.score * 100).toFixed(1)}%
 						</span>
@@ -212,8 +213,16 @@
 							<table class="table table-xs term-table">
 								<tbody>
 									{#each groupMetrics as m}
+										{@const desc = metricDescription(m.name)}
 										<tr class="hover">
-											<td class="capitalize text-xs" title={metricDescription(m.name)}>{metricLabel(m.name)}</td>
+											<td class="capitalize text-xs">
+												<span class="inline-flex items-center gap-1">
+													{metricLabel(m.name)}
+													{#if desc}
+														<InfoTip text={desc} />
+													{/if}
+												</span>
+											</td>
 											<td class="text-right">
 												<MetricValue metricName={m.name} value={m.value} />
 												{#if group === 'generation' && typeof m.details?.std_dev === 'number'}
@@ -238,8 +247,9 @@
 
 			<!-- Cost & speed panel -->
 			<div class="term-panel">
-				<div class="term-label mb-2">
+				<div class="term-label mb-2 flex items-center gap-1">
 					Cost &amp; Speed
+					<InfoTip text={panelDescription('cost_speed')} />
 				</div>
 				<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
 					<div class="term-tile">
@@ -282,8 +292,9 @@
 
 			<!-- Config snapshot -->
 			<div class="term-panel">
-				<div class="term-label mb-2">
+				<div class="term-label mb-2 flex items-center gap-1">
 					Config Snapshot
+					<InfoTip text={panelDescription('config_snapshot')} />
 				</div>
 				<div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs font-mono">
 					<div><span class="text-base-content/50">LLM:</span> {detail.config.llm_model ?? '—'}</div>
